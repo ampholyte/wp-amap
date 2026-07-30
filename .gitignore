@@ -20,11 +20,17 @@
 # Configuration
 wp-config.php
 
+# Docker (dev local) - secrets, ne jamais committer
+.env
+
 # Example themes
 /wp-content/themes/twenty*/
 
 # Example plugin
 /wp-content/plugins/hello.php
+
+# Plugins tiers livrés par défaut avec WordPress (non custom)
+/wp-content/plugins/akismet/
 
 # Uploads
 /wp-content/uploads/
