@@ -18,6 +18,19 @@ notifications, emails, espace adhérent).
 - Ne pas committer sans demande explicite (déjà couvert par les instructions générales de
   l'outil, rappelé ici car ce projet avance par petites étapes validées une à une).
 
+## Gestion du contexte de session
+
+- Utiliser `/clear` entre deux étapes une fois qu'une étape a été validée par l'utilisateur (et
+  committée si demandé) : chaque étape est autonome, une session vierge évite d'accumuler du
+  contexte devenu inutile et garde les explications ciblées sur l'étape en cours plutôt que sur
+  l'historique des étapes précédentes.
+- Utiliser `/compact` quand la conversation devient longue **au milieu d'une étape non encore
+  validée** (débogage en cours, aller-retour sur une même fonctionnalité) : contrairement à
+  `/clear`, `/compact` garde la continuité nécessaire pour terminer l'étape en cours tout en
+  libérant de la place.
+- Ne pas proposer `/clear` en cours d'étape non validée : cela ferait perdre le contexte
+  nécessaire pour continuer le travail en cours.
+
 ## Langue
 
 - Communication avec l'utilisateur : **français**.
@@ -53,6 +66,11 @@ notifications, emails, espace adhérent).
   sensible.
 - Pas d'abstraction ni de gestion d'erreur pour des cas qui ne peuvent pas se produire ; pas de
   fonctionnalité non demandée.
+- Pour le HTML généré en PHP (pages d'admin, templates) : ne pas construire le balisage par
+  concaténation de chaînes dans des `echo`. Sortir du PHP (`?>`) pour écrire le HTML brut, et n'y
+  rentrer que pour la logique (`<?php if ( ... ) : ?>` ... `<?php endif; ?>`, `foreach: ...
+  endforeach;`), comme déjà fait dans les templates du thème (`page.php`, `single.php`). Objectif :
+  code modulaire et lisible, facile à modifier ensuite.
 
 ## Déploiement et hébergement
 
