@@ -50,9 +50,21 @@ notifications, emails, espace adhérent).
   Évolution progressive : fichier unique → découpage par fonctionnalité → namespaces/autoload →
   Services/Repositories → endpoints REST. Ne pas sauter d'étapes ni introduire ces patterns par
   anticipation.
+- **Identité unique** : `wp_users` est la source unique d'identité pour toute personne liée à
+  l'AMAP (producteur, adhérent, membre du bureau). Une même personne peut cumuler plusieurs
+  « casquettes » sur un seul compte — jamais d'entité séparée dupliquant l'identité.
+- **Casquettes cumulables** : chaque casquette (`amap_producer`, `amap_member`, `amap_board`)
+  est un rôle WordPress additif (`add_role()`/`remove_role()`, cumulable nativement avec les
+  autres rôles). Les capabilities propres à une casquette (ex. `amap_manage_producers`) sont
+  portées par ces rôles plutôt que vérifiées via `manage_options`.
 - **Données métier** : tables SQL dédiées (`wp_amap_*`) créées via `dbDelta()`, avec suivi de
-  version de schéma. Les adhérents réutilisent `wp_users`/`wp_usermeta` (rôles/capabilities
-  natifs) plutôt qu'un système d'authentification maison.
+  version de schéma. Les données propres à une casquette (ex. téléphone/adresse d'un
+  producteur) vivent dans une table dédiée liée par `user_id` (clé étrangère vers
+  `wp_users.ID`), jamais en usermeta — l'usermeta reste réservé aux flags/préférences simples,
+  pas aux données structurées à interroger/joindre.
+- L'authentification peut différer selon la casquette (ex. lien magique par email pour les
+  adhérents, mot de passe + 2FA pour producteurs/bureau) sans remettre en cause l'identité
+  unique `wp_users`.
 - Ne jamais stocker de données métier importantes dans les articles/postmeta WordPress.
 
 ## Qualité et sécurité du code
