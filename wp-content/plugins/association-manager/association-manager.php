@@ -17,7 +17,7 @@ register_activation_hook( __FILE__, 'amap_activate' );
 function amap_activate() {
     // update_option() (et non plus add_option()) : la version doit refléter le schéma du
     // code à chaque activation. dbDelta() est idempotent, le rappeler ne pose pas de problème.
-    update_option( 'amap_db_version', '3.0' );
+    update_option( 'amap_db_version', '3.2' );
     amap_create_tables();
     amap_drop_obsolete_tables();
 
@@ -58,6 +58,31 @@ function amap_create_tables() {
 
     require_once ABSPATH . 'wp-admin/includes/upgrade.php';
     dbDelta( $sql );
+
+    $magic_links_table = $wpdb->prefix . 'amap_magic_links';
+
+    // token_hash stocke le hachage (sha256) du jeton, jamais le jeton en clair : seul le lien
+    // envoyé par email contient le jeton réel, la base ne permet donc pas à elle seule de se
+    // connecter à la place d'un adhérent. used_at NULL = jeton encore valide ; renseigné au
+    // moment du clic sur le lien de confirmation (pas au simple chargement de la page), ce qui
+    // rend le jeton à usage unique tout en résistant aux scanners anti-spam qui préchargent les
+    // liens des emails. purpose distingue un jeton de connexion ('login') d'un jeton donnant
+    // accès au formulaire de réinitialisation de mot de passe ('password_reset') pour les
+    // comptes producteur/bureau : même mécanique de sécurité, deux usages.
+    $sql_magic_links = "CREATE TABLE $magic_links_table (
+        id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+        user_id bigint(20) unsigned NOT NULL,
+        token_hash char(64) NOT NULL,
+        purpose varchar(20) NOT NULL DEFAULT 'login',
+        expires_at datetime NOT NULL,
+        used_at datetime DEFAULT NULL,
+        created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY  (id),
+        UNIQUE KEY token_hash (token_hash),
+        KEY user_id (user_id)
+    ) $charset_collate;";
+
+    dbDelta( $sql_magic_links );
 }
 
 function amap_drop_obsolete_tables() {
@@ -67,6 +92,345 @@ function amap_drop_obsolete_tables() {
     // casquettes, plus rôle amap_producer cumulable). dbDelta() ne supprime jamais de table,
     // il faut le faire explicitement.
     $wpdb->query( 'DROP TABLE IF EXISTS ' . $wpdb->prefix . 'amap_producers' );
+}
+
+/**
+ * Envoie un email transactionnel via l'API Brevo. Utilise wp_remote_post() (la "HTTP API" de
+ * WordPress) plutôt qu'un appel curl direct : WordPress choisit lui-même le transport
+ * disponible sur l'hébergement, ce qui compte puisqu'on ne maîtrise pas l'environnement du
+ * mutualisé visé en production.
+ */
+function amap_send_email( $to, $subject, $html_body ) {
+    if ( '' === AMAP_BREVO_API_KEY ) {
+        return new WP_Error( 'amap_email_not_configured', __( 'Clé API Brevo non configurée.', 'association-manager' ) );
+    }
+
+    $response = wp_remote_post(
+        'https://api.brevo.com/v3/smtp/email',
+        array(
+            'headers' => array(
+                'accept'       => 'application/json',
+                'api-key'      => AMAP_BREVO_API_KEY,
+                'content-type' => 'application/json',
+            ),
+            'body'    => wp_json_encode(
+                array(
+                    'sender'      => array(
+                        'name'  => AMAP_EMAIL_FROM_NAME,
+                        'email' => AMAP_EMAIL_FROM_ADDRESS,
+                    ),
+                    'to'          => array( array( 'email' => $to ) ),
+                    'subject'     => $subject,
+                    'htmlContent' => $html_body,
+                )
+            ),
+        )
+    );
+
+    if ( is_wp_error( $response ) ) {
+        return $response;
+    }
+
+    $status_code = wp_remote_retrieve_response_code( $response );
+    if ( $status_code < 200 || $status_code >= 300 ) {
+        return new WP_Error(
+            'amap_email_send_failed',
+            sprintf( 'Brevo a répondu avec le code %d : %s', $status_code, wp_remote_retrieve_body( $response ) )
+        );
+    }
+
+    return true;
+}
+
+add_action( 'admin_post_amap_send_test_email', 'amap_handle_send_test_email' );
+
+function amap_handle_send_test_email() {
+    if ( ! current_user_can( 'amap_manage_users' ) ) {
+        wp_die( esc_html__( 'Action non autorisée.', 'association-manager' ) );
+    }
+
+    check_admin_referer( 'amap_send_test_email' );
+
+    $admin  = wp_get_current_user();
+    $result = amap_send_email(
+        $admin->user_email,
+        __( 'Email de test AMAP', 'association-manager' ),
+        '<p>' . esc_html__( "Cet email confirme que l'envoi via Brevo fonctionne.", 'association-manager' ) . '</p>'
+    );
+
+    if ( is_wp_error( $result ) ) {
+        set_transient( 'amap_test_email_error_' . get_current_user_id(), $result->get_error_message(), 60 );
+        wp_safe_redirect( admin_url( 'admin.php?page=amap-users&amap_notice=test_email_failed' ) );
+        exit;
+    }
+
+    wp_safe_redirect( admin_url( 'admin.php?page=amap-users&amap_notice=test_email_sent' ) );
+    exit;
+}
+
+/**
+ * Un adhérent qui ne cumule aucune autre casquette se connecte par lien magique ; dès qu'il
+ * porte aussi producteur ou bureau, il passe par mot de passe + 2FA (étapes suivantes).
+ */
+function amap_user_uses_magic_link( $user ) {
+    return in_array( 'amap_member', $user->roles, true )
+        && ! in_array( 'amap_producer', $user->roles, true )
+        && ! in_array( 'amap_board', $user->roles, true );
+}
+
+function amap_get_magic_link_ttl_seconds() {
+    return 15 * MINUTE_IN_SECONDS;
+}
+
+/**
+ * Génère un jeton de lien magique et l'enregistre en base. Seul le hachage est stocké (voir
+ * amap_create_tables()) ; le jeton en clair n'existe qu'ici et dans l'email envoyé à l'adhérent.
+ */
+function amap_create_magic_link_token( $user_id, $purpose = 'login' ) {
+    global $wpdb;
+
+    // wp_generate_password( ..., false, false ) : uniquement alphanumérique, donc utilisable
+    // tel quel dans une URL sans encodage particulier.
+    $token      = wp_generate_password( 32, false, false );
+    $token_hash = hash( 'sha256', $token );
+
+    $wpdb->insert(
+        $wpdb->prefix . 'amap_magic_links',
+        array(
+            'user_id'    => $user_id,
+            'token_hash' => $token_hash,
+            'purpose'    => $purpose,
+            'expires_at' => gmdate( 'Y-m-d H:i:s', time() + amap_get_magic_link_ttl_seconds() ),
+        )
+    );
+
+    return $token;
+}
+
+/**
+ * Retrouve la ligne wp_amap_magic_links correspondant à un jeton reçu par email, en recalculant
+ * son hachage (jamais l'inverse : le hachage stocké en base ne permet pas de retrouver le jeton).
+ */
+function amap_get_magic_link_by_token( $token ) {
+    global $wpdb;
+
+    return $wpdb->get_row(
+        $wpdb->prepare(
+            "SELECT * FROM {$wpdb->prefix}amap_magic_links WHERE token_hash = %s",
+            hash( 'sha256', $token )
+        )
+    );
+}
+
+/**
+ * URL de la page de confirmation : simple paramètre sur l'accueil du site, interceptée par
+ * amap_maybe_render_magic_link_confirmation() via le hook template_redirect.
+ */
+function amap_get_magic_link_url( $token ) {
+    return add_query_arg(
+        array(
+            'amap_action' => 'magic_link',
+            'token'       => $token,
+        ),
+        home_url( '/' )
+    );
+}
+
+function amap_send_magic_link( $user ) {
+    if ( ! amap_user_uses_magic_link( $user ) ) {
+        return new WP_Error(
+            'amap_magic_link_not_applicable',
+            __( "Cet utilisateur cumule plusieurs casquettes ou n'est pas adhérent : le lien magique ne s'applique pas.", 'association-manager' )
+        );
+    }
+
+    $token = amap_create_magic_link_token( $user->ID );
+    $link  = amap_get_magic_link_url( $token );
+
+    $html_body = sprintf(
+        '<p>%s</p><p><a href="%s">%s</a></p>',
+        esc_html__( 'Cliquez sur le lien ci-dessous pour vous connecter à votre espace adhérent.', 'association-manager' ),
+        esc_url( $link ),
+        esc_html__( 'Cliquez ici pour vous connecter', 'association-manager' )
+    );
+
+    return amap_send_email( $user->user_email, __( 'Votre lien de connexion AMAP', 'association-manager' ), $html_body );
+}
+
+add_action( 'admin_post_amap_send_magic_link', 'amap_handle_send_magic_link' );
+
+function amap_handle_send_magic_link() {
+    if ( ! current_user_can( 'amap_manage_users' ) ) {
+        wp_die( esc_html__( 'Action non autorisée.', 'association-manager' ) );
+    }
+
+    $id   = isset( $_GET['id'] ) ? absint( $_GET['id'] ) : 0;
+    $user = $id ? amap_get_amap_user( $id ) : null;
+    if ( ! $user ) {
+        wp_die( esc_html__( 'Utilisateur introuvable.', 'association-manager' ) );
+    }
+
+    check_admin_referer( 'amap_send_magic_link_' . $id );
+
+    $result = amap_send_magic_link( $user );
+
+    if ( is_wp_error( $result ) ) {
+        set_transient( 'amap_magic_link_error_' . get_current_user_id(), $result->get_error_message(), 60 );
+        wp_safe_redirect( admin_url( 'admin.php?page=amap-users&amap_notice=magic_link_failed' ) );
+        exit;
+    }
+
+    wp_safe_redirect( admin_url( 'admin.php?page=amap-users&amap_notice=magic_link_sent' ) );
+    exit;
+}
+
+add_action( 'template_redirect', 'amap_maybe_render_magic_link_confirmation' );
+
+/**
+ * Intercepte ?amap_action=magic_link&token=... avant l'affichage normal de la page d'accueil.
+ * Vérifie le jeton mais NE le marque PAS comme utilisé ici : ce simple chargement de page peut
+ * être déclenché automatiquement par un scanner anti-spam qui préchargerait les liens de l'email
+ * ; seul le clic explicite sur le bouton (amap_handle_confirm_magic_link) invalide le jeton.
+ */
+function amap_maybe_render_magic_link_confirmation() {
+    if ( ! isset( $_GET['amap_action'], $_GET['token'] ) || 'magic_link' !== sanitize_key( wp_unslash( $_GET['amap_action'] ) ) ) {
+        return;
+    }
+
+    $token = sanitize_text_field( wp_unslash( $_GET['token'] ) );
+    $link  = amap_get_magic_link_by_token( $token );
+
+    if ( ! $link || null !== $link->used_at || $link->expires_at < current_time( 'mysql', true ) ) {
+        wp_die( esc_html__( 'Ce lien de connexion est invalide ou a expiré. Demandez-en un nouveau.', 'association-manager' ) );
+    }
+
+    $confirm_url = wp_nonce_url(
+        admin_url( 'admin-post.php?action=amap_confirm_magic_link&token=' . $token ),
+        'amap_confirm_magic_link_' . $token
+    );
+    ?>
+    <!DOCTYPE html>
+    <html <?php language_attributes(); ?>>
+    <head>
+        <meta charset="<?php bloginfo( 'charset' ); ?>">
+        <title><?php esc_html_e( 'Connexion AMAP', 'association-manager' ); ?></title>
+    </head>
+    <body>
+        <p><?php esc_html_e( 'Cliquez sur le bouton ci-dessous pour finaliser votre connexion.', 'association-manager' ); ?></p>
+        <p><a href="<?php echo esc_url( $confirm_url ); ?>"><?php esc_html_e( 'Cliquez ici pour vous connecter', 'association-manager' ); ?></a></p>
+    </body>
+    </html>
+    <?php
+    exit;
+}
+
+add_action( 'admin_post_nopriv_amap_confirm_magic_link', 'amap_handle_confirm_magic_link' );
+add_action( 'admin_post_amap_confirm_magic_link', 'amap_handle_confirm_magic_link' );
+
+/**
+ * Clic explicite sur "Cliquez ici pour vous connecter" : c'est ici, et seulement ici, que le
+ * jeton est invalidé (used_at) et que la session WordPress de l'adhérent s'ouvre.
+ */
+function amap_handle_confirm_magic_link() {
+    $token = isset( $_GET['token'] ) ? sanitize_text_field( wp_unslash( $_GET['token'] ) ) : '';
+
+    check_admin_referer( 'amap_confirm_magic_link_' . $token );
+
+    $link = amap_get_magic_link_by_token( $token );
+    $now  = current_time( 'mysql', true );
+
+    if ( ! $link || null !== $link->used_at || $link->expires_at < $now ) {
+        wp_die( esc_html__( 'Ce lien de connexion est invalide ou a expiré. Demandez-en un nouveau.', 'association-manager' ) );
+    }
+
+    global $wpdb;
+    $wpdb->update(
+        $wpdb->prefix . 'amap_magic_links',
+        array( 'used_at' => $now ),
+        array( 'id' => $link->id )
+    );
+
+    wp_set_current_user( $link->user_id );
+    wp_set_auth_cookie( $link->user_id );
+
+    wp_safe_redirect( home_url( '/' ) );
+    exit;
+}
+
+/**
+ * Détermine, à partir d'un email saisi sur la page de connexion, quel parcours proposer.
+ * Ne distingue pas "compte inconnu" de "compte producteur/bureau" : dans les deux cas on
+ * retombe sur le mot de passe (qui échouera pour un compte inconnu), pour ne pas révéler par ce
+ * seul indice qu'un email donné correspond ou non à un adhérent enregistré.
+ */
+function amap_get_login_mode_for_email( $email ) {
+    $user = get_user_by( 'email', sanitize_email( $email ) );
+
+    if ( $user && amap_user_uses_magic_link( $user ) ) {
+        return 'magic_link';
+    }
+
+    return 'password';
+}
+
+add_action( 'admin_post_nopriv_amap_login_email_step', 'amap_handle_login_email_step' );
+add_action( 'admin_post_amap_login_email_step', 'amap_handle_login_email_step' );
+
+/**
+ * Première étape de la page de connexion (étape 8, pas encore construite) : reçoit l'email saisi
+ * et aiguille selon amap_get_login_mode_for_email(). Pas de nonce ici, volontairement : c'est une
+ * action publique par nature (comme "mot de passe oublié" sur n'importe quel site), accessible à
+ * quiconque connaît une adresse email sans avoir besoin d'être passé par la page au préalable ; un
+ * nonce anonyme n'apporterait pas de protection réelle (même valeur pour tout visiteur non connecté).
+ */
+function amap_handle_login_email_step() {
+    $email = isset( $_POST['email'] ) ? sanitize_email( wp_unslash( $_POST['email'] ) ) : '';
+
+    if ( '' === $email || ! is_email( $email ) ) {
+        wp_safe_redirect( home_url( '/?amap_login_step=invalid_email' ) );
+        exit;
+    }
+
+    if ( 'magic_link' === amap_get_login_mode_for_email( $email ) ) {
+        $user = get_user_by( 'email', $email );
+        amap_send_magic_link( $user );
+        wp_safe_redirect( home_url( '/?amap_login_step=magic_link_sent' ) );
+        exit;
+    }
+
+    // Espace réservé : c'est ici que l'étape 8 affichera le champ mot de passe pour cet email.
+    wp_safe_redirect( home_url( '/?amap_login_step=password&email=' . rawurlencode( $email ) ) );
+    exit;
+}
+
+add_action( 'admin_post_nopriv_amap_login_password_step', 'amap_handle_login_password_step' );
+add_action( 'admin_post_amap_login_password_step', 'amap_handle_login_password_step' );
+
+/**
+ * Deuxième étape pour un compte producteur/bureau : email + mot de passe. wp_signon() vérifie
+ * les identifiants et ouvre lui-même la session en cas de succès (contrairement au lien
+ * magique, pas de wp_set_auth_cookie() à appeler ici). Pas de vérification TOTP pour l'instant :
+ * elle viendra se greffer par-dessus ce parcours aux étapes suivantes.
+ */
+function amap_handle_login_password_step() {
+    $email    = isset( $_POST['email'] ) ? sanitize_email( wp_unslash( $_POST['email'] ) ) : '';
+    $password = isset( $_POST['password'] ) ? (string) wp_unslash( $_POST['password'] ) : '';
+
+    $user = wp_signon(
+        array(
+            'user_login'    => $email,
+            'user_password' => $password,
+            'remember'      => true,
+        )
+    );
+
+    if ( is_wp_error( $user ) ) {
+        wp_safe_redirect( home_url( '/?amap_login_step=password&email=' . rawurlencode( $email ) . '&amap_login_error=1' ) );
+        exit;
+    }
+
+    wp_safe_redirect( home_url( '/' ) );
+    exit;
 }
 
 add_action( 'admin_menu', 'amap_register_admin_menu' );
@@ -145,6 +509,20 @@ function amap_render_users_page() {
 
     $notice = isset( $_GET['amap_notice'] ) ? sanitize_key( wp_unslash( $_GET['amap_notice'] ) ) : '';
 
+    // Détail de l'erreur d'envoi, posé par amap_handle_send_test_email() juste avant la
+    // redirection qui a mené à cette page (même mécanisme que $form_data plus bas).
+    $test_email_error_key = 'amap_test_email_error_' . get_current_user_id();
+    $test_email_error     = get_transient( $test_email_error_key );
+    if ( false !== $test_email_error ) {
+        delete_transient( $test_email_error_key );
+    }
+
+    $magic_link_error_key = 'amap_magic_link_error_' . get_current_user_id();
+    $magic_link_error     = get_transient( $magic_link_error_key );
+    if ( false !== $magic_link_error ) {
+        delete_transient( $magic_link_error_key );
+    }
+
     // Mode édition : ?action=edit&id=X sur cette même page. Si l'ID ne correspond à aucun
     // utilisateur AMAP, on retombe silencieusement sur le formulaire d'ajout.
     $editing_id = 0;
@@ -195,7 +573,37 @@ function amap_render_users_page() {
             <div class="notice notice-error"><p><?php esc_html_e( "Le compte a été créé ou mis à jour mais l'enregistrement du téléphone/adresse a échoué.", 'association-manager' ); ?></p></div>
         <?php elseif ( 'email_taken' === $notice ) : ?>
             <div class="notice notice-error"><p><?php esc_html_e( 'Cet email est déjà utilisé par un autre compte WordPress.', 'association-manager' ); ?></p></div>
+        <?php elseif ( 'test_email_sent' === $notice ) : ?>
+            <div class="notice notice-success"><p><?php esc_html_e( 'Email de test envoyé.', 'association-manager' ); ?></p></div>
+        <?php elseif ( 'test_email_failed' === $notice ) : ?>
+            <div class="notice notice-error">
+                <p>
+                    <?php esc_html_e( "Échec de l'envoi de l'email de test.", 'association-manager' ); ?>
+                    <?php if ( $test_email_error ) : ?>
+                        <?php echo esc_html( $test_email_error ); ?>
+                    <?php endif; ?>
+                </p>
+            </div>
+        <?php elseif ( 'magic_link_sent' === $notice ) : ?>
+            <div class="notice notice-success"><p><?php esc_html_e( 'Lien de connexion envoyé.', 'association-manager' ); ?></p></div>
+        <?php elseif ( 'magic_link_failed' === $notice ) : ?>
+            <div class="notice notice-error">
+                <p>
+                    <?php esc_html_e( "Échec de l'envoi du lien de connexion.", 'association-manager' ); ?>
+                    <?php if ( $magic_link_error ) : ?>
+                        <?php echo esc_html( $magic_link_error ); ?>
+                    <?php endif; ?>
+                </p>
+            </div>
         <?php endif; ?>
+
+        <p>
+            <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+                <?php wp_nonce_field( 'amap_send_test_email' ); ?>
+                <input type="hidden" name="action" value="amap_send_test_email">
+                <?php submit_button( __( 'Envoyer un email de test', 'association-manager' ), 'secondary', 'submit', false ); ?>
+            </form>
+        </p>
 
         <h2>
             <?php echo $editing_id
@@ -331,6 +739,18 @@ function amap_render_users_page() {
                                 <a href="<?php echo esc_url( $delete_url ); ?>" onclick="return confirm( '<?php echo esc_js( $confirm_message ); ?>' );">
                                     <?php esc_html_e( 'Supprimer', 'association-manager' ); ?>
                                 </a>
+                                <?php if ( amap_user_uses_magic_link( $user ) ) : ?>
+                                    |
+                                    <?php
+                                    $magic_link_action_url = wp_nonce_url(
+                                        admin_url( 'admin-post.php?action=amap_send_magic_link&id=' . $user->ID ),
+                                        'amap_send_magic_link_' . $user->ID
+                                    );
+                                    ?>
+                                    <a href="<?php echo esc_url( $magic_link_action_url ); ?>">
+                                        <?php esc_html_e( 'Envoyer un lien de connexion', 'association-manager' ); ?>
+                                    </a>
+                                <?php endif; ?>
                             </td>
                         </tr>
                     <?php endforeach; ?>

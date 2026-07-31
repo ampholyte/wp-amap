@@ -8,6 +8,9 @@ services:
       WORDPRESS_DB_NAME: ${DB_NAME}
       WORDPRESS_DB_USER: ${DB_USER}
       WORDPRESS_DB_PASSWORD: ${DB_PASSWORD}
+      AMAP_BREVO_API_KEY: ${AMAP_BREVO_API_KEY}
+      AMAP_EMAIL_FROM_ADDRESS: ${AMAP_EMAIL_FROM_ADDRESS}
+      AMAP_EMAIL_FROM_NAME: ${AMAP_EMAIL_FROM_NAME}
     volumes:
       - ./:/var/www/html
     depends_on:
