@@ -67,6 +67,12 @@ function amap_register_admin_menu() {
     );
 }
 
+function amap_get_producer( $id ) {
+    global $wpdb;
+    $table_name = $wpdb->prefix . 'amap_producers';
+    return $wpdb->get_row( $wpdb->prepare( "SELECT id, last_name, first_name, email, phone, address FROM $table_name WHERE id = %d", $id ) );
+}
+
 function amap_render_producers_page() {
     if ( ! current_user_can( 'manage_options' ) ) {
         return;
@@ -77,12 +83,32 @@ function amap_render_producers_page() {
     $producers  = $wpdb->get_results( "SELECT id, last_name, first_name, email, phone, address, created_at FROM $table_name ORDER BY last_name ASC" );
     $notice     = isset( $_GET['amap_notice'] ) ? sanitize_key( wp_unslash( $_GET['amap_notice'] ) ) : '';
 
+    // Mode édition : ?action=edit&id=X sur cette même page. Si l'ID ne correspond à
+    // aucun producteur, on retombe silencieusement sur le formulaire d'ajout.
+    $editing_id = 0;
+    if ( isset( $_GET['action'], $_GET['id'] ) && 'edit' === $_GET['action'] ) {
+        $editing_id = absint( $_GET['id'] );
+    }
+    $producer_being_edited = $editing_id ? amap_get_producer( $editing_id ) : null;
+    if ( $editing_id && ! $producer_being_edited ) {
+        $editing_id = 0;
+    }
+
     // Récupère les valeurs saisies avant la redirection en cas d'erreur (voir
     // amap_store_producer_form_data()), pour ne pas faire ressaisir tout le formulaire.
     $transient_key = 'amap_producer_form_' . get_current_user_id();
     $form_data     = get_transient( $transient_key );
     if ( false !== $form_data ) {
         delete_transient( $transient_key );
+    } elseif ( $producer_being_edited ) {
+        // Pas d'erreur en attente : on préremplit avec les valeurs actuelles du producteur.
+        $form_data = array(
+            'last_name'  => $producer_being_edited->last_name,
+            'first_name' => $producer_being_edited->first_name,
+            'email'      => $producer_being_edited->email,
+            'phone'      => $producer_being_edited->phone,
+            'address'    => $producer_being_edited->address,
+        );
     } else {
         $form_data = array();
     }
@@ -98,10 +124,20 @@ function amap_render_producers_page() {
             <div class="notice notice-error"><p><?php esc_html_e( 'Le téléphone doit être au format 0X XX XX XX XX ou +33 X XX XX XX XX.', 'association-manager' ); ?></p></div>
         <?php endif; ?>
 
-        <h2><?php esc_html_e( 'Ajouter un producteur', 'association-manager' ); ?></h2>
+        <h2>
+            <?php echo $editing_id
+                ? esc_html__( 'Modifier un producteur', 'association-manager' )
+                : esc_html__( 'Ajouter un producteur', 'association-manager' ); ?>
+        </h2>
         <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" id="amap-producer-form">
-            <?php wp_nonce_field( 'amap_add_producer' ); ?>
-            <input type="hidden" name="action" value="amap_add_producer">
+            <?php if ( $editing_id ) : ?>
+                <?php wp_nonce_field( 'amap_edit_producer_' . $editing_id ); ?>
+                <input type="hidden" name="action" value="amap_update_producer">
+                <input type="hidden" name="id" value="<?php echo esc_attr( $editing_id ); ?>">
+            <?php else : ?>
+                <?php wp_nonce_field( 'amap_add_producer' ); ?>
+                <input type="hidden" name="action" value="amap_add_producer">
+            <?php endif; ?>
             <p>
                 <label>
                     <?php esc_html_e( 'Nom', 'association-manager' ); ?>
@@ -134,7 +170,12 @@ function amap_render_producers_page() {
                 </label>
             </p>
             <p>
-                <?php submit_button( __( 'Ajouter', 'association-manager' ), 'primary', 'submit', false ); ?>
+                <?php submit_button( $editing_id ? __( 'Enregistrer', 'association-manager' ) : __( 'Ajouter', 'association-manager' ), 'primary', 'submit', false ); ?>
+                <?php if ( $editing_id ) : ?>
+                    <a href="<?php echo esc_url( admin_url( 'admin.php?page=amap-producers' ) ); ?>" class="button">
+                        <?php esc_html_e( 'Annuler', 'association-manager' ); ?>
+                    </a>
+                <?php endif; ?>
             </p>
         </form>
         <script>
@@ -174,6 +215,7 @@ function amap_render_producers_page() {
                         <th><?php esc_html_e( 'Téléphone', 'association-manager' ); ?></th>
                         <th><?php esc_html_e( 'Adresse', 'association-manager' ); ?></th>
                         <th><?php esc_html_e( 'Ajouté le', 'association-manager' ); ?></th>
+                        <th><?php esc_html_e( 'Actions', 'association-manager' ); ?></th>
                     </tr>
                 </thead>
                 <tbody>
@@ -185,6 +227,23 @@ function amap_render_producers_page() {
                             <td><?php echo esc_html( $producer->phone ); ?></td>
                             <td><?php echo esc_html( $producer->address ); ?></td>
                             <td><?php echo esc_html( $producer->created_at ); ?></td>
+                            <td>
+                                <a href="<?php echo esc_url( admin_url( 'admin.php?page=amap-producers&action=edit&id=' . $producer->id ) ); ?>">
+                                    <?php esc_html_e( 'Modifier', 'association-manager' ); ?>
+                                </a>
+                                |
+                                <?php
+                                $delete_url = wp_nonce_url(
+                                    admin_url( 'admin-post.php?action=amap_delete_producer&id=' . $producer->id ),
+                                    'amap_delete_producer_' . $producer->id
+                                );
+                                // translators: 1: prénom du producteur, 2: nom du producteur.
+                                $confirm_message = sprintf( __( 'Supprimer %1$s %2$s ?', 'association-manager' ), $producer->first_name, $producer->last_name );
+                                ?>
+                                <a href="<?php echo esc_url( $delete_url ); ?>" onclick="return confirm( '<?php echo esc_js( $confirm_message ); ?>' );">
+                                    <?php esc_html_e( 'Supprimer', 'association-manager' ); ?>
+                                </a>
+                            </td>
                         </tr>
                     <?php endforeach; ?>
                 </tbody>
@@ -250,6 +309,89 @@ function amap_handle_add_producer() {
     if ( false === $inserted ) {
         amap_store_producer_form_data( $submitted );
         wp_safe_redirect( admin_url( 'admin.php?page=amap-producers&amap_notice=duplicate' ) );
+        exit;
+    }
+
+    wp_safe_redirect( admin_url( 'admin.php?page=amap-producers' ) );
+    exit;
+}
+
+add_action( 'admin_post_amap_delete_producer', 'amap_handle_delete_producer' );
+
+function amap_handle_delete_producer() {
+    if ( ! current_user_can( 'manage_options' ) ) {
+        wp_die( esc_html__( 'Action non autorisée.', 'association-manager' ) );
+    }
+
+    $id = isset( $_GET['id'] ) ? absint( $_GET['id'] ) : 0;
+    if ( ! $id ) {
+        wp_die( esc_html__( 'Producteur introuvable.', 'association-manager' ) );
+    }
+
+    // check_admin_referer() lit aussi bien $_GET que $_POST : ici le nonce arrive en
+    // query string via wp_nonce_url(), pas dans un champ de formulaire.
+    check_admin_referer( 'amap_delete_producer_' . $id );
+
+    global $wpdb;
+    $wpdb->delete( $wpdb->prefix . 'amap_producers', array( 'id' => $id ) );
+
+    wp_safe_redirect( admin_url( 'admin.php?page=amap-producers' ) );
+    exit;
+}
+
+add_action( 'admin_post_amap_update_producer', 'amap_handle_update_producer' );
+
+function amap_handle_update_producer() {
+    if ( ! current_user_can( 'manage_options' ) ) {
+        wp_die( esc_html__( 'Action non autorisée.', 'association-manager' ) );
+    }
+
+    $id = isset( $_POST['id'] ) ? absint( $_POST['id'] ) : 0;
+    if ( ! $id ) {
+        wp_die( esc_html__( 'Producteur introuvable.', 'association-manager' ) );
+    }
+
+    // La chaîne d'action du nonce inclut l'ID : un nonce généré pour le formulaire du
+    // producteur 5 est rejeté si le champ caché "id" a été modifié pour viser un autre ID.
+    check_admin_referer( 'amap_edit_producer_' . $id );
+
+    $edit_url = admin_url( 'admin.php?page=amap-producers&action=edit&id=' . $id );
+
+    $last_name  = isset( $_POST['last_name'] ) ? sanitize_text_field( wp_unslash( $_POST['last_name'] ) ) : '';
+    $first_name = isset( $_POST['first_name'] ) ? sanitize_text_field( wp_unslash( $_POST['first_name'] ) ) : '';
+    $email      = isset( $_POST['email'] ) ? sanitize_email( wp_unslash( $_POST['email'] ) ) : '';
+    $phone      = isset( $_POST['phone'] ) ? sanitize_text_field( wp_unslash( $_POST['phone'] ) ) : '';
+    $address    = isset( $_POST['address'] ) ? sanitize_text_field( wp_unslash( $_POST['address'] ) ) : '';
+    $submitted  = compact( 'last_name', 'first_name', 'email', 'phone', 'address' );
+
+    if ( '' === $last_name || '' === $first_name || '' === $email || '' === $phone ) {
+        amap_store_producer_form_data( $submitted );
+        wp_safe_redirect( $edit_url . '&amap_notice=invalid' );
+        exit;
+    }
+
+    if ( ! amap_is_valid_phone( $phone ) ) {
+        amap_store_producer_form_data( $submitted );
+        wp_safe_redirect( $edit_url . '&amap_notice=invalid_phone' );
+        exit;
+    }
+
+    global $wpdb;
+    $updated = $wpdb->update(
+        $wpdb->prefix . 'amap_producers',
+        array(
+            'last_name'  => $last_name,
+            'first_name' => $first_name,
+            'email'      => $email,
+            'phone'      => $phone,
+            'address'    => '' !== $address ? $address : null,
+        ),
+        array( 'id' => $id )
+    );
+
+    if ( false === $updated ) {
+        amap_store_producer_form_data( $submitted );
+        wp_safe_redirect( $edit_url . '&amap_notice=duplicate' );
         exit;
     }
 
