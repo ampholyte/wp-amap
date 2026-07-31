@@ -104,3 +104,6 @@ notifications, emails, espace adhérent).
 - Le cœur WordPress est bind-monté à la racine du dépôt (`./:/var/www/html`) : les dossiers
   `wp-admin/`, `wp-includes/`, etc. apparaissent sur le disque mais restent ignorés par Git
   (`.gitignore`).
+- PHP n'est pas installé sur la machine hôte, uniquement dans le conteneur Docker. Ne jamais
+  lancer `php` (ex. `php -l` pour vérifier la syntaxe) directement en local : la commande
+  échouera puisque le binaire n'existe pas hors conteneur.
