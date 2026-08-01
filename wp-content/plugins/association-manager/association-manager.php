@@ -721,8 +721,18 @@ function amap_maybe_render_member_area() {
         return;
     }
 
+    $user = wp_get_current_user();
+
     get_header();
-    get_template_part( 'template-parts/login/member-area' );
+    get_template_part(
+        'template-parts/login/member-area',
+        null,
+        array(
+            'is_member'   => in_array( 'amap_member', $user->roles, true ),
+            'is_producer' => in_array( 'amap_producer', $user->roles, true ),
+            'is_board'    => in_array( 'amap_board', $user->roles, true ),
+        )
+    );
     get_footer();
     exit;
 }
