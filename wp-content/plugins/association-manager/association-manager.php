@@ -227,7 +227,20 @@ function amap_get_magic_link_by_token( $token ) {
 }
 
 /**
- * URL de la page de confirmation : simple paramètre sur l'accueil du site, interceptée par
+ * URL de la page "Espace adhérent" (slug espace-adherent), point d'entrée unique du parcours de
+ * connexion : chaque étape (email, mot de passe, messages, lien magique, nouveau mot de passe)
+ * reste sur cette URL via des paramètres de requête, plutôt que de rebondir sur la page d'accueil
+ * (home.php, qui affiche les actualités et n'a rien à voir avec la connexion). Retombe sur
+ * l'accueil si la page n'a pas encore été créée dans l'admin.
+ */
+function amap_get_member_area_url() {
+    $page = get_page_by_path( 'espace-adherent' );
+
+    return $page ? get_permalink( $page ) : home_url( '/' );
+}
+
+/**
+ * URL de la page de confirmation : paramètre sur la page "Espace adhérent", interceptée par
  * amap_maybe_render_magic_link_confirmation() via le hook template_redirect.
  */
 function amap_get_magic_link_url( $token ) {
@@ -236,7 +249,7 @@ function amap_get_magic_link_url( $token ) {
             'amap_action' => 'magic_link',
             'token'       => $token,
         ),
-        home_url( '/' )
+        amap_get_member_area_url()
     );
 }
 
@@ -327,7 +340,7 @@ add_action( 'template_redirect', 'amap_maybe_render_magic_link_confirmation' );
  * ; seul le clic explicite sur le bouton (amap_handle_confirm_magic_link) invalide le jeton.
  */
 function amap_maybe_render_magic_link_confirmation() {
-    if ( ! isset( $_GET['amap_action'], $_GET['token'] ) || 'magic_link' !== sanitize_key( wp_unslash( $_GET['amap_action'] ) ) ) {
+    if ( ! is_page( 'espace-adherent' ) || ! isset( $_GET['amap_action'], $_GET['token'] ) || 'magic_link' !== sanitize_key( wp_unslash( $_GET['amap_action'] ) ) ) {
         return;
     }
 
@@ -388,7 +401,15 @@ function amap_handle_confirm_magic_link() {
     }
 
     if ( 'password_reset' === $link->purpose ) {
-        wp_safe_redirect( home_url( '/?amap_login_step=new_password&token=' . $token ) );
+        wp_safe_redirect(
+            add_query_arg(
+                array(
+                    'amap_login_step' => 'new_password',
+                    'token'            => $token,
+                ),
+                amap_get_member_area_url()
+            )
+        );
         exit;
     }
 
@@ -415,7 +436,7 @@ add_action( 'template_redirect', 'amap_maybe_render_new_password_form' );
  * amap_handle_set_new_password() qui invalidera le jeton, au moment de l'enregistrement.
  */
 function amap_maybe_render_new_password_form() {
-    if ( ! isset( $_GET['amap_login_step'], $_GET['token'] ) || 'new_password' !== sanitize_key( wp_unslash( $_GET['amap_login_step'] ) ) ) {
+    if ( ! is_page( 'espace-adherent' ) || ! isset( $_GET['amap_login_step'], $_GET['token'] ) || 'new_password' !== sanitize_key( wp_unslash( $_GET['amap_login_step'] ) ) ) {
         return;
     }
 
@@ -481,7 +502,16 @@ function amap_handle_set_new_password() {
     }
 
     if ( strlen( $password ) < 8 || $password !== $password_confirm ) {
-        wp_safe_redirect( home_url( '/?amap_login_step=new_password&token=' . $token . '&amap_login_error=1' ) );
+        wp_safe_redirect(
+            add_query_arg(
+                array(
+                    'amap_login_step'  => 'new_password',
+                    'token'            => $token,
+                    'amap_login_error' => 1,
+                ),
+                amap_get_member_area_url()
+            )
+        );
         exit;
     }
 
@@ -494,7 +524,7 @@ function amap_handle_set_new_password() {
 
     wp_set_password( $password, $link->user_id );
 
-    wp_safe_redirect( home_url( '/?amap_login_step=password_reset_done' ) );
+    wp_safe_redirect( add_query_arg( 'amap_login_step', 'password_reset_done', amap_get_member_area_url() ) );
     exit;
 }
 
@@ -528,19 +558,26 @@ function amap_handle_login_email_step() {
     $email = isset( $_POST['email'] ) ? sanitize_email( wp_unslash( $_POST['email'] ) ) : '';
 
     if ( '' === $email || ! is_email( $email ) ) {
-        wp_safe_redirect( home_url( '/?amap_login_step=invalid_email' ) );
+        wp_safe_redirect( add_query_arg( 'amap_login_step', 'invalid_email', amap_get_member_area_url() ) );
         exit;
     }
 
     if ( 'magic_link' === amap_get_login_mode_for_email( $email ) ) {
         $user = get_user_by( 'email', $email );
         amap_send_magic_link( $user );
-        wp_safe_redirect( home_url( '/?amap_login_step=magic_link_sent' ) );
+        wp_safe_redirect( add_query_arg( 'amap_login_step', 'magic_link_sent', amap_get_member_area_url() ) );
         exit;
     }
 
-    // Espace réservé : c'est ici que l'étape 8 affichera le champ mot de passe pour cet email.
-    wp_safe_redirect( home_url( '/?amap_login_step=password&email=' . rawurlencode( $email ) ) );
+    wp_safe_redirect(
+        add_query_arg(
+            array(
+                'amap_login_step' => 'password',
+                'email'            => $email,
+            ),
+            amap_get_member_area_url()
+        )
+    );
     exit;
 }
 
@@ -561,13 +598,22 @@ function amap_handle_login_password_step() {
     $user = wp_authenticate( $email, $password );
 
     if ( is_wp_error( $user ) ) {
-        wp_safe_redirect( home_url( '/?amap_login_step=password&email=' . rawurlencode( $email ) . '&amap_login_error=1' ) );
+        wp_safe_redirect(
+            add_query_arg(
+                array(
+                    'amap_login_step'  => 'password',
+                    'email'            => $email,
+                    'amap_login_error' => 1,
+                ),
+                amap_get_member_area_url()
+            )
+        );
         exit;
     }
 
     amap_send_login_link( $user );
 
-    wp_safe_redirect( home_url( '/?amap_login_step=magic_link_sent' ) );
+    wp_safe_redirect( add_query_arg( 'amap_login_step', 'magic_link_sent', amap_get_member_area_url() ) );
     exit;
 }
 
@@ -591,7 +637,7 @@ function amap_handle_request_password_reset() {
         }
     }
 
-    wp_safe_redirect( home_url( '/?amap_login_step=password_reset_sent' ) );
+    wp_safe_redirect( add_query_arg( 'amap_login_step', 'password_reset_sent', amap_get_member_area_url() ) );
     exit;
 }
 
