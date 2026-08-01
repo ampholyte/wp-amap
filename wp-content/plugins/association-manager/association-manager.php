@@ -707,6 +707,26 @@ function amap_handle_request_password_reset() {
     exit;
 }
 
+add_action( 'template_redirect', 'amap_maybe_render_member_area', 5 );
+
+/**
+ * Espace membre minimal pour un utilisateur déjà connecté sur "espace-adherent". Priorité 5
+ * (les écrans du parcours de connexion ci-dessus sont en priorité par défaut 10) pour s'exécuter
+ * avant eux et court-circuiter systématiquement l'affichage d'un écran de connexion à un
+ * utilisateur déjà connecté, quel que soit le paramètre de requête présent dans l'URL (ex. lien
+ * de login gardé en favori après connexion).
+ */
+function amap_maybe_render_member_area() {
+    if ( ! is_page( 'espace-adherent' ) || ! is_user_logged_in() ) {
+        return;
+    }
+
+    get_header();
+    get_template_part( 'template-parts/login/member-area' );
+    get_footer();
+    exit;
+}
+
 add_action( 'admin_menu', 'amap_register_admin_menu' );
 
 function amap_register_admin_menu() {
