@@ -66,7 +66,10 @@ plusieurs formules du même producteur.
 ## Points encore ouverts / non tranchés
 
 - Que se passe-t-il si un adhérent n'a pas posé ses 4 congés avant la fin du contrat maraîcher ?
-- Portée exacte de ce chantier (contrats/distributions/congés) : conception complète du modèle
-  de données maintenant, vs. amélioration ciblée de l'affichage de la casquette producteur dans
-  l'espace membre en attendant un chantier séparé — question posée, pas encore tranchée par
-  l'utilisateur au moment de la rédaction de ce document.
+
+## Portée retenue (tranchée le 2026-08-01)
+
+Pour l'instant, on se limite à une amélioration ciblée de l'affichage de la casquette
+producteur dans l'espace membre (infos de contact/description issues de `wp_amap_users`), sans
+toucher au modèle de données contrats/distributions/congés. Ce dernier reste un chantier séparé,
+à ouvrir plus tard — ce document sert de mémoire métier en attendant.

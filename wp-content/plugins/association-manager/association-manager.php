@@ -17,7 +17,7 @@ register_activation_hook( __FILE__, 'amap_activate' );
 function amap_activate() {
     // update_option() (et non plus add_option()) : la version doit refléter le schéma du
     // code à chaque activation. dbDelta() est idempotent, le rappeler ne pose pas de problème.
-    update_option( 'amap_db_version', '3.4' );
+    update_option( 'amap_db_version', '3.5' );
     amap_create_tables();
     amap_drop_obsolete_tables();
 
@@ -32,14 +32,19 @@ function amap_activate() {
     $administrator = get_role( 'administrator' );
     if ( $administrator ) {
         $administrator->add_cap( 'amap_manage_users' );
+        $administrator->add_cap( 'amap_manage_groups' );
         $administrator->remove_cap( 'amap_manage_producers' );
     }
 
     // Un membre du bureau doit pouvoir gérer les utilisateurs AMAP au même titre qu'un
     // administrateur (page d'admin "Utilisateurs AMAP" existante, amap_render_users_page()).
+    // amap_manage_groups est une capability distincte (page "Groupes" séparée) : le
+    // rattachement producteur↔groupe et la gestion des distributions sont décidés par le
+    // bureau, mais restent conceptuellement différents de la gestion des comptes.
     $board = get_role( 'amap_board' );
     if ( $board ) {
         $board->add_cap( 'amap_manage_users' );
+        $board->add_cap( 'amap_manage_groups' );
     }
 }
 
@@ -90,6 +95,25 @@ function amap_create_tables() {
     ) $charset_collate;";
 
     dbDelta( $sql_magic_links );
+
+    $groups_table = $wpdb->prefix . 'amap_groups';
+
+    // weekday : 0=lundi ... 6=dimanche (voir amap_get_weekday_labels()), jour fixe de la
+    // distribution hebdomadaire du groupe. start_time/end_time : plage horaire fixe de cette
+    // même distribution (ex. les adhérents doivent être présents 15 min avant/après, mais ce
+    // délai est une règle appliquée à l'usage, pas stockée ici).
+    $sql_groups = "CREATE TABLE $groups_table (
+        id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+        name varchar(120) NOT NULL,
+        delivery_place varchar(255) NOT NULL,
+        weekday tinyint(1) unsigned NOT NULL,
+        start_time time NOT NULL,
+        end_time time NOT NULL,
+        created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY  (id)
+    ) $charset_collate;";
+
+    dbDelta( $sql_groups );
 }
 
 function amap_drop_obsolete_tables() {
@@ -815,6 +839,15 @@ function amap_register_admin_menu() {
         'dashicons-groups',
         26
     );
+
+    add_submenu_page(
+        'amap-users',
+        __( 'Groupes', 'association-manager' ),
+        __( 'Groupes', 'association-manager' ),
+        'amap_manage_groups',
+        'amap-groups',
+        'amap_render_groups_page'
+    );
 }
 
 /**
@@ -1461,5 +1494,324 @@ function amap_handle_delete_user() {
     $wpdb->delete( $wpdb->prefix . 'amap_users', array( 'user_id' => $id ) );
 
     wp_safe_redirect( admin_url( 'admin.php?page=amap-users' ) );
+    exit;
+}
+
+/**
+ * 0=lundi ... 6=dimanche, convention partagée avec la colonne wp_amap_groups.weekday.
+ */
+function amap_get_weekday_labels() {
+    return array(
+        0 => __( 'Lundi', 'association-manager' ),
+        1 => __( 'Mardi', 'association-manager' ),
+        2 => __( 'Mercredi', 'association-manager' ),
+        3 => __( 'Jeudi', 'association-manager' ),
+        4 => __( 'Vendredi', 'association-manager' ),
+        5 => __( 'Samedi', 'association-manager' ),
+        6 => __( 'Dimanche', 'association-manager' ),
+    );
+}
+
+function amap_get_groups() {
+    global $wpdb;
+
+    return $wpdb->get_results(
+        "SELECT * FROM {$wpdb->prefix}amap_groups ORDER BY weekday ASC, start_time ASC"
+    );
+}
+
+function amap_get_group( $id ) {
+    global $wpdb;
+
+    return $wpdb->get_row(
+        $wpdb->prepare( "SELECT * FROM {$wpdb->prefix}amap_groups WHERE id = %d", $id )
+    );
+}
+
+/**
+ * Les colonnes TIME de MySQL sont lues sous la forme "HH:MM:SS" par $wpdb : on ne garde que
+ * "HH:MM", à la fois pour l'affichage dans le tableau et pour préremplir un <input type="time">.
+ */
+function amap_format_time( $time ) {
+    return substr( $time, 0, 5 );
+}
+
+function amap_is_valid_time( $time ) {
+    return (bool) preg_match( '/^([01]\d|2[0-3]):[0-5]\d$/', $time );
+}
+
+function amap_store_group_form_data( array $data ) {
+    set_transient( 'amap_group_form_' . get_current_user_id(), $data, 60 );
+}
+
+function amap_render_groups_page() {
+    if ( ! current_user_can( 'amap_manage_groups' ) ) {
+        return;
+    }
+
+    $notice = isset( $_GET['amap_notice'] ) ? sanitize_key( wp_unslash( $_GET['amap_notice'] ) ) : '';
+
+    // Mode édition : ?action=edit&id=X sur cette même page. Si l'ID ne correspond à aucun
+    // groupe, on retombe silencieusement sur le formulaire d'ajout (même logique que la page
+    // "Utilisateurs AMAP").
+    $editing_id = 0;
+    if ( isset( $_GET['action'], $_GET['id'] ) && 'edit' === $_GET['action'] ) {
+        $editing_id = absint( $_GET['id'] );
+    }
+    $editing_group = $editing_id ? amap_get_group( $editing_id ) : null;
+    if ( $editing_id && ! $editing_group ) {
+        $editing_id = 0;
+    }
+
+    $transient_key = 'amap_group_form_' . get_current_user_id();
+    $form_data     = get_transient( $transient_key );
+    if ( false !== $form_data ) {
+        delete_transient( $transient_key );
+    } elseif ( $editing_group ) {
+        $form_data = array(
+            'name'           => $editing_group->name,
+            'delivery_place' => $editing_group->delivery_place,
+            'weekday'        => (string) $editing_group->weekday,
+            'start_time'     => amap_format_time( $editing_group->start_time ),
+            'end_time'       => amap_format_time( $editing_group->end_time ),
+        );
+    } else {
+        $form_data = array();
+    }
+
+    $groups = amap_get_groups();
+    ?>
+    <div class="wrap">
+        <h1><?php esc_html_e( 'Groupes de distribution', 'association-manager' ); ?></h1>
+
+        <?php if ( 'invalid' === $notice ) : ?>
+            <div class="notice notice-error"><p><?php esc_html_e( 'Champs obligatoires manquants.', 'association-manager' ); ?></p></div>
+        <?php elseif ( 'invalid_time' === $notice ) : ?>
+            <div class="notice notice-error"><p><?php esc_html_e( "L'heure de fin doit être après l'heure de début.", 'association-manager' ); ?></p></div>
+        <?php endif; ?>
+
+        <h2>
+            <?php echo $editing_id
+                ? esc_html__( 'Modifier un groupe', 'association-manager' )
+                : esc_html__( 'Ajouter un groupe', 'association-manager' ); ?>
+        </h2>
+        <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+            <?php if ( $editing_id ) : ?>
+                <?php wp_nonce_field( 'amap_edit_group_' . $editing_id ); ?>
+                <input type="hidden" name="action" value="amap_update_group">
+                <input type="hidden" name="id" value="<?php echo esc_attr( $editing_id ); ?>">
+            <?php else : ?>
+                <?php wp_nonce_field( 'amap_add_group' ); ?>
+                <input type="hidden" name="action" value="amap_add_group">
+            <?php endif; ?>
+            <p>
+                <label>
+                    <?php esc_html_e( 'Nom', 'association-manager' ); ?>
+                    <input type="text" name="name" value="<?php echo esc_attr( $form_data['name'] ?? '' ); ?>" required>
+                </label>
+            </p>
+            <p>
+                <label>
+                    <?php esc_html_e( 'Lieu de livraison', 'association-manager' ); ?>
+                    <input type="text" name="delivery_place" value="<?php echo esc_attr( $form_data['delivery_place'] ?? '' ); ?>" required>
+                </label>
+            </p>
+            <p>
+                <label>
+                    <?php esc_html_e( 'Jour de la semaine', 'association-manager' ); ?>
+                    <select name="weekday" required>
+                        <?php foreach ( amap_get_weekday_labels() as $weekday => $weekday_label ) : ?>
+                            <option value="<?php echo esc_attr( $weekday ); ?>" <?php selected( (string) $weekday, $form_data['weekday'] ?? '' ); ?>>
+                                <?php echo esc_html( $weekday_label ); ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </label>
+            </p>
+            <p>
+                <label>
+                    <?php esc_html_e( 'Heure de début', 'association-manager' ); ?>
+                    <input type="time" name="start_time" value="<?php echo esc_attr( $form_data['start_time'] ?? '' ); ?>" required>
+                </label>
+            </p>
+            <p>
+                <label>
+                    <?php esc_html_e( 'Heure de fin', 'association-manager' ); ?>
+                    <input type="time" name="end_time" value="<?php echo esc_attr( $form_data['end_time'] ?? '' ); ?>" required>
+                </label>
+            </p>
+            <p>
+                <?php submit_button( $editing_id ? __( 'Enregistrer', 'association-manager' ) : __( 'Ajouter', 'association-manager' ), 'primary', 'submit', false ); ?>
+                <?php if ( $editing_id ) : ?>
+                    <a href="<?php echo esc_url( admin_url( 'admin.php?page=amap-groups' ) ); ?>" class="button">
+                        <?php esc_html_e( 'Annuler', 'association-manager' ); ?>
+                    </a>
+                <?php endif; ?>
+            </p>
+        </form>
+
+        <?php if ( empty( $groups ) ) : ?>
+            <p><?php esc_html_e( 'Aucun groupe enregistré pour le moment.', 'association-manager' ); ?></p>
+        <?php else : ?>
+            <table class="widefat">
+                <thead>
+                    <tr>
+                        <th><?php esc_html_e( 'Nom', 'association-manager' ); ?></th>
+                        <th><?php esc_html_e( 'Lieu de livraison', 'association-manager' ); ?></th>
+                        <th><?php esc_html_e( 'Jour', 'association-manager' ); ?></th>
+                        <th><?php esc_html_e( 'Horaire', 'association-manager' ); ?></th>
+                        <th><?php esc_html_e( 'Actions', 'association-manager' ); ?></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php foreach ( $groups as $group ) : ?>
+                        <?php $weekday_labels = amap_get_weekday_labels(); ?>
+                        <tr>
+                            <td><?php echo esc_html( $group->name ); ?></td>
+                            <td><?php echo esc_html( $group->delivery_place ); ?></td>
+                            <td><?php echo esc_html( $weekday_labels[ (int) $group->weekday ] ?? '' ); ?></td>
+                            <td><?php echo esc_html( amap_format_time( $group->start_time ) . ' - ' . amap_format_time( $group->end_time ) ); ?></td>
+                            <td>
+                                <a href="<?php echo esc_url( admin_url( 'admin.php?page=amap-groups&action=edit&id=' . $group->id ) ); ?>">
+                                    <?php esc_html_e( 'Modifier', 'association-manager' ); ?>
+                                </a>
+                                |
+                                <?php
+                                $delete_url = wp_nonce_url(
+                                    admin_url( 'admin-post.php?action=amap_delete_group&id=' . $group->id ),
+                                    'amap_delete_group_' . $group->id
+                                );
+                                // translators: %s: nom du groupe.
+                                $confirm_message = sprintf( __( 'Supprimer définitivement le groupe %s ?', 'association-manager' ), $group->name );
+                                ?>
+                                <a href="<?php echo esc_url( $delete_url ); ?>" onclick="return confirm( '<?php echo esc_js( $confirm_message ); ?>' );">
+                                    <?php esc_html_e( 'Supprimer', 'association-manager' ); ?>
+                                </a>
+                            </td>
+                        </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+        <?php endif; ?>
+    </div>
+    <?php
+}
+
+add_action( 'admin_post_amap_add_group', 'amap_handle_add_group' );
+
+function amap_handle_add_group() {
+    if ( ! current_user_can( 'amap_manage_groups' ) ) {
+        wp_die( esc_html__( 'Action non autorisée.', 'association-manager' ) );
+    }
+
+    check_admin_referer( 'amap_add_group' );
+
+    $name           = isset( $_POST['name'] ) ? sanitize_text_field( wp_unslash( $_POST['name'] ) ) : '';
+    $delivery_place = isset( $_POST['delivery_place'] ) ? sanitize_text_field( wp_unslash( $_POST['delivery_place'] ) ) : '';
+    $weekday        = isset( $_POST['weekday'] ) ? sanitize_key( wp_unslash( $_POST['weekday'] ) ) : '';
+    $start_time     = isset( $_POST['start_time'] ) ? sanitize_text_field( wp_unslash( $_POST['start_time'] ) ) : '';
+    $end_time       = isset( $_POST['end_time'] ) ? sanitize_text_field( wp_unslash( $_POST['end_time'] ) ) : '';
+    $submitted      = compact( 'name', 'delivery_place', 'weekday', 'start_time', 'end_time' );
+
+    if ( '' === $name || '' === $delivery_place || ! array_key_exists( (int) $weekday, amap_get_weekday_labels() )
+        || ! amap_is_valid_time( $start_time ) || ! amap_is_valid_time( $end_time ) ) {
+        amap_store_group_form_data( $submitted );
+        wp_safe_redirect( admin_url( 'admin.php?page=amap-groups&amap_notice=invalid' ) );
+        exit;
+    }
+
+    if ( $start_time >= $end_time ) {
+        amap_store_group_form_data( $submitted );
+        wp_safe_redirect( admin_url( 'admin.php?page=amap-groups&amap_notice=invalid_time' ) );
+        exit;
+    }
+
+    global $wpdb;
+    $wpdb->insert(
+        $wpdb->prefix . 'amap_groups',
+        array(
+            'name'           => $name,
+            'delivery_place' => $delivery_place,
+            'weekday'        => (int) $weekday,
+            'start_time'     => $start_time,
+            'end_time'       => $end_time,
+        )
+    );
+
+    wp_safe_redirect( admin_url( 'admin.php?page=amap-groups' ) );
+    exit;
+}
+
+add_action( 'admin_post_amap_update_group', 'amap_handle_update_group' );
+
+function amap_handle_update_group() {
+    if ( ! current_user_can( 'amap_manage_groups' ) ) {
+        wp_die( esc_html__( 'Action non autorisée.', 'association-manager' ) );
+    }
+
+    $id = isset( $_POST['id'] ) ? absint( $_POST['id'] ) : 0;
+    if ( ! $id || ! amap_get_group( $id ) ) {
+        wp_die( esc_html__( 'Groupe introuvable.', 'association-manager' ) );
+    }
+
+    check_admin_referer( 'amap_edit_group_' . $id );
+
+    $edit_url = admin_url( 'admin.php?page=amap-groups&action=edit&id=' . $id );
+
+    $name           = isset( $_POST['name'] ) ? sanitize_text_field( wp_unslash( $_POST['name'] ) ) : '';
+    $delivery_place = isset( $_POST['delivery_place'] ) ? sanitize_text_field( wp_unslash( $_POST['delivery_place'] ) ) : '';
+    $weekday        = isset( $_POST['weekday'] ) ? sanitize_key( wp_unslash( $_POST['weekday'] ) ) : '';
+    $start_time     = isset( $_POST['start_time'] ) ? sanitize_text_field( wp_unslash( $_POST['start_time'] ) ) : '';
+    $end_time       = isset( $_POST['end_time'] ) ? sanitize_text_field( wp_unslash( $_POST['end_time'] ) ) : '';
+    $submitted      = compact( 'name', 'delivery_place', 'weekday', 'start_time', 'end_time' );
+
+    if ( '' === $name || '' === $delivery_place || ! array_key_exists( (int) $weekday, amap_get_weekday_labels() )
+        || ! amap_is_valid_time( $start_time ) || ! amap_is_valid_time( $end_time ) ) {
+        amap_store_group_form_data( $submitted );
+        wp_safe_redirect( $edit_url . '&amap_notice=invalid' );
+        exit;
+    }
+
+    if ( $start_time >= $end_time ) {
+        amap_store_group_form_data( $submitted );
+        wp_safe_redirect( $edit_url . '&amap_notice=invalid_time' );
+        exit;
+    }
+
+    global $wpdb;
+    $wpdb->update(
+        $wpdb->prefix . 'amap_groups',
+        array(
+            'name'           => $name,
+            'delivery_place' => $delivery_place,
+            'weekday'        => (int) $weekday,
+            'start_time'     => $start_time,
+            'end_time'       => $end_time,
+        ),
+        array( 'id' => $id )
+    );
+
+    wp_safe_redirect( admin_url( 'admin.php?page=amap-groups' ) );
+    exit;
+}
+
+add_action( 'admin_post_amap_delete_group', 'amap_handle_delete_group' );
+
+function amap_handle_delete_group() {
+    if ( ! current_user_can( 'amap_manage_groups' ) ) {
+        wp_die( esc_html__( 'Action non autorisée.', 'association-manager' ) );
+    }
+
+    $id = isset( $_GET['id'] ) ? absint( $_GET['id'] ) : 0;
+    if ( ! $id || ! amap_get_group( $id ) ) {
+        wp_die( esc_html__( 'Groupe introuvable.', 'association-manager' ) );
+    }
+
+    check_admin_referer( 'amap_delete_group_' . $id );
+
+    global $wpdb;
+    $wpdb->delete( $wpdb->prefix . 'amap_groups', array( 'id' => $id ) );
+
+    wp_safe_redirect( admin_url( 'admin.php?page=amap-groups' ) );
     exit;
 }
