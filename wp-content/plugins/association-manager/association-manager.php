@@ -272,6 +272,25 @@ function amap_send_login_link( $user ) {
     return amap_send_email( $user->user_email, __( 'Votre lien de connexion AMAP', 'association-manager' ), $html_body );
 }
 
+/**
+ * Envoie l'email de réinitialisation de mot de passe pour un compte producteur/bureau. Jeton de
+ * purpose 'password_reset' : amap_handle_confirm_magic_link() devra distinguer ce cas de la
+ * connexion normale avant d'ouvrir une session (étape suivante, pas encore traitée).
+ */
+function amap_send_password_reset_link( $user ) {
+    $token = amap_create_magic_link_token( $user->ID, 'password_reset' );
+    $link  = amap_get_magic_link_url( $token );
+
+    $html_body = sprintf(
+        '<p>%s</p><p><a href="%s">%s</a></p>',
+        esc_html__( 'Cliquez sur le lien ci-dessous pour choisir un nouveau mot de passe.', 'association-manager' ),
+        esc_url( $link ),
+        esc_html__( 'Choisir un nouveau mot de passe', 'association-manager' )
+    );
+
+    return amap_send_email( $user->user_email, __( 'Réinitialisation de votre mot de passe AMAP', 'association-manager' ), $html_body );
+}
+
 add_action( 'admin_post_amap_send_magic_link', 'amap_handle_send_magic_link' );
 
 function amap_handle_send_magic_link() {
@@ -323,6 +342,8 @@ function amap_maybe_render_magic_link_confirmation() {
         admin_url( 'admin-post.php?action=amap_confirm_magic_link&token=' . $token ),
         'amap_confirm_magic_link_' . $token
     );
+
+    $is_password_reset = ( 'password_reset' === $link->purpose );
     ?>
     <!DOCTYPE html>
     <html <?php language_attributes(); ?>>
@@ -331,8 +352,13 @@ function amap_maybe_render_magic_link_confirmation() {
         <title><?php esc_html_e( 'Connexion AMAP', 'association-manager' ); ?></title>
     </head>
     <body>
-        <p><?php esc_html_e( 'Cliquez sur le bouton ci-dessous pour finaliser votre connexion.', 'association-manager' ); ?></p>
-        <p><a href="<?php echo esc_url( $confirm_url ); ?>"><?php esc_html_e( 'Cliquez ici pour vous connecter', 'association-manager' ); ?></a></p>
+        <?php if ( $is_password_reset ) : ?>
+            <p><?php esc_html_e( 'Cliquez sur le bouton ci-dessous pour choisir un nouveau mot de passe.', 'association-manager' ); ?></p>
+            <p><a href="<?php echo esc_url( $confirm_url ); ?>"><?php esc_html_e( 'Cliquez ici pour choisir un nouveau mot de passe', 'association-manager' ); ?></a></p>
+        <?php else : ?>
+            <p><?php esc_html_e( 'Cliquez sur le bouton ci-dessous pour finaliser votre connexion.', 'association-manager' ); ?></p>
+            <p><a href="<?php echo esc_url( $confirm_url ); ?>"><?php esc_html_e( 'Cliquez ici pour vous connecter', 'association-manager' ); ?></a></p>
+        <?php endif; ?>
     </body>
     </html>
     <?php
@@ -343,8 +369,11 @@ add_action( 'admin_post_nopriv_amap_confirm_magic_link', 'amap_handle_confirm_ma
 add_action( 'admin_post_amap_confirm_magic_link', 'amap_handle_confirm_magic_link' );
 
 /**
- * Clic explicite sur "Cliquez ici pour vous connecter" : c'est ici, et seulement ici, que le
- * jeton est invalidé (used_at) et que la session WordPress de l'adhérent s'ouvre.
+ * Clic explicite sur le bouton de la page de confirmation. Pour un lien de connexion (purpose
+ * 'login'), c'est ici, et seulement ici, que le jeton est invalidé (used_at) et que la session
+ * WordPress s'ouvre. Pour un lien de réinitialisation (purpose 'password_reset'), le jeton reste
+ * volontairement non consommé : on redirige vers le futur formulaire de nouveau mot de passe
+ * (étape suivante), qui le revérifiera et l'invalidera lui-même au moment de l'enregistrement.
  */
 function amap_handle_confirm_magic_link() {
     $token = isset( $_GET['token'] ) ? sanitize_text_field( wp_unslash( $_GET['token'] ) ) : '';
@@ -358,6 +387,11 @@ function amap_handle_confirm_magic_link() {
         wp_die( esc_html__( 'Ce lien de connexion est invalide ou a expiré. Demandez-en un nouveau.', 'association-manager' ) );
     }
 
+    if ( 'password_reset' === $link->purpose ) {
+        wp_safe_redirect( home_url( '/?amap_login_step=new_password&token=' . $token ) );
+        exit;
+    }
+
     global $wpdb;
     $wpdb->update(
         $wpdb->prefix . 'amap_magic_links',
@@ -369,6 +403,98 @@ function amap_handle_confirm_magic_link() {
     wp_set_auth_cookie( $link->user_id );
 
     wp_safe_redirect( home_url( '/' ) );
+    exit;
+}
+
+add_action( 'template_redirect', 'amap_maybe_render_new_password_form' );
+
+/**
+ * Intercepte ?amap_login_step=new_password&token=..., destination du clic confirmé sur un lien
+ * de réinitialisation (amap_handle_confirm_magic_link()). Revérifie le jeton (il n'a pas encore
+ * été consommé à ce stade) et affiche un formulaire de nouveau mot de passe ; c'est
+ * amap_handle_set_new_password() qui invalidera le jeton, au moment de l'enregistrement.
+ */
+function amap_maybe_render_new_password_form() {
+    if ( ! isset( $_GET['amap_login_step'], $_GET['token'] ) || 'new_password' !== sanitize_key( wp_unslash( $_GET['amap_login_step'] ) ) ) {
+        return;
+    }
+
+    $token = sanitize_text_field( wp_unslash( $_GET['token'] ) );
+    $link  = amap_get_magic_link_by_token( $token );
+
+    if ( ! $link || 'password_reset' !== $link->purpose || null !== $link->used_at || $link->expires_at < current_time( 'mysql', true ) ) {
+        wp_die( esc_html__( 'Ce lien de réinitialisation est invalide ou a expiré. Demandez-en un nouveau.', 'association-manager' ) );
+    }
+
+    $has_error = isset( $_GET['amap_login_error'] );
+    ?>
+    <!DOCTYPE html>
+    <html <?php language_attributes(); ?>>
+    <head>
+        <meta charset="<?php bloginfo( 'charset' ); ?>">
+        <title><?php esc_html_e( 'Nouveau mot de passe AMAP', 'association-manager' ); ?></title>
+    </head>
+    <body>
+        <?php if ( $has_error ) : ?>
+            <p><?php esc_html_e( 'Les deux mots de passe ne correspondent pas, ou sont trop courts (8 caractères minimum).', 'association-manager' ); ?></p>
+        <?php endif; ?>
+        <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+            <?php wp_nonce_field( 'amap_set_new_password_' . $token ); ?>
+            <input type="hidden" name="action" value="amap_set_new_password">
+            <input type="hidden" name="token" value="<?php echo esc_attr( $token ); ?>">
+            <p>
+                <label for="amap_password"><?php esc_html_e( 'Nouveau mot de passe', 'association-manager' ); ?></label><br>
+                <input type="password" id="amap_password" name="password" required>
+            </p>
+            <p>
+                <label for="amap_password_confirm"><?php esc_html_e( 'Confirmez le mot de passe', 'association-manager' ); ?></label><br>
+                <input type="password" id="amap_password_confirm" name="password_confirm" required>
+            </p>
+            <p><button type="submit"><?php esc_html_e( 'Enregistrer le nouveau mot de passe', 'association-manager' ); ?></button></p>
+        </form>
+    </body>
+    </html>
+    <?php
+    exit;
+}
+
+add_action( 'admin_post_nopriv_amap_set_new_password', 'amap_handle_set_new_password' );
+add_action( 'admin_post_amap_set_new_password', 'amap_handle_set_new_password' );
+
+/**
+ * Enregistre le nouveau mot de passe : revérifie le jeton (même contrôle que
+ * amap_maybe_render_new_password_form()), marque used_at puis appelle wp_set_password(), qui
+ * invalide de lui-même toutes les sessions ouvertes de l'utilisateur.
+ */
+function amap_handle_set_new_password() {
+    $token            = isset( $_POST['token'] ) ? sanitize_text_field( wp_unslash( $_POST['token'] ) ) : '';
+    $password         = isset( $_POST['password'] ) ? (string) wp_unslash( $_POST['password'] ) : '';
+    $password_confirm = isset( $_POST['password_confirm'] ) ? (string) wp_unslash( $_POST['password_confirm'] ) : '';
+
+    check_admin_referer( 'amap_set_new_password_' . $token );
+
+    $link = amap_get_magic_link_by_token( $token );
+    $now  = current_time( 'mysql', true );
+
+    if ( ! $link || 'password_reset' !== $link->purpose || null !== $link->used_at || $link->expires_at < $now ) {
+        wp_die( esc_html__( 'Ce lien de réinitialisation est invalide ou a expiré. Demandez-en un nouveau.', 'association-manager' ) );
+    }
+
+    if ( strlen( $password ) < 8 || $password !== $password_confirm ) {
+        wp_safe_redirect( home_url( '/?amap_login_step=new_password&token=' . $token . '&amap_login_error=1' ) );
+        exit;
+    }
+
+    global $wpdb;
+    $wpdb->update(
+        $wpdb->prefix . 'amap_magic_links',
+        array( 'used_at' => $now ),
+        array( 'id' => $link->id )
+    );
+
+    wp_set_password( $password, $link->user_id );
+
+    wp_safe_redirect( home_url( '/?amap_login_step=password_reset_done' ) );
     exit;
 }
 
@@ -442,6 +568,30 @@ function amap_handle_login_password_step() {
     amap_send_login_link( $user );
 
     wp_safe_redirect( home_url( '/?amap_login_step=magic_link_sent' ) );
+    exit;
+}
+
+add_action( 'admin_post_nopriv_amap_request_password_reset', 'amap_handle_request_password_reset' );
+add_action( 'admin_post_amap_request_password_reset', 'amap_handle_request_password_reset' );
+
+/**
+ * Demande de "mot de passe oublié" pour un compte producteur/bureau. Comme
+ * amap_get_login_mode_for_email(), ne distingue jamais dans la redirection un email inconnu d'un
+ * compte adhérent seul (sans mot de passe) : dans les deux cas aucun email n'est envoyé, sans que
+ * cela se voie côté visiteur.
+ */
+function amap_handle_request_password_reset() {
+    $email = isset( $_POST['email'] ) ? sanitize_email( wp_unslash( $_POST['email'] ) ) : '';
+
+    if ( '' !== $email && is_email( $email ) ) {
+        $user = get_user_by( 'email', $email );
+
+        if ( $user && ! amap_user_uses_magic_link( $user ) ) {
+            amap_send_password_reset_link( $user );
+        }
+    }
+
+    wp_safe_redirect( home_url( '/?amap_login_step=password_reset_sent' ) );
     exit;
 }
 
