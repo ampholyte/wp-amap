@@ -31,6 +31,11 @@ notifications, emails, espace adhérent).
 - Ne pas proposer `/clear` en cours d'étape non validée : cela ferait perdre le contexte
   nécessaire pour continuer le travail en cours.
 
+## Outils
+
+- Ne jamais utiliser l'outil Artifact pour livrer du texte simple (ex. un prompt à copier-coller
+  pour la prochaine session) : l'afficher directement dans la réponse.
+
 ## Langue
 
 - Communication avec l'utilisateur : **français**.
