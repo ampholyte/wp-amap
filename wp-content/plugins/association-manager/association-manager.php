@@ -357,24 +357,17 @@ function amap_maybe_render_magic_link_confirmation() {
     );
 
     $is_password_reset = ( 'password_reset' === $link->purpose );
-    ?>
-    <!DOCTYPE html>
-    <html <?php language_attributes(); ?>>
-    <head>
-        <meta charset="<?php bloginfo( 'charset' ); ?>">
-        <title><?php esc_html_e( 'Connexion AMAP', 'association-manager' ); ?></title>
-    </head>
-    <body>
-        <?php if ( $is_password_reset ) : ?>
-            <p><?php esc_html_e( 'Cliquez sur le bouton ci-dessous pour choisir un nouveau mot de passe.', 'association-manager' ); ?></p>
-            <p><a href="<?php echo esc_url( $confirm_url ); ?>"><?php esc_html_e( 'Cliquez ici pour choisir un nouveau mot de passe', 'association-manager' ); ?></a></p>
-        <?php else : ?>
-            <p><?php esc_html_e( 'Cliquez sur le bouton ci-dessous pour finaliser votre connexion.', 'association-manager' ); ?></p>
-            <p><a href="<?php echo esc_url( $confirm_url ); ?>"><?php esc_html_e( 'Cliquez ici pour vous connecter', 'association-manager' ); ?></a></p>
-        <?php endif; ?>
-    </body>
-    </html>
-    <?php
+
+    get_header();
+    get_template_part(
+        'template-parts/login/step',
+        'magic-link-confirm',
+        array(
+            'confirm_url'       => $confirm_url,
+            'is_password_reset' => $is_password_reset,
+        )
+    );
+    get_footer();
     exit;
 }
 
@@ -448,34 +441,17 @@ function amap_maybe_render_new_password_form() {
     }
 
     $has_error = isset( $_GET['amap_login_error'] );
-    ?>
-    <!DOCTYPE html>
-    <html <?php language_attributes(); ?>>
-    <head>
-        <meta charset="<?php bloginfo( 'charset' ); ?>">
-        <title><?php esc_html_e( 'Nouveau mot de passe AMAP', 'association-manager' ); ?></title>
-    </head>
-    <body>
-        <?php if ( $has_error ) : ?>
-            <p><?php esc_html_e( 'Les deux mots de passe ne correspondent pas, ou sont trop courts (8 caractères minimum).', 'association-manager' ); ?></p>
-        <?php endif; ?>
-        <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
-            <?php wp_nonce_field( 'amap_set_new_password_' . $token ); ?>
-            <input type="hidden" name="action" value="amap_set_new_password">
-            <input type="hidden" name="token" value="<?php echo esc_attr( $token ); ?>">
-            <p>
-                <label for="amap_password"><?php esc_html_e( 'Nouveau mot de passe', 'association-manager' ); ?></label><br>
-                <input type="password" id="amap_password" name="password" required>
-            </p>
-            <p>
-                <label for="amap_password_confirm"><?php esc_html_e( 'Confirmez le mot de passe', 'association-manager' ); ?></label><br>
-                <input type="password" id="amap_password_confirm" name="password_confirm" required>
-            </p>
-            <p><button type="submit"><?php esc_html_e( 'Enregistrer le nouveau mot de passe', 'association-manager' ); ?></button></p>
-        </form>
-    </body>
-    </html>
-    <?php
+
+    get_header();
+    get_template_part(
+        'template-parts/login/step',
+        'new-password',
+        array(
+            'token'     => $token,
+            'has_error' => $has_error,
+        )
+    );
+    get_footer();
     exit;
 }
 
@@ -544,6 +520,31 @@ function amap_get_login_mode_for_email( $email ) {
     return 'password';
 }
 
+add_action( 'template_redirect', 'amap_maybe_render_login_email_step' );
+
+/**
+ * Premier écran du parcours de connexion : la page "espace-adherent" sans paramètre, ou avec
+ * amap_login_step=invalid_email pour réafficher le formulaire après une saisie invalide. Exclut
+ * explicitement amap_action (confirmation de lien magique) plutôt que de compter sur l'ordre des
+ * hooks template_redirect pour éviter tout conflit d'affichage.
+ */
+function amap_maybe_render_login_email_step() {
+    if ( ! is_page( 'espace-adherent' ) || isset( $_GET['amap_action'] ) ) {
+        return;
+    }
+
+    $step = isset( $_GET['amap_login_step'] ) ? sanitize_key( wp_unslash( $_GET['amap_login_step'] ) ) : '';
+
+    if ( '' !== $step && 'invalid_email' !== $step ) {
+        return;
+    }
+
+    get_header();
+    get_template_part( 'template-parts/login/step', 'email', array( 'has_error' => ( 'invalid_email' === $step ) ) );
+    get_footer();
+    exit;
+}
+
 add_action( 'admin_post_nopriv_amap_login_email_step', 'amap_handle_login_email_step' );
 add_action( 'admin_post_amap_login_email_step', 'amap_handle_login_email_step' );
 
@@ -578,6 +579,71 @@ function amap_handle_login_email_step() {
             amap_get_member_area_url()
         )
     );
+    exit;
+}
+
+add_action( 'template_redirect', 'amap_maybe_render_login_password_step' );
+
+/**
+ * Deuxième écran du parcours de connexion : compte producteur/bureau, atteint après un email qui
+ * nécessite un mot de passe (amap_get_login_mode_for_email()). Reprend l'email de l'URL pour ne
+ * pas le faire ressaisir en cas de nouvelle erreur (amap_login_error).
+ */
+function amap_maybe_render_login_password_step() {
+    if ( ! is_page( 'espace-adherent' ) || ! isset( $_GET['amap_login_step'] ) || 'password' !== sanitize_key( wp_unslash( $_GET['amap_login_step'] ) ) ) {
+        return;
+    }
+
+    $email = isset( $_GET['email'] ) ? sanitize_email( wp_unslash( $_GET['email'] ) ) : '';
+
+    get_header();
+    get_template_part(
+        'template-parts/login/step',
+        'password',
+        array(
+            'email'     => $email,
+            'has_error' => isset( $_GET['amap_login_error'] ),
+        )
+    );
+    get_footer();
+    exit;
+}
+
+add_action( 'template_redirect', 'amap_maybe_render_login_message_step' );
+
+/**
+ * Écrans "message" du parcours de connexion : simple accusé de réception (lien magique envoyé,
+ * demande de réinitialisation envoyée, mot de passe mis à jour), sans formulaire. Un seul
+ * template-part partagé (step-message.php) pour les trois, le texte affiché dépendant de
+ * amap_login_step.
+ */
+function amap_maybe_render_login_message_step() {
+    if ( ! is_page( 'espace-adherent' ) || ! isset( $_GET['amap_login_step'] ) ) {
+        return;
+    }
+
+    $step = sanitize_key( wp_unslash( $_GET['amap_login_step'] ) );
+
+    $messages = array(
+        'magic_link_sent'     => __( 'Un lien de connexion vous a été envoyé par email.', 'association-manager' ),
+        'password_reset_sent' => __( 'Si un compte existe pour cette adresse, un email de réinitialisation vous a été envoyé.', 'association-manager' ),
+        'password_reset_done' => __( 'Votre mot de passe a été mis à jour.', 'association-manager' ),
+    );
+
+    if ( ! isset( $messages[ $step ] ) ) {
+        return;
+    }
+
+    get_header();
+    get_template_part(
+        'template-parts/login/step',
+        'message',
+        array(
+            'message'          => $messages[ $step ],
+            'show_login_link'  => ( 'password_reset_done' === $step ),
+        )
+    );
+    get_footer();
     exit;
 }
 
