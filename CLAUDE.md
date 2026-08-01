@@ -107,3 +107,7 @@ notifications, emails, espace adhérent).
 - PHP n'est pas installé sur la machine hôte, uniquement dans le conteneur Docker. Ne jamais
   lancer `php` (ex. `php -l` pour vérifier la syntaxe) directement en local : la commande
   échouera puisque le binaire n'existe pas hors conteneur.
+- Claude Code ne doit jamais exécuter lui-même de commande `docker`, `docker compose` ou `php`
+  (que ce soit sur l'hôte ou via `docker compose exec`), y compris pour s'auto-tester. Se
+  contenter de fournir, dans la réponse, les instructions ou la commande à copier-coller pour que
+  l'utilisateur la lance lui-même dans son propre terminal.

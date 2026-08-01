@@ -17,7 +17,7 @@ register_activation_hook( __FILE__, 'amap_activate' );
 function amap_activate() {
     // update_option() (et non plus add_option()) : la version doit refléter le schéma du
     // code à chaque activation. dbDelta() est idempotent, le rappeler ne pose pas de problème.
-    update_option( 'amap_db_version', '3.2' );
+    update_option( 'amap_db_version', '3.4' );
     amap_create_tables();
     amap_drop_obsolete_tables();
 
@@ -92,6 +92,10 @@ function amap_drop_obsolete_tables() {
     // casquettes, plus rôle amap_producer cumulable). dbDelta() ne supprime jamais de table,
     // il faut le faire explicitement.
     $wpdb->query( 'DROP TABLE IF EXISTS ' . $wpdb->prefix . 'amap_producers' );
+
+    // wp_amap_totp_secrets : la 2FA par TOTP a été abandonnée au profit d'un second facteur par
+    // lien magique (comme pour les adhérents), voir amap_send_login_link().
+    $wpdb->query( 'DROP TABLE IF EXISTS ' . $wpdb->prefix . 'amap_totp_secrets' );
 }
 
 /**
@@ -244,12 +248,23 @@ function amap_send_magic_link( $user ) {
         );
     }
 
+    return amap_send_login_link( $user );
+}
+
+/**
+ * Envoie l'email de connexion par lien magique, sans condition de casquette. Utilisée à la fois
+ * pour l'auto-connexion des adhérents seuls (amap_send_magic_link() vérifie le rôle avant
+ * d'appeler cette fonction) et comme second facteur après mot de passe pour producteur/bureau
+ * (amap_handle_login_password_step()) : dans les deux cas, le clic sur le lien est ce qui ouvre
+ * la session (amap_handle_confirm_magic_link()), jamais l'envoi de l'email lui-même.
+ */
+function amap_send_login_link( $user ) {
     $token = amap_create_magic_link_token( $user->ID );
     $link  = amap_get_magic_link_url( $token );
 
     $html_body = sprintf(
         '<p>%s</p><p><a href="%s">%s</a></p>',
-        esc_html__( 'Cliquez sur le lien ci-dessous pour vous connecter à votre espace adhérent.', 'association-manager' ),
+        esc_html__( 'Cliquez sur le lien ci-dessous pour vous connecter à votre espace.', 'association-manager' ),
         esc_url( $link ),
         esc_html__( 'Cliquez ici pour vous connecter', 'association-manager' )
     );
@@ -407,29 +422,26 @@ add_action( 'admin_post_nopriv_amap_login_password_step', 'amap_handle_login_pas
 add_action( 'admin_post_amap_login_password_step', 'amap_handle_login_password_step' );
 
 /**
- * Deuxième étape pour un compte producteur/bureau : email + mot de passe. wp_signon() vérifie
- * les identifiants et ouvre lui-même la session en cas de succès (contrairement au lien
- * magique, pas de wp_set_auth_cookie() à appeler ici). Pas de vérification TOTP pour l'instant :
- * elle viendra se greffer par-dessus ce parcours aux étapes suivantes.
+ * Deuxième étape pour un compte producteur/bureau : email + mot de passe. wp_authenticate()
+ * (et non wp_signon()) vérifie les identifiants SANS ouvrir de session : le mot de passe n'est
+ * que le premier facteur, la session ne s'ouvre qu'après le clic sur le lien de connexion envoyé
+ * par email (second facteur), via amap_handle_confirm_magic_link() — même mécanique que
+ * l'auto-connexion des adhérents, sans la restriction de casquette d'amap_send_magic_link().
  */
 function amap_handle_login_password_step() {
     $email    = isset( $_POST['email'] ) ? sanitize_email( wp_unslash( $_POST['email'] ) ) : '';
     $password = isset( $_POST['password'] ) ? (string) wp_unslash( $_POST['password'] ) : '';
 
-    $user = wp_signon(
-        array(
-            'user_login'    => $email,
-            'user_password' => $password,
-            'remember'      => true,
-        )
-    );
+    $user = wp_authenticate( $email, $password );
 
     if ( is_wp_error( $user ) ) {
         wp_safe_redirect( home_url( '/?amap_login_step=password&email=' . rawurlencode( $email ) . '&amap_login_error=1' ) );
         exit;
     }
 
-    wp_safe_redirect( home_url( '/' ) );
+    amap_send_login_link( $user );
+
+    wp_safe_redirect( home_url( '/?amap_login_step=magic_link_sent' ) );
     exit;
 }
 
