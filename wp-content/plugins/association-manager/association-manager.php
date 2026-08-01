@@ -34,6 +34,13 @@ function amap_activate() {
         $administrator->add_cap( 'amap_manage_users' );
         $administrator->remove_cap( 'amap_manage_producers' );
     }
+
+    // Un membre du bureau doit pouvoir gérer les utilisateurs AMAP au même titre qu'un
+    // administrateur (page d'admin "Utilisateurs AMAP" existante, amap_render_users_page()).
+    $board = get_role( 'amap_board' );
+    if ( $board ) {
+        $board->add_cap( 'amap_manage_users' );
+    }
 }
 
 function amap_create_tables() {

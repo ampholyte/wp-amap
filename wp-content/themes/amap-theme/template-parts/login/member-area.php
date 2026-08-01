@@ -50,7 +50,12 @@ $display_name = $current_user->display_name ? $current_user->display_name : $cur
 <?php endif; ?>
 
 <?php if ( $args['is_board'] ) : ?>
-    <p><?php esc_html_e( 'Vous êtes membre du bureau.', 'association-manager' ); ?></p>
+    <p>
+        <?php esc_html_e( 'Vous êtes membre du bureau.', 'association-manager' ); ?>
+        <?php if ( current_user_can( 'amap_manage_users' ) ) : ?>
+            <a href="<?php echo esc_url( admin_url( 'admin.php?page=amap-users' ) ); ?>"><?php esc_html_e( 'Gérer les utilisateurs AMAP', 'association-manager' ); ?></a>
+        <?php endif; ?>
+    </p>
 <?php endif; ?>
 
 <p><a href="<?php echo esc_url( wp_logout_url( amap_get_member_area_url() ) ); ?>"><?php esc_html_e( 'Se déconnecter', 'association-manager' ); ?></a></p>
