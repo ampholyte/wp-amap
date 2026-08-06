@@ -17,7 +17,7 @@ register_activation_hook( __FILE__, 'amap_activate' );
 function amap_activate() {
     // update_option() (et non plus add_option()) : la version doit refléter le schéma du
     // code à chaque activation. dbDelta() est idempotent, le rappeler ne pose pas de problème.
-    update_option( 'amap_db_version', '3.6' );
+    update_option( 'amap_db_version', '3.7' );
     amap_create_tables();
     amap_drop_obsolete_tables();
 
@@ -33,18 +33,21 @@ function amap_activate() {
     if ( $administrator ) {
         $administrator->add_cap( 'amap_manage_users' );
         $administrator->add_cap( 'amap_manage_groups' );
+        $administrator->add_cap( 'amap_manage_contracts' );
         $administrator->remove_cap( 'amap_manage_producers' );
     }
 
     // Un membre du bureau doit pouvoir gérer les utilisateurs AMAP au même titre qu'un
     // administrateur (page d'admin "Utilisateurs AMAP" existante, amap_render_users_page()).
-    // amap_manage_groups est une capability distincte (page "Groupes" séparée) : le
-    // rattachement producteur↔groupe et la gestion des distributions sont décidés par le
-    // bureau, mais restent conceptuellement différents de la gestion des comptes.
+    // amap_manage_groups et amap_manage_contracts sont des capabilities distinctes (pages
+    // "Groupes" et "Contrats" séparées) : le rattachement producteur↔groupe, les contrats et la
+    // gestion des distributions sont décidés par le bureau, mais restent conceptuellement
+    // différents de la gestion des comptes.
     $board = get_role( 'amap_board' );
     if ( $board ) {
         $board->add_cap( 'amap_manage_users' );
         $board->add_cap( 'amap_manage_groups' );
+        $board->add_cap( 'amap_manage_contracts' );
     }
 }
 
@@ -130,6 +133,28 @@ function amap_create_tables() {
     ) $charset_collate;";
 
     dbDelta( $sql_group_producers );
+
+    $contracts_table = $wpdb->prefix . 'amap_contracts';
+
+    // Table mère des contrats, discriminée par contract_type : 'basket_recurring' (maraîcher,
+    // panier à fréquence fixe) ou 'product_grid' (laitière/boulangers, grille produit×date
+    // remplie une fois à la signature — tables filles prévues aux étapes 4b/4c). frequency_weeks
+    // n'a de sens que pour basket_recurring (1 = hebdo, 2 = toutes les 2 semaines) ; NULL sinon,
+    // contrôlé côté PHP comme les autres discriminants du plugin.
+    $sql_contracts = "CREATE TABLE $contracts_table (
+        id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+        producer_user_id bigint(20) unsigned NOT NULL,
+        contract_type varchar(20) NOT NULL,
+        label varchar(120) NOT NULL,
+        start_date date NOT NULL,
+        end_date date NOT NULL,
+        frequency_weeks tinyint(2) unsigned DEFAULT NULL,
+        is_active tinyint(1) unsigned NOT NULL DEFAULT 1,
+        created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY  (id)
+    ) $charset_collate;";
+
+    dbDelta( $sql_contracts );
 }
 
 function amap_drop_obsolete_tables() {
@@ -863,6 +888,15 @@ function amap_register_admin_menu() {
         'amap_manage_groups',
         'amap-groups',
         'amap_render_groups_page'
+    );
+
+    add_submenu_page(
+        'amap-users',
+        __( 'Contrats', 'association-manager' ),
+        __( 'Contrats', 'association-manager' ),
+        'amap_manage_contracts',
+        'amap-contracts',
+        'amap_render_contracts_page'
     );
 }
 
@@ -1927,5 +1961,404 @@ function amap_handle_update_group_producers() {
     }
 
     wp_safe_redirect( admin_url( 'admin.php?page=amap-groups&action=edit&id=' . $group_id . '&amap_notice=producers_updated' ) );
+    exit;
+}
+
+function amap_get_contract_types() {
+    return array(
+        'basket_recurring' => __( 'Panier récurrent', 'association-manager' ),
+        'product_grid'     => __( 'Grille produits', 'association-manager' ),
+    );
+}
+
+function amap_get_contracts() {
+    global $wpdb;
+
+    return $wpdb->get_results(
+        "SELECT * FROM {$wpdb->prefix}amap_contracts ORDER BY is_active DESC, start_date DESC"
+    );
+}
+
+function amap_get_contract( $id ) {
+    global $wpdb;
+
+    return $wpdb->get_row(
+        $wpdb->prepare( "SELECT * FROM {$wpdb->prefix}amap_contracts WHERE id = %d", $id )
+    );
+}
+
+/**
+ * Valide une date au format "YYYY-MM-DD", celui renvoyé par un <input type="date">.
+ */
+function amap_is_valid_date( $date ) {
+    $parts = explode( '-', $date );
+    if ( 3 !== count( $parts ) ) {
+        return false;
+    }
+
+    list( $year, $month, $day ) = $parts;
+    return ctype_digit( $year ) && ctype_digit( $month ) && ctype_digit( $day )
+        && checkdate( (int) $month, (int) $day, (int) $year );
+}
+
+function amap_store_contract_form_data( array $data ) {
+    set_transient( 'amap_contract_form_' . get_current_user_id(), $data, 60 );
+}
+
+function amap_render_contracts_page() {
+    if ( ! current_user_can( 'amap_manage_contracts' ) ) {
+        return;
+    }
+
+    $notice = isset( $_GET['amap_notice'] ) ? sanitize_key( wp_unslash( $_GET['amap_notice'] ) ) : '';
+
+    // Mode édition : ?action=edit&id=X sur cette même page, même logique que "Groupes" et
+    // "Utilisateurs AMAP".
+    $editing_id = 0;
+    if ( isset( $_GET['action'], $_GET['id'] ) && 'edit' === $_GET['action'] ) {
+        $editing_id = absint( $_GET['id'] );
+    }
+    $editing_contract = $editing_id ? amap_get_contract( $editing_id ) : null;
+    if ( $editing_id && ! $editing_contract ) {
+        $editing_id = 0;
+    }
+
+    $transient_key = 'amap_contract_form_' . get_current_user_id();
+    $form_data     = get_transient( $transient_key );
+    if ( false !== $form_data ) {
+        delete_transient( $transient_key );
+    } elseif ( $editing_contract ) {
+        $form_data = array(
+            'label'            => $editing_contract->label,
+            'producer_user_id' => (string) $editing_contract->producer_user_id,
+            'contract_type'    => $editing_contract->contract_type,
+            'start_date'       => $editing_contract->start_date,
+            'end_date'         => $editing_contract->end_date,
+            'frequency_weeks'  => null !== $editing_contract->frequency_weeks ? (string) $editing_contract->frequency_weeks : '',
+            'is_active'        => (bool) $editing_contract->is_active,
+        );
+    } else {
+        // Une case cochée par défaut à la création : un nouveau contrat est ouvert à la
+        // souscription tant que le bureau ne l'a pas explicitement fermé.
+        $form_data = array( 'is_active' => true );
+    }
+
+    $producers      = amap_get_producer_users();
+    $contract_types = amap_get_contract_types();
+    $contracts      = amap_get_contracts();
+    ?>
+    <div class="wrap">
+        <h1><?php esc_html_e( 'Contrats', 'association-manager' ); ?></h1>
+
+        <?php if ( 'invalid' === $notice ) : ?>
+            <div class="notice notice-error"><p><?php esc_html_e( 'Champs obligatoires manquants ou invalides.', 'association-manager' ); ?></p></div>
+        <?php elseif ( 'invalid_dates' === $notice ) : ?>
+            <div class="notice notice-error"><p><?php esc_html_e( 'Dates invalides : la date de fin doit être après la date de début.', 'association-manager' ); ?></p></div>
+        <?php elseif ( 'invalid_frequency' === $notice ) : ?>
+            <div class="notice notice-error"><p><?php esc_html_e( 'La fréquence (en semaines) est obligatoire et doit être un nombre positif pour un contrat de type panier récurrent.', 'association-manager' ); ?></p></div>
+        <?php endif; ?>
+
+        <?php if ( empty( $producers ) ) : ?>
+            <p><?php esc_html_e( "Aucun compte producteur pour le moment : créez d'abord un producteur depuis la page Utilisateurs AMAP.", 'association-manager' ); ?></p>
+        <?php else : ?>
+            <h2>
+                <?php echo $editing_id
+                    ? esc_html__( 'Modifier un contrat', 'association-manager' )
+                    : esc_html__( 'Ajouter un contrat', 'association-manager' ); ?>
+            </h2>
+            <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" id="amap-contract-form">
+                <?php if ( $editing_id ) : ?>
+                    <?php wp_nonce_field( 'amap_edit_contract_' . $editing_id ); ?>
+                    <input type="hidden" name="action" value="amap_update_contract">
+                    <input type="hidden" name="id" value="<?php echo esc_attr( $editing_id ); ?>">
+                <?php else : ?>
+                    <?php wp_nonce_field( 'amap_add_contract' ); ?>
+                    <input type="hidden" name="action" value="amap_add_contract">
+                <?php endif; ?>
+                <p>
+                    <label>
+                        <?php esc_html_e( 'Libellé', 'association-manager' ); ?>
+                        <input type="text" name="label" value="<?php echo esc_attr( $form_data['label'] ?? '' ); ?>" required>
+                    </label>
+                </p>
+                <p>
+                    <label>
+                        <?php esc_html_e( 'Producteur', 'association-manager' ); ?>
+                        <select name="producer_user_id" required>
+                            <option value=""></option>
+                            <?php foreach ( $producers as $producer ) : ?>
+                                <option value="<?php echo esc_attr( $producer->ID ); ?>" <?php selected( (string) $producer->ID, $form_data['producer_user_id'] ?? '' ); ?>>
+                                    <?php echo esc_html( $producer->display_name ); ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </label>
+                </p>
+                <p>
+                    <label>
+                        <?php esc_html_e( 'Type de contrat', 'association-manager' ); ?>
+                        <select name="contract_type" id="amap-contract-type" required>
+                            <?php foreach ( $contract_types as $type_slug => $type_label ) : ?>
+                                <option value="<?php echo esc_attr( $type_slug ); ?>" <?php selected( $type_slug, $form_data['contract_type'] ?? '' ); ?>>
+                                    <?php echo esc_html( $type_label ); ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </label>
+                </p>
+                <p>
+                    <label>
+                        <?php esc_html_e( 'Date de début', 'association-manager' ); ?>
+                        <input type="date" name="start_date" value="<?php echo esc_attr( $form_data['start_date'] ?? '' ); ?>" required>
+                    </label>
+                </p>
+                <p>
+                    <label>
+                        <?php esc_html_e( 'Date de fin', 'association-manager' ); ?>
+                        <input type="date" name="end_date" value="<?php echo esc_attr( $form_data['end_date'] ?? '' ); ?>" required>
+                    </label>
+                </p>
+                <p id="amap-contract-frequency-row">
+                    <label>
+                        <?php esc_html_e( 'Fréquence (en semaines)', 'association-manager' ); ?>
+                        <input type="number" name="frequency_weeks" min="1" max="52" value="<?php echo esc_attr( $form_data['frequency_weeks'] ?? '' ); ?>">
+                    </label>
+                    <br><span class="description"><?php esc_html_e( '1 = livraison chaque semaine, 2 = toutes les deux semaines, etc. Uniquement pour un panier récurrent.', 'association-manager' ); ?></span>
+                </p>
+                <p>
+                    <label>
+                        <input type="checkbox" name="is_active" value="1" <?php checked( $form_data['is_active'] ?? false ); ?>>
+                        <?php esc_html_e( 'Contrat actif (ouvert à la souscription)', 'association-manager' ); ?>
+                    </label>
+                </p>
+                <p>
+                    <?php submit_button( $editing_id ? __( 'Enregistrer', 'association-manager' ) : __( 'Ajouter', 'association-manager' ), 'primary', 'submit', false ); ?>
+                    <?php if ( $editing_id ) : ?>
+                        <a href="<?php echo esc_url( admin_url( 'admin.php?page=amap-contracts' ) ); ?>" class="button">
+                            <?php esc_html_e( 'Annuler', 'association-manager' ); ?>
+                        </a>
+                    <?php endif; ?>
+                </p>
+            </form>
+            <script>
+            ( function () {
+                var typeField     = document.getElementById( 'amap-contract-type' );
+                var frequencyRow  = document.getElementById( 'amap-contract-frequency-row' );
+
+                function toggleFrequencyRow() {
+                    frequencyRow.hidden = ( 'basket_recurring' !== typeField.value );
+                }
+
+                typeField.addEventListener( 'change', toggleFrequencyRow );
+                toggleFrequencyRow();
+            } )();
+            </script>
+        <?php endif; ?>
+
+        <?php if ( empty( $contracts ) ) : ?>
+            <p><?php esc_html_e( 'Aucun contrat enregistré pour le moment.', 'association-manager' ); ?></p>
+        <?php else : ?>
+            <table class="widefat">
+                <thead>
+                    <tr>
+                        <th><?php esc_html_e( 'Libellé', 'association-manager' ); ?></th>
+                        <th><?php esc_html_e( 'Producteur', 'association-manager' ); ?></th>
+                        <th><?php esc_html_e( 'Type', 'association-manager' ); ?></th>
+                        <th><?php esc_html_e( 'Période', 'association-manager' ); ?></th>
+                        <th><?php esc_html_e( 'Fréquence', 'association-manager' ); ?></th>
+                        <th><?php esc_html_e( 'Actif', 'association-manager' ); ?></th>
+                        <th><?php esc_html_e( 'Actions', 'association-manager' ); ?></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php foreach ( $contracts as $contract ) : ?>
+                        <?php $producer = get_user_by( 'id', $contract->producer_user_id ); ?>
+                        <tr>
+                            <td><?php echo esc_html( $contract->label ); ?></td>
+                            <td><?php echo esc_html( $producer ? $producer->display_name : '—' ); ?></td>
+                            <td><?php echo esc_html( $contract_types[ $contract->contract_type ] ?? $contract->contract_type ); ?></td>
+                            <td><?php echo esc_html( $contract->start_date . ' → ' . $contract->end_date ); ?></td>
+                            <td><?php echo esc_html( null !== $contract->frequency_weeks ? $contract->frequency_weeks : '—' ); ?></td>
+                            <td><?php echo $contract->is_active ? esc_html__( 'Oui', 'association-manager' ) : esc_html__( 'Non', 'association-manager' ); ?></td>
+                            <td>
+                                <a href="<?php echo esc_url( admin_url( 'admin.php?page=amap-contracts&action=edit&id=' . $contract->id ) ); ?>">
+                                    <?php esc_html_e( 'Modifier', 'association-manager' ); ?>
+                                </a>
+                                |
+                                <?php
+                                $delete_url = wp_nonce_url(
+                                    admin_url( 'admin-post.php?action=amap_delete_contract&id=' . $contract->id ),
+                                    'amap_delete_contract_' . $contract->id
+                                );
+                                // translators: %s: libellé du contrat.
+                                $confirm_message = sprintf( __( 'Supprimer définitivement le contrat %s ?', 'association-manager' ), $contract->label );
+                                ?>
+                                <a href="<?php echo esc_url( $delete_url ); ?>" onclick="return confirm( '<?php echo esc_js( $confirm_message ); ?>' );">
+                                    <?php esc_html_e( 'Supprimer', 'association-manager' ); ?>
+                                </a>
+                            </td>
+                        </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+        <?php endif; ?>
+    </div>
+    <?php
+}
+
+add_action( 'admin_post_amap_add_contract', 'amap_handle_add_contract' );
+
+function amap_handle_add_contract() {
+    if ( ! current_user_can( 'amap_manage_contracts' ) ) {
+        wp_die( esc_html__( 'Action non autorisée.', 'association-manager' ) );
+    }
+
+    check_admin_referer( 'amap_add_contract' );
+
+    $label            = isset( $_POST['label'] ) ? sanitize_text_field( wp_unslash( $_POST['label'] ) ) : '';
+    $producer_user_id = isset( $_POST['producer_user_id'] ) ? absint( $_POST['producer_user_id'] ) : 0;
+    $contract_type    = isset( $_POST['contract_type'] ) ? sanitize_key( wp_unslash( $_POST['contract_type'] ) ) : '';
+    $start_date       = isset( $_POST['start_date'] ) ? sanitize_text_field( wp_unslash( $_POST['start_date'] ) ) : '';
+    $end_date         = isset( $_POST['end_date'] ) ? sanitize_text_field( wp_unslash( $_POST['end_date'] ) ) : '';
+    $frequency_weeks  = isset( $_POST['frequency_weeks'] ) ? sanitize_text_field( wp_unslash( $_POST['frequency_weeks'] ) ) : '';
+    $is_active        = isset( $_POST['is_active'] );
+    $submitted        = compact( 'label', 'producer_user_id', 'contract_type', 'start_date', 'end_date', 'frequency_weeks', 'is_active' );
+
+    $valid_producer_ids = wp_list_pluck( amap_get_producer_users(), 'ID' );
+
+    if ( '' === $label || ! in_array( $producer_user_id, $valid_producer_ids, true )
+        || ! array_key_exists( $contract_type, amap_get_contract_types() ) ) {
+        amap_store_contract_form_data( $submitted );
+        wp_safe_redirect( admin_url( 'admin.php?page=amap-contracts&amap_notice=invalid' ) );
+        exit;
+    }
+
+    if ( ! amap_is_valid_date( $start_date ) || ! amap_is_valid_date( $end_date ) || $start_date >= $end_date ) {
+        amap_store_contract_form_data( $submitted );
+        wp_safe_redirect( admin_url( 'admin.php?page=amap-contracts&amap_notice=invalid_dates' ) );
+        exit;
+    }
+
+    // frequency_weeks n'a de sens que pour un panier récurrent : obligatoire dans ce cas,
+    // forcé à NULL sinon (même si le formulaire masque le champ en JS, on revalide côté serveur).
+    if ( 'basket_recurring' === $contract_type ) {
+        if ( '' === $frequency_weeks || ! ctype_digit( $frequency_weeks ) || (int) $frequency_weeks < 1 ) {
+            amap_store_contract_form_data( $submitted );
+            wp_safe_redirect( admin_url( 'admin.php?page=amap-contracts&amap_notice=invalid_frequency' ) );
+            exit;
+        }
+        $frequency_weeks = (int) $frequency_weeks;
+    } else {
+        $frequency_weeks = null;
+    }
+
+    global $wpdb;
+    $wpdb->insert(
+        $wpdb->prefix . 'amap_contracts',
+        array(
+            'producer_user_id' => $producer_user_id,
+            'contract_type'    => $contract_type,
+            'label'            => $label,
+            'start_date'       => $start_date,
+            'end_date'         => $end_date,
+            'frequency_weeks'  => $frequency_weeks,
+            'is_active'        => $is_active ? 1 : 0,
+        )
+    );
+
+    wp_safe_redirect( admin_url( 'admin.php?page=amap-contracts' ) );
+    exit;
+}
+
+add_action( 'admin_post_amap_update_contract', 'amap_handle_update_contract' );
+
+function amap_handle_update_contract() {
+    if ( ! current_user_can( 'amap_manage_contracts' ) ) {
+        wp_die( esc_html__( 'Action non autorisée.', 'association-manager' ) );
+    }
+
+    $id = isset( $_POST['id'] ) ? absint( $_POST['id'] ) : 0;
+    if ( ! $id || ! amap_get_contract( $id ) ) {
+        wp_die( esc_html__( 'Contrat introuvable.', 'association-manager' ) );
+    }
+
+    check_admin_referer( 'amap_edit_contract_' . $id );
+
+    $edit_url = admin_url( 'admin.php?page=amap-contracts&action=edit&id=' . $id );
+
+    $label            = isset( $_POST['label'] ) ? sanitize_text_field( wp_unslash( $_POST['label'] ) ) : '';
+    $producer_user_id = isset( $_POST['producer_user_id'] ) ? absint( $_POST['producer_user_id'] ) : 0;
+    $contract_type    = isset( $_POST['contract_type'] ) ? sanitize_key( wp_unslash( $_POST['contract_type'] ) ) : '';
+    $start_date       = isset( $_POST['start_date'] ) ? sanitize_text_field( wp_unslash( $_POST['start_date'] ) ) : '';
+    $end_date         = isset( $_POST['end_date'] ) ? sanitize_text_field( wp_unslash( $_POST['end_date'] ) ) : '';
+    $frequency_weeks  = isset( $_POST['frequency_weeks'] ) ? sanitize_text_field( wp_unslash( $_POST['frequency_weeks'] ) ) : '';
+    $is_active        = isset( $_POST['is_active'] );
+    $submitted        = compact( 'label', 'producer_user_id', 'contract_type', 'start_date', 'end_date', 'frequency_weeks', 'is_active' );
+
+    $valid_producer_ids = wp_list_pluck( amap_get_producer_users(), 'ID' );
+
+    if ( '' === $label || ! in_array( $producer_user_id, $valid_producer_ids, true )
+        || ! array_key_exists( $contract_type, amap_get_contract_types() ) ) {
+        amap_store_contract_form_data( $submitted );
+        wp_safe_redirect( $edit_url . '&amap_notice=invalid' );
+        exit;
+    }
+
+    if ( ! amap_is_valid_date( $start_date ) || ! amap_is_valid_date( $end_date ) || $start_date >= $end_date ) {
+        amap_store_contract_form_data( $submitted );
+        wp_safe_redirect( $edit_url . '&amap_notice=invalid_dates' );
+        exit;
+    }
+
+    if ( 'basket_recurring' === $contract_type ) {
+        if ( '' === $frequency_weeks || ! ctype_digit( $frequency_weeks ) || (int) $frequency_weeks < 1 ) {
+            amap_store_contract_form_data( $submitted );
+            wp_safe_redirect( $edit_url . '&amap_notice=invalid_frequency' );
+            exit;
+        }
+        $frequency_weeks = (int) $frequency_weeks;
+    } else {
+        $frequency_weeks = null;
+    }
+
+    global $wpdb;
+    $wpdb->update(
+        $wpdb->prefix . 'amap_contracts',
+        array(
+            'producer_user_id' => $producer_user_id,
+            'contract_type'    => $contract_type,
+            'label'            => $label,
+            'start_date'       => $start_date,
+            'end_date'         => $end_date,
+            'frequency_weeks'  => $frequency_weeks,
+            'is_active'        => $is_active ? 1 : 0,
+        ),
+        array( 'id' => $id )
+    );
+
+    wp_safe_redirect( admin_url( 'admin.php?page=amap-contracts' ) );
+    exit;
+}
+
+add_action( 'admin_post_amap_delete_contract', 'amap_handle_delete_contract' );
+
+function amap_handle_delete_contract() {
+    if ( ! current_user_can( 'amap_manage_contracts' ) ) {
+        wp_die( esc_html__( 'Action non autorisée.', 'association-manager' ) );
+    }
+
+    $id = isset( $_GET['id'] ) ? absint( $_GET['id'] ) : 0;
+    if ( ! $id || ! amap_get_contract( $id ) ) {
+        wp_die( esc_html__( 'Contrat introuvable.', 'association-manager' ) );
+    }
+
+    check_admin_referer( 'amap_delete_contract_' . $id );
+
+    global $wpdb;
+    // Pas de table fille dépendante à ce stade (basket_sizes/products/dates/subscriptions
+    // arrivent aux étapes suivantes) : suppression simple, comme "Groupes" avant l'étape 2.
+    $wpdb->delete( $wpdb->prefix . 'amap_contracts', array( 'id' => $id ) );
+
+    wp_safe_redirect( admin_url( 'admin.php?page=amap-contracts' ) );
     exit;
 }
