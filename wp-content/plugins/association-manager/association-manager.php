@@ -17,7 +17,7 @@ register_activation_hook( __FILE__, 'amap_activate' );
 function amap_activate() {
     // update_option() (et non plus add_option()) : la version doit refléter le schéma du
     // code à chaque activation. dbDelta() est idempotent, le rappeler ne pose pas de problème.
-    update_option( 'amap_db_version', '3.7' );
+    update_option( 'amap_db_version', '3.8' );
     amap_create_tables();
     amap_drop_obsolete_tables();
 
@@ -155,6 +155,23 @@ function amap_create_tables() {
     ) $charset_collate;";
 
     dbDelta( $sql_contracts );
+
+    $contract_basket_sizes_table = $wpdb->prefix . 'amap_contract_basket_sizes';
+
+    // Table fille des tailles+prix, uniquement pour un contrat basket_recurring (ex. petit/
+    // moyen/grand pour le maraîcher, prix fixe par taille). Un contrat product_grid n'a aucune
+    // ligne ici. Pas de contrainte FOREIGN KEY SQL sur contract_id, comme le reste du plugin.
+    $sql_contract_basket_sizes = "CREATE TABLE $contract_basket_sizes_table (
+        id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+        contract_id bigint(20) unsigned NOT NULL,
+        label varchar(60) NOT NULL,
+        price decimal(6,2) unsigned NOT NULL,
+        created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY  (id),
+        KEY contract_id (contract_id)
+    ) $charset_collate;";
+
+    dbDelta( $sql_contract_basket_sizes );
 }
 
 function amap_drop_obsolete_tables() {
@@ -2005,6 +2022,33 @@ function amap_store_contract_form_data( array $data ) {
     set_transient( 'amap_contract_form_' . get_current_user_id(), $data, 60 );
 }
 
+function amap_get_contract_basket_sizes( $contract_id ) {
+    global $wpdb;
+
+    return $wpdb->get_results(
+        $wpdb->prepare(
+            "SELECT * FROM {$wpdb->prefix}amap_contract_basket_sizes WHERE contract_id = %d ORDER BY id ASC",
+            $contract_id
+        )
+    );
+}
+
+function amap_get_contract_basket_size( $id ) {
+    global $wpdb;
+
+    return $wpdb->get_row(
+        $wpdb->prepare( "SELECT * FROM {$wpdb->prefix}amap_contract_basket_sizes WHERE id = %d", $id )
+    );
+}
+
+function amap_is_valid_price( $price ) {
+    return is_numeric( $price ) && (float) $price > 0;
+}
+
+function amap_store_contract_basket_size_form_data( array $data ) {
+    set_transient( 'amap_contract_basket_size_form_' . get_current_user_id(), $data, 60 );
+}
+
 function amap_render_contracts_page() {
     if ( ! current_user_can( 'amap_manage_contracts' ) ) {
         return;
@@ -2041,6 +2085,31 @@ function amap_render_contracts_page() {
         // Une case cochée par défaut à la création : un nouveau contrat est ouvert à la
         // souscription tant que le bureau ne l'a pas explicitement fermé.
         $form_data = array( 'is_active' => true );
+    }
+
+    // Mode édition d'une taille de panier : ?size_action=edit&size_id=Y en plus de
+    // ?action=edit&id=X sur cette même page (X = contrat, Y = taille de ce contrat).
+    $size_editing_id = 0;
+    if ( isset( $_GET['size_action'], $_GET['size_id'] ) && 'edit' === $_GET['size_action'] ) {
+        $size_editing_id = absint( $_GET['size_id'] );
+    }
+    $size_editing = $size_editing_id ? amap_get_contract_basket_size( $size_editing_id ) : null;
+    if ( $size_editing_id && ( ! $size_editing || (int) $size_editing->contract_id !== $editing_id ) ) {
+        $size_editing_id = 0;
+        $size_editing     = null;
+    }
+
+    $basket_size_transient_key = 'amap_contract_basket_size_form_' . get_current_user_id();
+    $basket_size_form_data     = get_transient( $basket_size_transient_key );
+    if ( false !== $basket_size_form_data ) {
+        delete_transient( $basket_size_transient_key );
+    } elseif ( $size_editing ) {
+        $basket_size_form_data = array(
+            'label' => $size_editing->label,
+            'price' => (string) $size_editing->price,
+        );
+    } else {
+        $basket_size_form_data = array();
     }
 
     $producers      = amap_get_producer_users();
@@ -2153,6 +2222,94 @@ function amap_render_contracts_page() {
                 toggleFrequencyRow();
             } )();
             </script>
+        <?php endif; ?>
+
+        <?php if ( $editing_id && $editing_contract && 'basket_recurring' === $editing_contract->contract_type ) : ?>
+            <?php $basket_sizes = amap_get_contract_basket_sizes( $editing_id ); ?>
+            <h2><?php esc_html_e( 'Tailles de panier', 'association-manager' ); ?></h2>
+            <?php if ( 'basket_size_invalid' === $notice ) : ?>
+                <div class="notice notice-error"><p><?php esc_html_e( 'Libellé ou prix invalide.', 'association-manager' ); ?></p></div>
+            <?php elseif ( 'basket_size_saved' === $notice ) : ?>
+                <div class="notice notice-success"><p><?php esc_html_e( 'Taille de panier enregistrée.', 'association-manager' ); ?></p></div>
+            <?php elseif ( 'basket_size_deleted' === $notice ) : ?>
+                <div class="notice notice-success"><p><?php esc_html_e( 'Taille de panier supprimée.', 'association-manager' ); ?></p></div>
+            <?php endif; ?>
+
+            <?php if ( empty( $basket_sizes ) ) : ?>
+                <p><?php esc_html_e( 'Aucune taille de panier pour le moment.', 'association-manager' ); ?></p>
+            <?php else : ?>
+                <table class="widefat">
+                    <thead>
+                        <tr>
+                            <th><?php esc_html_e( 'Libellé', 'association-manager' ); ?></th>
+                            <th><?php esc_html_e( 'Prix', 'association-manager' ); ?></th>
+                            <th><?php esc_html_e( 'Actions', 'association-manager' ); ?></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ( $basket_sizes as $basket_size ) : ?>
+                            <tr>
+                                <td><?php echo esc_html( $basket_size->label ); ?></td>
+                                <td><?php echo esc_html( number_format_i18n( (float) $basket_size->price, 2 ) ); ?> €</td>
+                                <td>
+                                    <a href="<?php echo esc_url( admin_url( 'admin.php?page=amap-contracts&action=edit&id=' . $editing_id . '&size_action=edit&size_id=' . $basket_size->id ) ); ?>">
+                                        <?php esc_html_e( 'Modifier', 'association-manager' ); ?>
+                                    </a>
+                                    |
+                                    <?php
+                                    $delete_size_url = wp_nonce_url(
+                                        admin_url( 'admin-post.php?action=amap_delete_contract_basket_size&id=' . $basket_size->id ),
+                                        'amap_delete_contract_basket_size_' . $basket_size->id
+                                    );
+                                    // translators: %s: libellé de la taille de panier.
+                                    $confirm_size_message = sprintf( __( 'Supprimer définitivement la taille %s ?', 'association-manager' ), $basket_size->label );
+                                    ?>
+                                    <a href="<?php echo esc_url( $delete_size_url ); ?>" onclick="return confirm( '<?php echo esc_js( $confirm_size_message ); ?>' );">
+                                        <?php esc_html_e( 'Supprimer', 'association-manager' ); ?>
+                                    </a>
+                                </td>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            <?php endif; ?>
+
+            <h3>
+                <?php echo $size_editing_id
+                    ? esc_html__( 'Modifier une taille de panier', 'association-manager' )
+                    : esc_html__( 'Ajouter une taille de panier', 'association-manager' ); ?>
+            </h3>
+            <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+                <?php if ( $size_editing_id ) : ?>
+                    <?php wp_nonce_field( 'amap_edit_contract_basket_size_' . $size_editing_id ); ?>
+                    <input type="hidden" name="action" value="amap_update_contract_basket_size">
+                    <input type="hidden" name="id" value="<?php echo esc_attr( $size_editing_id ); ?>">
+                <?php else : ?>
+                    <?php wp_nonce_field( 'amap_add_contract_basket_size_' . $editing_id ); ?>
+                    <input type="hidden" name="action" value="amap_add_contract_basket_size">
+                    <input type="hidden" name="contract_id" value="<?php echo esc_attr( $editing_id ); ?>">
+                <?php endif; ?>
+                <p>
+                    <label>
+                        <?php esc_html_e( 'Libellé', 'association-manager' ); ?>
+                        <input type="text" name="label" value="<?php echo esc_attr( $basket_size_form_data['label'] ?? '' ); ?>" required>
+                    </label>
+                </p>
+                <p>
+                    <label>
+                        <?php esc_html_e( 'Prix (€)', 'association-manager' ); ?>
+                        <input type="number" name="price" min="0.01" step="0.01" value="<?php echo esc_attr( $basket_size_form_data['price'] ?? '' ); ?>" required>
+                    </label>
+                </p>
+                <p>
+                    <?php submit_button( $size_editing_id ? __( 'Enregistrer', 'association-manager' ) : __( 'Ajouter', 'association-manager' ), 'primary', 'submit', false ); ?>
+                    <?php if ( $size_editing_id ) : ?>
+                        <a href="<?php echo esc_url( admin_url( 'admin.php?page=amap-contracts&action=edit&id=' . $editing_id ) ); ?>" class="button">
+                            <?php esc_html_e( 'Annuler', 'association-manager' ); ?>
+                        </a>
+                    <?php endif; ?>
+                </p>
+            </form>
         <?php endif; ?>
 
         <?php if ( empty( $contracts ) ) : ?>
@@ -2355,10 +2512,118 @@ function amap_handle_delete_contract() {
     check_admin_referer( 'amap_delete_contract_' . $id );
 
     global $wpdb;
-    // Pas de table fille dépendante à ce stade (basket_sizes/products/dates/subscriptions
-    // arrivent aux étapes suivantes) : suppression simple, comme "Groupes" avant l'étape 2.
+    // Pas de contrainte FOREIGN KEY SQL sur contract_id (cohérent avec le reste du plugin) :
+    // nettoyage explicite des tailles de panier orphelines, comme les rattachements
+    // producteurs orphelins à la suppression d'un groupe.
+    $wpdb->delete( $wpdb->prefix . 'amap_contract_basket_sizes', array( 'contract_id' => $id ) );
     $wpdb->delete( $wpdb->prefix . 'amap_contracts', array( 'id' => $id ) );
 
     wp_safe_redirect( admin_url( 'admin.php?page=amap-contracts' ) );
+    exit;
+}
+
+add_action( 'admin_post_amap_add_contract_basket_size', 'amap_handle_add_contract_basket_size' );
+
+function amap_handle_add_contract_basket_size() {
+    if ( ! current_user_can( 'amap_manage_contracts' ) ) {
+        wp_die( esc_html__( 'Action non autorisée.', 'association-manager' ) );
+    }
+
+    $contract_id = isset( $_POST['contract_id'] ) ? absint( $_POST['contract_id'] ) : 0;
+    $contract    = $contract_id ? amap_get_contract( $contract_id ) : null;
+    if ( ! $contract || 'basket_recurring' !== $contract->contract_type ) {
+        wp_die( esc_html__( 'Contrat introuvable ou non concerné par les tailles de panier.', 'association-manager' ) );
+    }
+
+    check_admin_referer( 'amap_add_contract_basket_size_' . $contract_id );
+
+    $edit_url = admin_url( 'admin.php?page=amap-contracts&action=edit&id=' . $contract_id );
+
+    $label     = isset( $_POST['label'] ) ? sanitize_text_field( wp_unslash( $_POST['label'] ) ) : '';
+    $price     = isset( $_POST['price'] ) ? sanitize_text_field( wp_unslash( $_POST['price'] ) ) : '';
+    $submitted = compact( 'label', 'price' );
+
+    if ( '' === $label || ! amap_is_valid_price( $price ) ) {
+        amap_store_contract_basket_size_form_data( $submitted );
+        wp_safe_redirect( $edit_url . '&amap_notice=basket_size_invalid' );
+        exit;
+    }
+
+    global $wpdb;
+    $wpdb->insert(
+        $wpdb->prefix . 'amap_contract_basket_sizes',
+        array(
+            'contract_id' => $contract_id,
+            'label'       => $label,
+            'price'       => (float) $price,
+        )
+    );
+
+    wp_safe_redirect( $edit_url . '&amap_notice=basket_size_saved' );
+    exit;
+}
+
+add_action( 'admin_post_amap_update_contract_basket_size', 'amap_handle_update_contract_basket_size' );
+
+function amap_handle_update_contract_basket_size() {
+    if ( ! current_user_can( 'amap_manage_contracts' ) ) {
+        wp_die( esc_html__( 'Action non autorisée.', 'association-manager' ) );
+    }
+
+    $id          = isset( $_POST['id'] ) ? absint( $_POST['id'] ) : 0;
+    $basket_size = $id ? amap_get_contract_basket_size( $id ) : null;
+    if ( ! $basket_size ) {
+        wp_die( esc_html__( 'Taille de panier introuvable.', 'association-manager' ) );
+    }
+
+    check_admin_referer( 'amap_edit_contract_basket_size_' . $id );
+
+    $edit_url = admin_url( 'admin.php?page=amap-contracts&action=edit&id=' . $basket_size->contract_id );
+
+    $label     = isset( $_POST['label'] ) ? sanitize_text_field( wp_unslash( $_POST['label'] ) ) : '';
+    $price     = isset( $_POST['price'] ) ? sanitize_text_field( wp_unslash( $_POST['price'] ) ) : '';
+    $submitted = compact( 'label', 'price' );
+
+    if ( '' === $label || ! amap_is_valid_price( $price ) ) {
+        amap_store_contract_basket_size_form_data( $submitted );
+        wp_safe_redirect( $edit_url . '&size_action=edit&size_id=' . $id . '&amap_notice=basket_size_invalid' );
+        exit;
+    }
+
+    global $wpdb;
+    $wpdb->update(
+        $wpdb->prefix . 'amap_contract_basket_sizes',
+        array(
+            'label' => $label,
+            'price' => (float) $price,
+        ),
+        array( 'id' => $id )
+    );
+
+    wp_safe_redirect( $edit_url . '&amap_notice=basket_size_saved' );
+    exit;
+}
+
+add_action( 'admin_post_amap_delete_contract_basket_size', 'amap_handle_delete_contract_basket_size' );
+
+function amap_handle_delete_contract_basket_size() {
+    if ( ! current_user_can( 'amap_manage_contracts' ) ) {
+        wp_die( esc_html__( 'Action non autorisée.', 'association-manager' ) );
+    }
+
+    $id          = isset( $_GET['id'] ) ? absint( $_GET['id'] ) : 0;
+    $basket_size = $id ? amap_get_contract_basket_size( $id ) : null;
+    if ( ! $basket_size ) {
+        wp_die( esc_html__( 'Taille de panier introuvable.', 'association-manager' ) );
+    }
+
+    check_admin_referer( 'amap_delete_contract_basket_size_' . $id );
+
+    global $wpdb;
+    $wpdb->delete( $wpdb->prefix . 'amap_contract_basket_sizes', array( 'id' => $id ) );
+
+    wp_safe_redirect(
+        admin_url( 'admin.php?page=amap-contracts&action=edit&id=' . $basket_size->contract_id . '&amap_notice=basket_size_deleted' )
+    );
     exit;
 }
