@@ -83,7 +83,7 @@ préfixées `amap_`, réutilisant le pattern CRUD déjà en place pour "Utilisat
 ```
 1. wp_amap_groups (CRUD groupes)                              ✅ fait (commit aa9b7a4)
 2. wp_amap_group_producers (rattachement producteur↔groupe)   ✅ fait (commit 060f19e)
-3. wp_amap_contracts (table mère seule)
+3. wp_amap_contracts (table mère seule)                       ✅ fait (commit 147e09d)
    4a. wp_amap_contract_basket_sizes (si basket_recurring)
    4b. wp_amap_contract_products  4c. wp_amap_contract_delivery_dates (si product_grid)
 5. wp_amap_subscriptions (dépend de 2 + 3/4a)
@@ -116,7 +116,15 @@ sauvegardée par synchronisation delete+insert (`amap_handle_update_group_produc
 Suppression d'un groupe : nettoyage explicite des rattachements orphelins (pas de contrainte
 FOREIGN KEY SQL dans ce plugin). Commit `060f19e`.
 
-## Étape 3 (prochaine) — `wp_amap_contracts`
+## Étape 3 (fait) — `wp_amap_contracts`
 
-Table mère des contrats (voir modèle de données ci-dessus). À concevoir en détail au démarrage
-de cette étape.
+Table mère des contrats (voir modèle de données ci-dessus). Nouvelle sous-page admin "Contrats"
+(menu AMAP), capability `amap_manage_contracts` (administrator + amap_board), CRUD complet sur
+le même squelette que "Groupes"/"Utilisateurs AMAP". `frequency_weeks` est obligatoire et
+revalidé côté serveur uniquement pour `basket_recurring` (forcé à `NULL` pour `product_grid`),
+le champ correspondant étant simplement masqué en JS selon le type sélectionné dans le
+formulaire. `is_active` : case à cocher, décochée manuellement par le bureau pour un contrat
+qu'on ne veut plus proposer à la souscription (pas de dérivation automatique depuis les dates).
+Aucune table fille à ce stade (basket_sizes/products/delivery_dates prévues en 4a/4b/4c) : la
+suppression d'un contrat reste donc simple, sans nettoyage de rattachements orphelins. Commit
+`147e09d`.
