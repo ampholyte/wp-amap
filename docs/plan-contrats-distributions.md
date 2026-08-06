@@ -82,7 +82,7 @@ préfixées `amap_`, réutilisant le pattern CRUD déjà en place pour "Utilisat
 
 ```
 1. wp_amap_groups (CRUD groupes)                              ✅ fait (commit aa9b7a4)
-2. wp_amap_group_producers (rattachement producteur↔groupe)
+2. wp_amap_group_producers (rattachement producteur↔groupe)   ✅ fait (commit 060f19e)
 3. wp_amap_contracts (table mère seule)
    4a. wp_amap_contract_basket_sizes (si basket_recurring)
    4b. wp_amap_contract_products  4c. wp_amap_contract_delivery_dates (si product_grid)
@@ -106,8 +106,17 @@ Table `wp_amap_groups` (nom, lieu de livraison, jour, heure de début/fin), capa
 `amap_manage_groups` (administrator + amap_board), sous-page admin "Groupes" (menu AMAP) avec
 CRUD complet, sur le même squelette que la page "Utilisateurs AMAP". Commit `aa9b7a4`.
 
-## Étape 2 (prochaine) — `wp_amap_group_producers`
+## Étape 2 (fait) — `wp_amap_group_producers`
 
-Rattachement producteur↔groupe, décidé par le bureau. À concevoir en détail au démarrage de
-cette étape (interface probable : depuis la page "Groupes", ou une nouvelle page dédiée listant
-les producteurs rattachés à chaque groupe — à trancher avec l'utilisateur).
+Table `wp_amap_group_producers` (`group_id`, `producer_user_id`, `UNIQUE(group_id,
+producer_user_id)`). Interface tranchée avec l'utilisateur : pas de nouvelle sous-page, gestion
+intégrée à la page "Groupes" existante — en mode édition d'un groupe (`?action=edit&id=X`), une
+section "Producteurs rattachés" liste tous les comptes `amap_producer` avec une case à cocher,
+sauvegardée par synchronisation delete+insert (`amap_handle_update_group_producers()`).
+Suppression d'un groupe : nettoyage explicite des rattachements orphelins (pas de contrainte
+FOREIGN KEY SQL dans ce plugin). Commit `060f19e`.
+
+## Étape 3 (prochaine) — `wp_amap_contracts`
+
+Table mère des contrats (voir modèle de données ci-dessus). À concevoir en détail au démarrage
+de cette étape.
