@@ -17,7 +17,7 @@ register_activation_hook( __FILE__, 'amap_activate' );
 function amap_activate() {
     // update_option() (et non plus add_option()) : la version doit refléter le schéma du
     // code à chaque activation. dbDelta() est idempotent, le rappeler ne pose pas de problème.
-    update_option( 'amap_db_version', '3.5' );
+    update_option( 'amap_db_version', '3.6' );
     amap_create_tables();
     amap_drop_obsolete_tables();
 
@@ -114,6 +114,22 @@ function amap_create_tables() {
     ) $charset_collate;";
 
     dbDelta( $sql_groups );
+
+    $group_producers_table = $wpdb->prefix . 'amap_group_producers';
+
+    // Rattachement producteur↔groupe décidé par le bureau : un groupe n'a pas accès à tous
+    // les producteurs automatiquement, un producteur peut être rattaché à plusieurs groupes.
+    // UNIQUE(group_id, producer_user_id) empêche un doublon de rattachement.
+    $sql_group_producers = "CREATE TABLE $group_producers_table (
+        id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+        group_id bigint(20) unsigned NOT NULL,
+        producer_user_id bigint(20) unsigned NOT NULL,
+        created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY  (id),
+        UNIQUE KEY group_producer (group_id, producer_user_id)
+    ) $charset_collate;";
+
+    dbDelta( $sql_group_producers );
 }
 
 function amap_drop_obsolete_tables() {
@@ -1528,6 +1544,29 @@ function amap_get_group( $id ) {
     );
 }
 
+function amap_get_producer_users() {
+    $user_query = new WP_User_Query(
+        array(
+            'role'    => 'amap_producer',
+            'orderby' => 'display_name',
+            'order'   => 'ASC',
+        )
+    );
+
+    return $user_query->get_results();
+}
+
+function amap_get_group_producer_ids( $group_id ) {
+    global $wpdb;
+
+    return $wpdb->get_col(
+        $wpdb->prepare(
+            "SELECT producer_user_id FROM {$wpdb->prefix}amap_group_producers WHERE group_id = %d",
+            $group_id
+        )
+    );
+}
+
 /**
  * Les colonnes TIME de MySQL sont lues sous la forme "HH:MM:SS" par $wpdb : on ne garde que
  * "HH:MM", à la fois pour l'affichage dans le tableau et pour préremplir un <input type="time">.
@@ -1649,6 +1688,42 @@ function amap_render_groups_page() {
                 <?php endif; ?>
             </p>
         </form>
+
+        <?php if ( $editing_id ) : ?>
+            <?php
+            $producers              = amap_get_producer_users();
+            $attached_producer_ids  = amap_get_group_producer_ids( $editing_id );
+            ?>
+            <h2><?php esc_html_e( 'Producteurs rattachés', 'association-manager' ); ?></h2>
+            <?php if ( 'producers_updated' === $notice ) : ?>
+                <div class="notice notice-success"><p><?php esc_html_e( 'Producteurs rattachés mis à jour.', 'association-manager' ); ?></p></div>
+            <?php endif; ?>
+            <?php if ( empty( $producers ) ) : ?>
+                <p><?php esc_html_e( "Aucun compte producteur pour le moment.", 'association-manager' ); ?></p>
+            <?php else : ?>
+                <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+                    <?php wp_nonce_field( 'amap_update_group_producers_' . $editing_id ); ?>
+                    <input type="hidden" name="action" value="amap_update_group_producers">
+                    <input type="hidden" name="group_id" value="<?php echo esc_attr( $editing_id ); ?>">
+                    <?php foreach ( $producers as $producer ) : ?>
+                        <p>
+                            <label>
+                                <input
+                                    type="checkbox"
+                                    name="producer_ids[]"
+                                    value="<?php echo esc_attr( $producer->ID ); ?>"
+                                    <?php checked( in_array( (string) $producer->ID, $attached_producer_ids, true ) ); ?>
+                                >
+                                <?php echo esc_html( $producer->display_name ); ?>
+                            </label>
+                        </p>
+                    <?php endforeach; ?>
+                    <p>
+                        <?php submit_button( __( 'Enregistrer les producteurs', 'association-manager' ), 'primary', 'submit', false ); ?>
+                    </p>
+                </form>
+            <?php endif; ?>
+        <?php endif; ?>
 
         <?php if ( empty( $groups ) ) : ?>
             <p><?php esc_html_e( 'Aucun groupe enregistré pour le moment.', 'association-manager' ); ?></p>
@@ -1810,8 +1885,47 @@ function amap_handle_delete_group() {
     check_admin_referer( 'amap_delete_group_' . $id );
 
     global $wpdb;
+    // Pas de contrainte FOREIGN KEY SQL sur group_id (cohérent avec le reste du plugin) : le
+    // nettoyage des rattachements producteurs orphelins se fait explicitement ici.
+    $wpdb->delete( $wpdb->prefix . 'amap_group_producers', array( 'group_id' => $id ) );
     $wpdb->delete( $wpdb->prefix . 'amap_groups', array( 'id' => $id ) );
 
     wp_safe_redirect( admin_url( 'admin.php?page=amap-groups' ) );
+    exit;
+}
+
+add_action( 'admin_post_amap_update_group_producers', 'amap_handle_update_group_producers' );
+
+function amap_handle_update_group_producers() {
+    if ( ! current_user_can( 'amap_manage_groups' ) ) {
+        wp_die( esc_html__( 'Action non autorisée.', 'association-manager' ) );
+    }
+
+    $group_id = isset( $_POST['group_id'] ) ? absint( $_POST['group_id'] ) : 0;
+    if ( ! $group_id || ! amap_get_group( $group_id ) ) {
+        wp_die( esc_html__( 'Groupe introuvable.', 'association-manager' ) );
+    }
+
+    check_admin_referer( 'amap_update_group_producers_' . $group_id );
+
+    // Défense en profondeur : on ne garde que des ID correspondant réellement à un compte
+    // portant la casquette amap_producer, même si le HTML du formulaire ne propose que ça.
+    $valid_producer_ids = wp_list_pluck( amap_get_producer_users(), 'ID' );
+    $submitted_ids      = isset( $_POST['producer_ids'] ) ? array_map( 'absint', (array) wp_unslash( $_POST['producer_ids'] ) ) : array();
+    $producer_ids       = array_intersect( $submitted_ids, $valid_producer_ids );
+
+    global $wpdb;
+    $wpdb->delete( $wpdb->prefix . 'amap_group_producers', array( 'group_id' => $group_id ) );
+    foreach ( $producer_ids as $producer_id ) {
+        $wpdb->insert(
+            $wpdb->prefix . 'amap_group_producers',
+            array(
+                'group_id'         => $group_id,
+                'producer_user_id' => $producer_id,
+            )
+        );
+    }
+
+    wp_safe_redirect( admin_url( 'admin.php?page=amap-groups&action=edit&id=' . $group_id . '&amap_notice=producers_updated' ) );
     exit;
 }
