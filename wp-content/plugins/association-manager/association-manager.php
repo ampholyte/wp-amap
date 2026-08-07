@@ -17,7 +17,7 @@ register_activation_hook( __FILE__, 'amap_activate' );
 function amap_activate() {
     // update_option() (et non plus add_option()) : la version doit refléter le schéma du
     // code à chaque activation. dbDelta() est idempotent, le rappeler ne pose pas de problème.
-    update_option( 'amap_db_version', '3.9' );
+    update_option( 'amap_db_version', '3.10' );
     amap_create_tables();
     amap_drop_obsolete_tables();
 
@@ -190,6 +190,23 @@ function amap_create_tables() {
     ) $charset_collate;";
 
     dbDelta( $sql_contract_products );
+
+    $contract_delivery_dates_table = $wpdb->prefix . 'amap_contract_delivery_dates';
+
+    // Table fille des dates de livraison du trimestre, uniquement pour un contrat product_grid.
+    // UNIQUE(contract_id, delivery_date) empêche un doublon de date sur un même contrat ;
+    // revérifié côté PHP avant insert/update pour afficher un message clair (voir
+    // amap_contract_has_delivery_date()), la contrainte SQL restant le garde-fou final.
+    $sql_contract_delivery_dates = "CREATE TABLE $contract_delivery_dates_table (
+        id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+        contract_id bigint(20) unsigned NOT NULL,
+        delivery_date date NOT NULL,
+        created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY  (id),
+        UNIQUE KEY contract_delivery_date (contract_id, delivery_date)
+    ) $charset_collate;";
+
+    dbDelta( $sql_contract_delivery_dates );
 }
 
 function amap_drop_obsolete_tables() {
@@ -2090,6 +2107,48 @@ function amap_store_contract_product_form_data( array $data ) {
     set_transient( 'amap_contract_product_form_' . get_current_user_id(), $data, 60 );
 }
 
+function amap_get_contract_delivery_dates( $contract_id ) {
+    global $wpdb;
+
+    return $wpdb->get_results(
+        $wpdb->prepare(
+            "SELECT * FROM {$wpdb->prefix}amap_contract_delivery_dates WHERE contract_id = %d ORDER BY delivery_date ASC",
+            $contract_id
+        )
+    );
+}
+
+function amap_get_contract_delivery_date( $id ) {
+    global $wpdb;
+
+    return $wpdb->get_row(
+        $wpdb->prepare( "SELECT * FROM {$wpdb->prefix}amap_contract_delivery_dates WHERE id = %d", $id )
+    );
+}
+
+/**
+ * Revérifie côté PHP la contrainte UNIQUE(contract_id, delivery_date), pour afficher un message
+ * d'erreur clair plutôt que de laisser échouer silencieusement le $wpdb->insert()/update().
+ * $exclude_id : ID à ignorer, pour ne pas se comparer à soi-même lors d'une modification.
+ */
+function amap_contract_has_delivery_date( $contract_id, $delivery_date, $exclude_id = 0 ) {
+    global $wpdb;
+
+    $sql    = "SELECT COUNT(*) FROM {$wpdb->prefix}amap_contract_delivery_dates WHERE contract_id = %d AND delivery_date = %s";
+    $params = array( $contract_id, $delivery_date );
+
+    if ( $exclude_id ) {
+        $sql     .= ' AND id != %d';
+        $params[] = $exclude_id;
+    }
+
+    return (bool) $wpdb->get_var( $wpdb->prepare( $sql, $params ) );
+}
+
+function amap_store_contract_delivery_date_form_data( array $data ) {
+    set_transient( 'amap_contract_delivery_date_form_' . get_current_user_id(), $data, 60 );
+}
+
 function amap_render_contracts_page() {
     if ( ! current_user_can( 'amap_manage_contracts' ) ) {
         return;
@@ -2176,6 +2235,28 @@ function amap_render_contracts_page() {
         );
     } else {
         $contract_product_form_data = array();
+    }
+
+    // Mode édition d'une date de livraison : ?date_action=edit&date_id=Y en plus de
+    // ?action=edit&id=X sur cette même page (X = contrat, Y = date de ce contrat).
+    $delivery_date_editing_id = 0;
+    if ( isset( $_GET['date_action'], $_GET['date_id'] ) && 'edit' === $_GET['date_action'] ) {
+        $delivery_date_editing_id = absint( $_GET['date_id'] );
+    }
+    $delivery_date_editing = $delivery_date_editing_id ? amap_get_contract_delivery_date( $delivery_date_editing_id ) : null;
+    if ( $delivery_date_editing_id && ( ! $delivery_date_editing || (int) $delivery_date_editing->contract_id !== $editing_id ) ) {
+        $delivery_date_editing_id = 0;
+        $delivery_date_editing    = null;
+    }
+
+    $contract_delivery_date_transient_key = 'amap_contract_delivery_date_form_' . get_current_user_id();
+    $contract_delivery_date_form_data     = get_transient( $contract_delivery_date_transient_key );
+    if ( false !== $contract_delivery_date_form_data ) {
+        delete_transient( $contract_delivery_date_transient_key );
+    } elseif ( $delivery_date_editing ) {
+        $contract_delivery_date_form_data = array( 'delivery_date' => $delivery_date_editing->delivery_date );
+    } else {
+        $contract_delivery_date_form_data = array();
     }
 
     $producers      = amap_get_producer_users();
@@ -2464,6 +2545,98 @@ function amap_render_contracts_page() {
                     <?php endif; ?>
                 </p>
             </form>
+
+            <?php $delivery_dates = amap_get_contract_delivery_dates( $editing_id ); ?>
+            <h2><?php esc_html_e( 'Dates de livraison', 'association-manager' ); ?></h2>
+            <?php if ( 'contract_delivery_date_invalid' === $notice ) : ?>
+                <div class="notice notice-error"><p><?php esc_html_e( 'Date invalide.', 'association-manager' ); ?></p></div>
+            <?php elseif ( 'contract_delivery_date_out_of_range' === $notice ) : ?>
+                <div class="notice notice-error"><p><?php esc_html_e( 'La date doit être comprise dans la période du contrat.', 'association-manager' ); ?></p></div>
+            <?php elseif ( 'contract_delivery_date_duplicate' === $notice ) : ?>
+                <div class="notice notice-error"><p><?php esc_html_e( 'Cette date de livraison est déjà enregistrée pour ce contrat.', 'association-manager' ); ?></p></div>
+            <?php elseif ( 'contract_delivery_date_saved' === $notice ) : ?>
+                <div class="notice notice-success"><p><?php esc_html_e( 'Date de livraison enregistrée.', 'association-manager' ); ?></p></div>
+            <?php elseif ( 'contract_delivery_date_deleted' === $notice ) : ?>
+                <div class="notice notice-success"><p><?php esc_html_e( 'Date de livraison supprimée.', 'association-manager' ); ?></p></div>
+            <?php endif; ?>
+
+            <?php if ( empty( $delivery_dates ) ) : ?>
+                <p><?php esc_html_e( 'Aucune date de livraison pour le moment.', 'association-manager' ); ?></p>
+            <?php else : ?>
+                <table class="widefat">
+                    <thead>
+                        <tr>
+                            <th><?php esc_html_e( 'Date', 'association-manager' ); ?></th>
+                            <th><?php esc_html_e( 'Actions', 'association-manager' ); ?></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ( $delivery_dates as $delivery_date_row ) : ?>
+                            <tr>
+                                <td><?php echo esc_html( $delivery_date_row->delivery_date ); ?></td>
+                                <td>
+                                    <a href="<?php echo esc_url( admin_url( 'admin.php?page=amap-contracts&action=edit&id=' . $editing_id . '&date_action=edit&date_id=' . $delivery_date_row->id ) ); ?>">
+                                        <?php esc_html_e( 'Modifier', 'association-manager' ); ?>
+                                    </a>
+                                    |
+                                    <?php
+                                    $delete_date_url = wp_nonce_url(
+                                        admin_url( 'admin-post.php?action=amap_delete_contract_delivery_date&id=' . $delivery_date_row->id ),
+                                        'amap_delete_contract_delivery_date_' . $delivery_date_row->id
+                                    );
+                                    // translators: %s: date de livraison.
+                                    $confirm_date_message = sprintf( __( 'Supprimer définitivement la date %s ?', 'association-manager' ), $delivery_date_row->delivery_date );
+                                    ?>
+                                    <a href="<?php echo esc_url( $delete_date_url ); ?>" onclick="return confirm( '<?php echo esc_js( $confirm_date_message ); ?>' );">
+                                        <?php esc_html_e( 'Supprimer', 'association-manager' ); ?>
+                                    </a>
+                                </td>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            <?php endif; ?>
+
+            <h3>
+                <?php echo $delivery_date_editing_id
+                    ? esc_html__( 'Modifier une date de livraison', 'association-manager' )
+                    : esc_html__( 'Ajouter une date de livraison', 'association-manager' ); ?>
+            </h3>
+            <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+                <?php if ( $delivery_date_editing_id ) : ?>
+                    <?php wp_nonce_field( 'amap_edit_contract_delivery_date_' . $delivery_date_editing_id ); ?>
+                    <input type="hidden" name="action" value="amap_update_contract_delivery_date">
+                    <input type="hidden" name="id" value="<?php echo esc_attr( $delivery_date_editing_id ); ?>">
+                <?php else : ?>
+                    <?php wp_nonce_field( 'amap_add_contract_delivery_date_' . $editing_id ); ?>
+                    <input type="hidden" name="action" value="amap_add_contract_delivery_date">
+                    <input type="hidden" name="contract_id" value="<?php echo esc_attr( $editing_id ); ?>">
+                <?php endif; ?>
+                <p>
+                    <label>
+                        <?php esc_html_e( 'Date de livraison', 'association-manager' ); ?>
+                        <input type="date" name="delivery_date" min="<?php echo esc_attr( $editing_contract->start_date ); ?>" max="<?php echo esc_attr( $editing_contract->end_date ); ?>" value="<?php echo esc_attr( $contract_delivery_date_form_data['delivery_date'] ?? '' ); ?>" required>
+                    </label>
+                    <br><span class="description">
+                        <?php
+                        printf(
+                            /* translators: 1: date de début du contrat, 2: date de fin du contrat. */
+                            esc_html__( 'Doit être comprise entre le %1$s et le %2$s (période du contrat).', 'association-manager' ),
+                            esc_html( $editing_contract->start_date ),
+                            esc_html( $editing_contract->end_date )
+                        );
+                        ?>
+                    </span>
+                </p>
+                <p>
+                    <?php submit_button( $delivery_date_editing_id ? __( 'Enregistrer', 'association-manager' ) : __( 'Ajouter', 'association-manager' ), 'primary', 'submit', false ); ?>
+                    <?php if ( $delivery_date_editing_id ) : ?>
+                        <a href="<?php echo esc_url( admin_url( 'admin.php?page=amap-contracts&action=edit&id=' . $editing_id ) ); ?>" class="button">
+                            <?php esc_html_e( 'Annuler', 'association-manager' ); ?>
+                        </a>
+                    <?php endif; ?>
+                </p>
+            </form>
         <?php endif; ?>
 
         <?php if ( empty( $contracts ) ) : ?>
@@ -2667,11 +2840,12 @@ function amap_handle_delete_contract() {
 
     global $wpdb;
     // Pas de contrainte FOREIGN KEY SQL sur contract_id (cohérent avec le reste du plugin) :
-    // nettoyage explicite des tables filles orphelines (une seule des deux contient
-    // effectivement des lignes selon contract_type, l'autre suppression ne fait rien), comme
-    // les rattachements producteurs orphelins à la suppression d'un groupe.
+    // nettoyage explicite des tables filles orphelines (seules celles correspondant au
+    // contract_type de ce contrat contiennent effectivement des lignes, les autres suppressions
+    // ne font rien), comme les rattachements producteurs orphelins à la suppression d'un groupe.
     $wpdb->delete( $wpdb->prefix . 'amap_contract_basket_sizes', array( 'contract_id' => $id ) );
     $wpdb->delete( $wpdb->prefix . 'amap_contract_products', array( 'contract_id' => $id ) );
+    $wpdb->delete( $wpdb->prefix . 'amap_contract_delivery_dates', array( 'contract_id' => $id ) );
     $wpdb->delete( $wpdb->prefix . 'amap_contracts', array( 'id' => $id ) );
 
     wp_safe_redirect( admin_url( 'admin.php?page=amap-contracts' ) );
@@ -2886,6 +3060,131 @@ function amap_handle_delete_contract_product() {
 
     wp_safe_redirect(
         admin_url( 'admin.php?page=amap-contracts&action=edit&id=' . $product->contract_id . '&amap_notice=contract_product_deleted' )
+    );
+    exit;
+}
+
+add_action( 'admin_post_amap_add_contract_delivery_date', 'amap_handle_add_contract_delivery_date' );
+
+function amap_handle_add_contract_delivery_date() {
+    if ( ! current_user_can( 'amap_manage_contracts' ) ) {
+        wp_die( esc_html__( 'Action non autorisée.', 'association-manager' ) );
+    }
+
+    $contract_id = isset( $_POST['contract_id'] ) ? absint( $_POST['contract_id'] ) : 0;
+    $contract    = $contract_id ? amap_get_contract( $contract_id ) : null;
+    if ( ! $contract || 'product_grid' !== $contract->contract_type ) {
+        wp_die( esc_html__( 'Contrat introuvable ou non concerné par les dates de livraison.', 'association-manager' ) );
+    }
+
+    check_admin_referer( 'amap_add_contract_delivery_date_' . $contract_id );
+
+    $edit_url      = admin_url( 'admin.php?page=amap-contracts&action=edit&id=' . $contract_id );
+    $delivery_date = isset( $_POST['delivery_date'] ) ? sanitize_text_field( wp_unslash( $_POST['delivery_date'] ) ) : '';
+
+    if ( ! amap_is_valid_date( $delivery_date ) ) {
+        amap_store_contract_delivery_date_form_data( compact( 'delivery_date' ) );
+        wp_safe_redirect( $edit_url . '&amap_notice=contract_delivery_date_invalid' );
+        exit;
+    }
+
+    if ( $delivery_date < $contract->start_date || $delivery_date > $contract->end_date ) {
+        amap_store_contract_delivery_date_form_data( compact( 'delivery_date' ) );
+        wp_safe_redirect( $edit_url . '&amap_notice=contract_delivery_date_out_of_range' );
+        exit;
+    }
+
+    if ( amap_contract_has_delivery_date( $contract_id, $delivery_date ) ) {
+        amap_store_contract_delivery_date_form_data( compact( 'delivery_date' ) );
+        wp_safe_redirect( $edit_url . '&amap_notice=contract_delivery_date_duplicate' );
+        exit;
+    }
+
+    global $wpdb;
+    $wpdb->insert(
+        $wpdb->prefix . 'amap_contract_delivery_dates',
+        array(
+            'contract_id'   => $contract_id,
+            'delivery_date' => $delivery_date,
+        )
+    );
+
+    wp_safe_redirect( $edit_url . '&amap_notice=contract_delivery_date_saved' );
+    exit;
+}
+
+add_action( 'admin_post_amap_update_contract_delivery_date', 'amap_handle_update_contract_delivery_date' );
+
+function amap_handle_update_contract_delivery_date() {
+    if ( ! current_user_can( 'amap_manage_contracts' ) ) {
+        wp_die( esc_html__( 'Action non autorisée.', 'association-manager' ) );
+    }
+
+    $id           = isset( $_POST['id'] ) ? absint( $_POST['id'] ) : 0;
+    $delivery_row = $id ? amap_get_contract_delivery_date( $id ) : null;
+    if ( ! $delivery_row ) {
+        wp_die( esc_html__( 'Date de livraison introuvable.', 'association-manager' ) );
+    }
+
+    $contract = amap_get_contract( $delivery_row->contract_id );
+    if ( ! $contract ) {
+        wp_die( esc_html__( 'Contrat introuvable.', 'association-manager' ) );
+    }
+
+    check_admin_referer( 'amap_edit_contract_delivery_date_' . $id );
+
+    $edit_url      = admin_url( 'admin.php?page=amap-contracts&action=edit&id=' . $delivery_row->contract_id );
+    $delivery_date = isset( $_POST['delivery_date'] ) ? sanitize_text_field( wp_unslash( $_POST['delivery_date'] ) ) : '';
+
+    if ( ! amap_is_valid_date( $delivery_date ) ) {
+        amap_store_contract_delivery_date_form_data( compact( 'delivery_date' ) );
+        wp_safe_redirect( $edit_url . '&date_action=edit&date_id=' . $id . '&amap_notice=contract_delivery_date_invalid' );
+        exit;
+    }
+
+    if ( $delivery_date < $contract->start_date || $delivery_date > $contract->end_date ) {
+        amap_store_contract_delivery_date_form_data( compact( 'delivery_date' ) );
+        wp_safe_redirect( $edit_url . '&date_action=edit&date_id=' . $id . '&amap_notice=contract_delivery_date_out_of_range' );
+        exit;
+    }
+
+    if ( amap_contract_has_delivery_date( $delivery_row->contract_id, $delivery_date, $id ) ) {
+        amap_store_contract_delivery_date_form_data( compact( 'delivery_date' ) );
+        wp_safe_redirect( $edit_url . '&date_action=edit&date_id=' . $id . '&amap_notice=contract_delivery_date_duplicate' );
+        exit;
+    }
+
+    global $wpdb;
+    $wpdb->update(
+        $wpdb->prefix . 'amap_contract_delivery_dates',
+        array( 'delivery_date' => $delivery_date ),
+        array( 'id' => $id )
+    );
+
+    wp_safe_redirect( $edit_url . '&amap_notice=contract_delivery_date_saved' );
+    exit;
+}
+
+add_action( 'admin_post_amap_delete_contract_delivery_date', 'amap_handle_delete_contract_delivery_date' );
+
+function amap_handle_delete_contract_delivery_date() {
+    if ( ! current_user_can( 'amap_manage_contracts' ) ) {
+        wp_die( esc_html__( 'Action non autorisée.', 'association-manager' ) );
+    }
+
+    $id           = isset( $_GET['id'] ) ? absint( $_GET['id'] ) : 0;
+    $delivery_row = $id ? amap_get_contract_delivery_date( $id ) : null;
+    if ( ! $delivery_row ) {
+        wp_die( esc_html__( 'Date de livraison introuvable.', 'association-manager' ) );
+    }
+
+    check_admin_referer( 'amap_delete_contract_delivery_date_' . $id );
+
+    global $wpdb;
+    $wpdb->delete( $wpdb->prefix . 'amap_contract_delivery_dates', array( 'id' => $id ) );
+
+    wp_safe_redirect(
+        admin_url( 'admin.php?page=amap-contracts&action=edit&id=' . $delivery_row->contract_id . '&amap_notice=contract_delivery_date_deleted' )
     );
     exit;
 }
