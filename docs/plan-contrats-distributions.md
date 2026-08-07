@@ -74,6 +74,13 @@ de vraie contrainte `FOREIGN KEY` SQL — cohérent avec `wp_amap_users.user_id`
 Point ouvert non tranché (hérité de `metier-producteurs.md`) : que se passe-t-il si un adhérent
 n'a pas posé ses 4 congés avant la fin du contrat maraîcher ?
 
+Point ouvert non tranché (soulevé en conversation le 2026-08-06, à l'étape 4b) : certains
+produits du catalogue (`wp_amap_contract_products`) peuvent bénéficier d'une remise par
+quantité (ex. 6 unités achetées, 5 facturées), mais pas systématiquement selon le produit. La
+table `wp_amap_contract_products` créée en 4b ne modélise volontairement que le prix unitaire
+(label + price), sans règle de remise : à traiter plus tard, probablement à l'étape 5/6
+(souscriptions), quand les quantités réellement commandées par un adhérent seront connues.
+
 Aucune de ces étapes n'introduit de fichiers séparés, namespaces, classes ou couche
 Repository/Service : tout reste dans `association-manager.php`, fonctions procédurales
 préfixées `amap_`, réutilisant le pattern CRUD déjà en place pour "Utilisateurs AMAP".
