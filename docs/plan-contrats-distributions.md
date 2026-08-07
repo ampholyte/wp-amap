@@ -91,8 +91,9 @@ préfixées `amap_`, réutilisant le pattern CRUD déjà en place pour "Utilisat
 1. wp_amap_groups (CRUD groupes)                              ✅ fait (commit aa9b7a4)
 2. wp_amap_group_producers (rattachement producteur↔groupe)   ✅ fait (commit 060f19e)
 3. wp_amap_contracts (table mère seule)                       ✅ fait (commit 147e09d)
-   4a. wp_amap_contract_basket_sizes (si basket_recurring)
-   4b. wp_amap_contract_products  4c. wp_amap_contract_delivery_dates (si product_grid)
+4. wp_amap_contract_basket_sizes (4a) / contract_products (4b) /
+   contract_delivery_dates (4c) — tables filles selon         ✅ fait (commits df12d2e,
+   contract_type                                                 b680604, 4412500)
 5. wp_amap_subscriptions (dépend de 2 + 3/4a)
 6. wp_amap_subscription_items (dépend de 4b/4c + 5)
 7. wp_amap_leaves (dépend de 5) — CRUD admin d'abord, self-service adhérent plus tard
@@ -135,3 +136,27 @@ qu'on ne veut plus proposer à la souscription (pas de dérivation automatique d
 Aucune table fille à ce stade (basket_sizes/products/delivery_dates prévues en 4a/4b/4c) : la
 suppression d'un contrat reste donc simple, sans nettoyage de rattachements orphelins. Commit
 `147e09d`.
+
+## Étape 4 (fait) — tables filles des contrats
+
+Trois tables filles de `wp_amap_contracts`, chacune réservée à un seul `contract_type` (voir
+modèle de données ci-dessus). Interface tranchée avec l'utilisateur, sur le même principe que
+"Producteurs rattachés" (étape 2) : pas de nouvelle sous-page, mini-CRUD nichée dans la page
+"Contrats" existante, en mode édition d'un contrat du type concerné — mais ici un vrai CRUD
+(ajout/modification/suppression) plutôt qu'une case à cocher, les tailles/produits/dates
+n'existant nulle part ailleurs.
+
+- **4a — `wp_amap_contract_basket_sizes`** (`basket_recurring` uniquement) : tailles+prix du
+  panier maraîcher, section "Tailles de panier". Commit `df12d2e`.
+- **4b — `wp_amap_contract_products`** (`product_grid` uniquement) : catalogue produits
+  (label+prix), section "Produits". Commit `b680604`. Point ouvert soulevé à cette étape (voir
+  plus haut) : remise par quantité non modélisée ici. Doc du point ouvert : commit `ba83e1c`.
+- **4c — `wp_amap_contract_delivery_dates`** (`product_grid` uniquement) : dates de livraison
+  du trimestre, `UNIQUE(contract_id, delivery_date)`, section "Dates de livraison" (sous
+  "Produits"). Validations serveur supplémentaires : date comprise entre `start_date` et
+  `end_date` du contrat, unicité revérifiée côté PHP (`amap_contract_has_delivery_date()`) pour
+  un message d'erreur clair avant la contrainte SQL. Commit `4412500`.
+
+Suppression d'un contrat : nettoyage explicite des trois tables filles (une seule contient
+effectivement des lignes selon `contract_type`, les deux autres suppressions ne font rien),
+comme pour les rattachements producteurs orphelins à la suppression d'un groupe (étape 2).
