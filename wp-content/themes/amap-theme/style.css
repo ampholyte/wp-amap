@@ -93,6 +93,11 @@ a:focus {
     color: var(--color-primary-dark);
 }
 
+img {
+    max-width: 100%;
+    height: auto;
+}
+
 /* Structure de page */
 header,
 footer {
@@ -161,6 +166,12 @@ main {
 .menu a:hover,
 .menu a:focus {
     color: var(--color-primary);
+}
+
+.menu .current-menu-item > a,
+.menu .current_page_item > a {
+    color: var(--color-primary-dark);
+    text-decoration: underline;
 }
 
 /* Formulaires */
@@ -304,6 +315,29 @@ input[type="submit"]:hover,
 
 .field-error[hidden] {
     display: none;
+}
+
+/* Articles (accueil, page, article) */
+article {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    padding: var(--space-4);
+    margin-bottom: var(--space-4);
+}
+
+article > *:first-child {
+    margin-top: 0;
+}
+
+.amap-post-meta {
+    color: var(--color-text-muted);
+    font-size: 0.9rem;
+}
+
+.wp-post-image {
+    border-radius: var(--radius);
+    margin-bottom: var(--space-3);
 }
 
 /* Tableaux */

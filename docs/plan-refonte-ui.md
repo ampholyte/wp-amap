@@ -25,7 +25,7 @@ Décisions actées :
 ```
 A. Fondations du design system (variables + composants de base)   ✅ fait
 B. Parcours de connexion + espace membre + profil adhérent        ✅ fait
-C. Vitrine publique (accueil, articles, pages, menu, footer)
+C. Vitrine publique (accueil, articles, pages, menu, footer)       ✅ fait
 D. Page admin "Contrats" : séparation visuelle des sous-sections
 ```
 
@@ -90,12 +90,21 @@ téléphone dès l'ouverture du formulaire, avant toute saisie) — une règle C
 sur la règle par défaut du navigateur `[hidden] { display: none; }` même à spécificité égale.
 Corrigé en ajoutant `.field-error[hidden] { display: none; }`.
 
-## Sous-étape C — Vitrine publique
+## Sous-étape C (fait) — Vitrine publique
 
-Fichiers : `home.php`, `index.php`, `single.php`, `page.php`, `header.php`, `footer.php`.
+Fichiers modifiés : `style.css`, `single.php`, `page.php` (`home.php`/`index.php` inchangés,
+déjà couverts par les règles génériques ci-dessous).
 
-À faire : mise en forme des articles (image à la une contrainte en taille, carte), nav
-responsive.
+Contenu : `<article>` (accueil, page, article) mis en carte (fond blanc, bordure, padding),
+premier enfant sans marge haute pour éviter le double espace. Ajout d'un reset `img { max-width:
+100%; height: auto; }` (absent jusqu'ici, risque de débordement pour toute image de contenu) et
+d'un style dédié à l'image à la une (`.wp-post-image`, classe posée automatiquement par
+`the_post_thumbnail()`). `single.php`/`page.php` passent explicitement en taille `large` pour
+cette image (au lieu de la taille par défaut, potentiellement minuscule si `post-thumbnail` n'est
+pas enregistrée). Date de publication (`single.php`) en `.amap-post-meta` (texte atténué). Menu :
+l'élément actif (`current-menu-item`/`current_page_item`, classes posées automatiquement par
+`wp_nav_menu()`) est maintenant visuellement distingué. La réponsivité du header (empilement en
+mobile) était déjà couverte par la sous-étape A.
 
 ## Sous-étape D — Page admin "Contrats" : séparation visuelle
 
