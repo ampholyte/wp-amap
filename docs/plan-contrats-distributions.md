@@ -49,8 +49,13 @@ de vraie contrainte `FOREIGN KEY` SQL — cohérent avec `wp_amap_users.user_id`
   `created_at`.
 - **`wp_amap_contract_basket_sizes`** — tailles+prix, `basket_recurring` uniquement : `id`,
   `contract_id`, `label`, `price`, `created_at`.
-- **`wp_amap_contract_products`** + **`wp_amap_contract_delivery_dates`** — catalogue produits
-  et dates de livraison du trimestre, `product_grid` uniquement.
+- **`wp_amap_contract_products`** — catalogue produits, `product_grid` uniquement.
+- **`wp_amap_contract_delivery_dates`** — dates de livraison du trimestre, `product_grid`
+  uniquement : `id`, `contract_id`, `group_id`, `delivery_date`, `created_at`,
+  `UNIQUE(contract_id, group_id, delivery_date)`. `group_id` est nécessaire car un producteur
+  peut livrer plusieurs groupes de distribution (`wp_amap_group_producers`), chacun avec son
+  propre jour fixe (`wp_amap_groups.weekday`) : les dates diffèrent donc selon le groupe de
+  l'adhérent, pas seulement selon le contrat.
 - **`wp_amap_subscriptions`** — souscription adhérent↔contrat : `id`, `contract_id`,
   `member_user_id`, `group_id` (point de retrait choisi), `basket_size_id` (NULL sauf
   `basket_recurring`), `signed_at`, `created_at`, `UNIQUE(contract_id, member_user_id)`.
@@ -152,11 +157,33 @@ n'existant nulle part ailleurs.
   (label+prix), section "Produits". Commit `b680604`. Point ouvert soulevé à cette étape (voir
   plus haut) : remise par quantité non modélisée ici. Doc du point ouvert : commit `ba83e1c`.
 - **4c — `wp_amap_contract_delivery_dates`** (`product_grid` uniquement) : dates de livraison
-  du trimestre, `UNIQUE(contract_id, delivery_date)`, section "Dates de livraison" (sous
-  "Produits"). Validations serveur supplémentaires : date comprise entre `start_date` et
-  `end_date` du contrat, unicité revérifiée côté PHP (`amap_contract_has_delivery_date()`) pour
-  un message d'erreur clair avant la contrainte SQL. Commit `4412500`.
+  du trimestre, section "Dates de livraison" (sous "Produits"). Validations serveur
+  supplémentaires : date comprise entre `start_date` et `end_date` du contrat, unicité
+  revérifiée côté PHP (`amap_contract_has_delivery_date()`) pour un message d'erreur clair avant
+  la contrainte SQL. Commit `4412500`.
 
 Suppression d'un contrat : nettoyage explicite des trois tables filles (une seule contient
 effectivement des lignes selon `contract_type`, les deux autres suppressions ne font rien),
 comme pour les rattachements producteurs orphelins à la suppression d'un groupe (étape 2).
+
+### Complément à 4c — `group_id` et génération en masse (commit `b994b45`)
+
+Point métier remonté après coup (2026-08-08) : un producteur peut livrer plusieurs groupes de
+distribution, chacun avec son propre jour fixe — les dates de livraison d'un même contrat
+`product_grid` diffèrent donc selon le groupe de l'adhérent (voir modèle de données ci-dessus,
+`group_id` ajouté à `wp_amap_contract_delivery_dates`). Ajouts :
+
+- `amap_get_producer_groups( $producer_user_id )` — sens inverse de
+  `amap_get_group_producer_ids()`, limite les menus déroulants "Groupe" aux groupes réellement
+  rattachés au producteur du contrat.
+- Section "Générer des dates" : un bouton par groupe du producteur calcule toutes les
+  occurrences de son jour de semaine sur la période du contrat (moins celles déjà enregistrées),
+  affichées en cases à cocher (toutes cochées par défaut, décochage des exceptions). Un outil JS
+  facultatif "cocher une date sur N" aide à précocher un rythme bimensuel/irrégulier, sans aucun
+  paramètre de fréquence envoyé ou validé côté serveur — le serveur ne voit que la liste finale
+  de dates cochées et revalide chacune (format, période, jour de semaine, doublon).
+  `amap_handle_delete_group()` nettoie désormais aussi les dates de livraison orphelines d'un
+  groupe supprimé.
+- Migration destructive nécessaire pour ce changement de schéma (`DROP TABLE` puis
+  réactivation du plugin) : `dbDelta()` ne modifie pas fiablement un index existant qui change
+  de composition de colonnes. Sans impact réel : uniquement des données de test à ce stade.
