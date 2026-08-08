@@ -76,8 +76,13 @@ de vraie contrainte `FOREIGN KEY` SQL — cohérent avec `wp_amap_users.user_id`
   "au moins 3 par an et par adhérent" : vérifications applicatives (COUNT), pas de contrainte
   SQL.
 
-Point ouvert non tranché (hérité de `metier-producteurs.md`) : que se passe-t-il si un adhérent
-n'a pas posé ses 4 congés avant la fin du contrat maraîcher ?
+Point ouvert non tranché (hérité de `metier-producteurs.md`), tranché sans impact technique à
+l'étape 8 (2026-08-08) : que se passe-t-il si un adhérent n'a pas posé ses 4 congés avant la fin
+du contrat maraîcher ? Le paiement et les compensations sont déjà entièrement hors outil
+(chèque/virement) ; la conséquence d'un congé non posé reste une politique interne à
+l'association, sans code associé — aucune donnée de forfait/compensation dans
+`wp_amap_leaves`. Le point reste non tranché côté association, mais n'a plus d'impact sur ce
+chantier.
 
 Point ouvert non tranché (soulevé en conversation le 2026-08-06, à l'étape 4b) : certains
 produits du catalogue (`wp_amap_contract_products`) peuvent bénéficier d'une remise par
@@ -104,7 +109,7 @@ préfixées `amap_`, réutilisant le pattern CRUD déjà en place pour "Utilisat
 7. Espace adhérent : souscription en ligne (dépend de 5 + 6) — bascule de la création d'une
    souscription (signature + grille produits×dates) de l'admin vers le front, voir note        ✅ fait
    ci-dessous
-8. wp_amap_leaves (dépend de 5) — CRUD admin d'abord, self-service adhérent plus tard
+8. wp_amap_leaves (dépend de 5) — CRUD admin d'abord, self-service adhérent plus tard   ✅ fait
 9. wp_amap_distribution_exceptions (dépend de 1 seulement)
 10. wp_amap_distribution_volunteers (dépend de 1 + 5, pour connaître les adhérents éligibles
     par groupe) — roster bénévoles, règles 2-3/distribution et 3/an/adhérent en PHP
@@ -409,5 +414,65 @@ autres emails transactionnels — lien de connexion, réinitialisation de mot de
 volontairement sommaire (HTML minimal, pas de mise en page/branding). Une passe de design plus
 soignée sur l'ensemble des emails est à prévoir plus tard, hors scope de ce chantier
 contrats/distributions.
+
+Commit à venir.
+
+## Étape 8 (fait) — `wp_amap_leaves`
+
+Table des congés maraîcher (voir modèle de données ci-dessus et `metier-producteurs.md`), CRUD
+admin uniquement à ce stade — le self-service adhérent est reporté à un chantier ultérieur, non
+attaqué ici.
+
+Découpage tranché en conversation (2026-08-08), en s'écartant de la formulation initiale
+("capability" et "page admin" dédiées, comme "Groupes"/"Souscriptions") au profit du même
+principe que `wp_amap_subscription_items` (étape 6) : un congé n'a de sens que rattaché à une
+souscription déjà existante, donc pas de nouvelle page ni de nouvelle capability — section
+"Congés" nichée dans la page "Souscriptions" existante, capability `amap_manage_subscriptions`
+réutilisée, visible uniquement en mode édition d'une souscription dont le contrat est
+`basket_recurring` (jamais `product_grid` : "un producteur n'a pas de congés"). CRUD = ajout +
+suppression uniquement (pas de "modifier" : changer une date de congé revient à supprimer puis
+rajouter), avec un compteur "X congé(s) déclaré(s) sur 4 autorisés" et le formulaire d'ajout masqué
+une fois le maximum atteint.
+
+**Validations serveur** (`amap_handle_add_leave()`) :
+1. Souscription existante et contrat `basket_recurring`, sinon `wp_die()` (requête trafiquée,
+   l'UI ne propose jamais cette section sinon).
+2. `leave_date` valide (réutilise `amap_is_valid_date()` de `contracts.php`).
+3. `leave_date` comprise entre `start_date` et `end_date` du contrat (même principe que
+   `wp_amap_contract_delivery_dates`, étape 4c).
+4. `leave_date` doit tomber sur le jour de semaine du groupe de la souscription (`weekday`) —
+   volontairement **plus strict** que la saisie manuelle des dates de livraison `product_grid`
+   (`amap_handle_add_contract_delivery_date()`, délibérément permissive pour des reports
+   exceptionnels) : un congé n'a de sens que sur un vrai jour de distribution du groupe, la date
+   `basket_recurring` se déduisant uniquement du jour fixe du groupe (aucune ligne stockée, aucune
+   exception possible pour l'instant), donc pas de cas légitime de congé "hors jour habituel".
+5. Pas de doublon `(subscription_id, leave_date)`, revérifié en PHP (`amap_subscription_has_leave()`)
+   avant la contrainte SQL.
+6. Maximum 4 congés déjà posés pour cette souscription (`amap_count`, via `amap_get_leaves()`) —
+   par souscription et non par adhérent, cohérent avec le modèle de données : un adhérent qui
+   souscrit plusieurs paniers maraîcher (foyer) dispose de 4 congés par panier, pas 4 au total.
+
+Pas de validation à la suppression (le bureau garde la main pour corriger une erreur de saisie,
+"admin est root").
+
+**Trois décisions actées en conversation avant codage** (2026-08-08), qui s'écartent ou précisent
+des règles du plan initial :
+- **Délai d'une semaine avant la distribution** (règle métier de `metier-producteurs.md`) :
+  **non appliqué à la saisie admin**, contrairement à d'autres règles de données du plugin
+  (ex. période du contrat) qui s'appliquent même en admin. Cette règle ne concerne que la future
+  auto-déclaration front — le bureau doit pouvoir saisir un congé à tout moment, y compris en
+  dernière minute pour un adhérent qui appelle. Non codée du tout à ce stade (pas de champ,
+  pas de vérification), à ajouter avec le formulaire front self-service.
+- **Pas de contrôle de parité hebdo/bimensuelle** : un contrat maraîcher peut être hebdomadaire ou
+  bimensuel (`frequency_weeks`), donc toutes les dates "bon jour de semaine" ne sont pas
+  forcément réellement livrées en bimensuel. Non vérifié : `frequency_weeks` n'entre dans aucun
+  calcul de ce plugin (déjà le cas ailleurs), et ajouter ce contrôle nécessiterait de définir une
+  semaine de référence arbitraire.
+- **4 congés non posés en fin de contrat** (point ouvert hérité de `metier-producteurs.md`) :
+  sans impact technique, voir la note mise à jour plus haut dans ce document — question de
+  politique associative hors outil.
+
+Nettoyage à la suppression d'une souscription : `amap_handle_delete_subscription()` supprime
+désormais aussi les congés orphelins, comme les `subscription_items`.
 
 Commit à venir.

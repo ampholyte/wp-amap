@@ -10,7 +10,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 function amap_activate() {
     // update_option() (et non plus add_option()) : la version doit refléter le schéma du
     // code à chaque activation. dbDelta() est idempotent, le rappeler ne pose pas de problème.
-    update_option( 'amap_db_version', '3.15' );
+    update_option( 'amap_db_version', '3.16' );
     amap_create_tables();
     amap_drop_obsolete_tables();
 
@@ -287,6 +287,29 @@ function amap_create_tables() {
     ) $charset_collate;";
 
     dbDelta( $sql_subscription_items );
+
+    $leaves_table = $wpdb->prefix . 'amap_leaves';
+
+    // Congé maraîcher (voir metier-producteurs.md) : date où l'adhérent ne récupère pas son
+    // panier, rattachée à une souscription basket_recurring uniquement (jamais product_grid, et
+    // jamais côté producteur). declared_at est la date de déclaration (aujourd'hui au moment de
+    // l'ajout), distincte de created_at qui reste l'horodatage technique automatique — même
+    // principe que signed_at sur wp_amap_subscriptions. Règles "max 4 par souscription" et
+    // "délai d'une semaine avant la distribution" : vérifications applicatives (voir
+    // amap_handle_add_leave()), pas de contrainte SQL — le délai d'une semaine ne concerne que la
+    // future auto-déclaration adhérent, pas la saisie de secours par le bureau en admin.
+    // UNIQUE(subscription_id, leave_date) : garde-fou contre un doublon de date.
+    $sql_leaves = "CREATE TABLE $leaves_table (
+        id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+        subscription_id bigint(20) unsigned NOT NULL,
+        leave_date date NOT NULL,
+        declared_at date NOT NULL,
+        created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY  (id),
+        UNIQUE KEY subscription_leave_date (subscription_id, leave_date)
+    ) $charset_collate;";
+
+    dbDelta( $sql_leaves );
 }
 
 function amap_drop_obsolete_tables() {

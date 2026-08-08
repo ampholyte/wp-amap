@@ -50,6 +50,41 @@ function amap_get_subscription_items( $subscription_id ) {
     );
 }
 
+function amap_get_leaves( $subscription_id ) {
+    global $wpdb;
+
+    return $wpdb->get_results(
+        $wpdb->prepare(
+            "SELECT * FROM {$wpdb->prefix}amap_leaves WHERE subscription_id = %d ORDER BY leave_date ASC",
+            $subscription_id
+        )
+    );
+}
+
+function amap_get_leave( $id ) {
+    global $wpdb;
+
+    return $wpdb->get_row(
+        $wpdb->prepare( "SELECT * FROM {$wpdb->prefix}amap_leaves WHERE id = %d", $id )
+    );
+}
+
+/**
+ * Revérifie côté PHP la contrainte UNIQUE(subscription_id, leave_date), même principe que
+ * amap_contract_has_delivery_date().
+ */
+function amap_subscription_has_leave( $subscription_id, $leave_date ) {
+    global $wpdb;
+
+    return (bool) $wpdb->get_var(
+        $wpdb->prepare(
+            "SELECT COUNT(*) FROM {$wpdb->prefix}amap_leaves WHERE subscription_id = %d AND leave_date = %s",
+            $subscription_id,
+            $leave_date
+        )
+    );
+}
+
 /**
  * Souscriptions de l'adhérent connecté, enrichies pour l'affichage front (onglet "Espace
  * adhérent" de member-area.php) — même principe de jointure en PHP que
@@ -488,6 +523,34 @@ function amap_render_subscriptions_page() {
             width: 4em;
             text-align: center;
         }
+        ul.amap-leave-list {
+            list-style: none;
+            margin: 0 0 12px;
+            padding: 0;
+            max-width: 420px;
+        }
+        ul.amap-leave-list li {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 6px 10px;
+            border: 1px solid #dcdcde;
+            border-top: none;
+        }
+        ul.amap-leave-list li:first-child {
+            border-top: 1px solid #dcdcde;
+        }
+        .amap-leave-add-form {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        .amap-leave-add-form .description {
+            flex-basis: 100%;
+            margin: 4px 0 0;
+        }
     </style>
     <div class="wrap">
         <h1><?php esc_html_e( 'Souscriptions', 'association-manager' ); ?></h1>
@@ -699,6 +762,98 @@ function amap_render_subscriptions_page() {
             </form>
             </div>
             </div>
+
+            <?php if ( $editing_id && $editing_subscription ) : ?>
+                <?php $leaves_contract = amap_get_contract( $editing_subscription->contract_id ); ?>
+                <?php if ( $leaves_contract && 'basket_recurring' === $leaves_contract->contract_type ) : ?>
+                    <?php
+                    $leaves         = amap_get_leaves( $editing_id );
+                    $leaves_full    = count( $leaves ) >= 4;
+                    $leaves_group   = amap_get_group( $editing_subscription->group_id );
+                    $weekday_labels = amap_get_weekday_labels();
+                    ?>
+                    <h2><?php esc_html_e( 'Congés', 'association-manager' ); ?></h2>
+
+                    <?php if ( 'leave_saved' === $notice ) : ?>
+                        <div class="notice notice-success"><p><?php esc_html_e( 'Congé ajouté.', 'association-manager' ); ?></p></div>
+                    <?php elseif ( 'leave_deleted' === $notice ) : ?>
+                        <div class="notice notice-success"><p><?php esc_html_e( 'Congé supprimé.', 'association-manager' ); ?></p></div>
+                    <?php elseif ( 'leave_invalid' === $notice ) : ?>
+                        <div class="notice notice-error"><p><?php esc_html_e( 'Date de congé invalide.', 'association-manager' ); ?></p></div>
+                    <?php elseif ( 'leave_out_of_range' === $notice ) : ?>
+                        <div class="notice notice-error"><p><?php esc_html_e( 'La date doit être comprise dans la période du contrat.', 'association-manager' ); ?></p></div>
+                    <?php elseif ( 'leave_invalid_weekday' === $notice ) : ?>
+                        <div class="notice notice-error"><p><?php esc_html_e( "Cette date ne correspond pas au jour de distribution du groupe de l'adhérent.", 'association-manager' ); ?></p></div>
+                    <?php elseif ( 'leave_duplicate' === $notice ) : ?>
+                        <div class="notice notice-error"><p><?php esc_html_e( 'Ce congé est déjà déclaré.', 'association-manager' ); ?></p></div>
+                    <?php elseif ( 'leave_max_reached' === $notice ) : ?>
+                        <div class="notice notice-error"><p><?php esc_html_e( 'Le maximum de 4 congés par souscription est déjà atteint.', 'association-manager' ); ?></p></div>
+                    <?php endif; ?>
+
+                    <?php if ( empty( $leaves ) ) : ?>
+                        <p><?php esc_html_e( 'Aucun congé déclaré pour le moment.', 'association-manager' ); ?></p>
+                    <?php else : ?>
+                        <ul class="amap-leave-list">
+                            <?php foreach ( $leaves as $leave ) : ?>
+                                <?php
+                                $leave_delete_url = wp_nonce_url(
+                                    admin_url( 'admin-post.php?action=amap_delete_leave&id=' . $leave->id ),
+                                    'amap_delete_leave_' . $leave->id
+                                );
+                                ?>
+                                <li>
+                                    <span><?php echo esc_html( date_i18n( 'l j F Y', strtotime( $leave->leave_date ) ) ); ?></span>
+                                    <a href="<?php echo esc_url( $leave_delete_url ); ?>" class="amap-leave-delete" onclick="return confirm( '<?php echo esc_js( __( 'Supprimer ce congé ?', 'association-manager' ) ); ?>' );">
+                                        <?php esc_html_e( 'Supprimer', 'association-manager' ); ?>
+                                    </a>
+                                </li>
+                            <?php endforeach; ?>
+                        </ul>
+                    <?php endif; ?>
+
+                    <p class="description">
+                        <?php
+                        printf(
+                            /* translators: %d: nombre de congés déjà déclarés (sur 4 autorisés). */
+                            esc_html__( '%d congé(s) déclaré(s) sur 4 autorisés.', 'association-manager' ),
+                            count( $leaves )
+                        );
+                        ?>
+                    </p>
+
+                    <?php if ( $leaves_full ) : ?>
+                        <p><?php esc_html_e( 'Le maximum de 4 congés a été atteint pour cette souscription.', 'association-manager' ); ?></p>
+                    <?php else : ?>
+                        <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="amap-leave-add-form">
+                            <?php wp_nonce_field( 'amap_add_leave_' . $editing_id ); ?>
+                            <input type="hidden" name="action" value="amap_add_leave">
+                            <input type="hidden" name="subscription_id" value="<?php echo esc_attr( $editing_id ); ?>">
+                            <label for="amap-leave-date"><?php esc_html_e( 'Date de congé', 'association-manager' ); ?></label>
+                            <input
+                                type="date"
+                                id="amap-leave-date"
+                                name="leave_date"
+                                min="<?php echo esc_attr( $leaves_contract->start_date ); ?>"
+                                max="<?php echo esc_attr( $leaves_contract->end_date ); ?>"
+                                required
+                            >
+                            <?php submit_button( __( 'Ajouter le congé', 'association-manager' ), 'secondary', 'submit', false ); ?>
+                            <?php if ( $leaves_group ) : ?>
+                                <p class="description">
+                                    <?php
+                                    printf(
+                                        /* translators: %s: nom du jour de la semaine (ex. "Mardi"). */
+                                        esc_html__( 'La date doit tomber un %s, jour de distribution du groupe.', 'association-manager' ),
+                                        esc_html( $weekday_labels[ (int) $leaves_group->weekday ] ?? '' )
+                                    );
+                                    ?>
+                                </p>
+                            <?php endif; ?>
+                        </form>
+                    <?php endif; ?>
+                <?php endif; ?>
+            <?php endif; ?>
+
             <script>
             ( function () {
                 var contractsData   = <?php echo wp_json_encode( $contracts_js_data ); ?>;
@@ -1169,11 +1324,115 @@ function amap_handle_delete_subscription() {
 
     global $wpdb;
     // Pas de contrainte FOREIGN KEY SQL sur subscription_id (cohérent avec le reste du plugin) :
-    // nettoyage explicite des subscription_items orphelins, comme les tables filles à la
-    // suppression d'un contrat (wp_amap_leaves sera ajoutée à l'étape 8).
+    // nettoyage explicite des subscription_items et des congés orphelins, comme les tables
+    // filles à la suppression d'un contrat.
     $wpdb->delete( $wpdb->prefix . 'amap_subscription_items', array( 'subscription_id' => $id ) );
+    $wpdb->delete( $wpdb->prefix . 'amap_leaves', array( 'subscription_id' => $id ) );
     $wpdb->delete( $wpdb->prefix . 'amap_subscriptions', array( 'id' => $id ) );
 
     wp_safe_redirect( admin_url( 'admin.php?page=amap-subscriptions' ) );
+    exit;
+}
+
+add_action( 'admin_post_amap_add_leave', 'amap_handle_add_leave' );
+
+/**
+ * Congé maraîcher (voir metier-producteurs.md) : ajouté depuis la section "Congés" nichée dans
+ * la page "Souscriptions" (amap_render_subscriptions_page()), jamais un nouveau menu ni une
+ * nouvelle capability — même logique que subscription_items niché dans le même formulaire à
+ * l'étape 6. Le délai d'une semaine avant la distribution évoqué dans le plan n'est
+ * volontairement pas vérifié ici : il ne concernera que la future auto-déclaration front,
+ * pas la saisie de secours du bureau en admin ("admin est root").
+ */
+function amap_handle_add_leave() {
+    if ( ! current_user_can( 'amap_manage_subscriptions' ) ) {
+        wp_die( esc_html__( 'Action non autorisée.', 'association-manager' ) );
+    }
+
+    $subscription_id = isset( $_POST['subscription_id'] ) ? absint( $_POST['subscription_id'] ) : 0;
+    $subscription     = $subscription_id ? amap_get_subscription( $subscription_id ) : null;
+    if ( ! $subscription ) {
+        wp_die( esc_html__( 'Souscription introuvable.', 'association-manager' ) );
+    }
+
+    $contract = amap_get_contract( $subscription->contract_id );
+    if ( ! $contract || 'basket_recurring' !== $contract->contract_type ) {
+        wp_die( esc_html__( "Cette souscription n'est pas concernée par les congés.", 'association-manager' ) );
+    }
+
+    check_admin_referer( 'amap_add_leave_' . $subscription_id );
+
+    $edit_url   = admin_url( 'admin.php?page=amap-subscriptions&action=edit&id=' . $subscription_id );
+    $leave_date = isset( $_POST['leave_date'] ) ? sanitize_text_field( wp_unslash( $_POST['leave_date'] ) ) : '';
+
+    if ( ! amap_is_valid_date( $leave_date ) ) {
+        wp_safe_redirect( $edit_url . '&amap_notice=leave_invalid' );
+        exit;
+    }
+
+    if ( $leave_date < $contract->start_date || $leave_date > $contract->end_date ) {
+        wp_safe_redirect( $edit_url . '&amap_notice=leave_out_of_range' );
+        exit;
+    }
+
+    // Contrairement aux dates de livraison product_grid (amap_handle_add_contract_delivery_date(),
+    // volontairement permissif pour les reports exceptionnels), un congé n'a de sens que sur un
+    // vrai jour de distribution du groupe de l'adhérent : la date basket_recurring se déduit
+    // uniquement du jour fixe du groupe (aucune ligne stockée, aucune exception possible pour
+    // l'instant), donc pas de cas légitime de congé "hors jour habituel".
+    $group          = amap_get_group( $subscription->group_id );
+    $target_weekday = $group ? (int) $group->weekday + 1 : 0; // DateTime::format('N') : 1=lundi..7=dimanche.
+
+    if ( ! $group || (int) ( new DateTime( $leave_date ) )->format( 'N' ) !== $target_weekday ) {
+        wp_safe_redirect( $edit_url . '&amap_notice=leave_invalid_weekday' );
+        exit;
+    }
+
+    if ( amap_subscription_has_leave( $subscription_id, $leave_date ) ) {
+        wp_safe_redirect( $edit_url . '&amap_notice=leave_duplicate' );
+        exit;
+    }
+
+    // "4 congés dans l'année" (metier-producteurs.md) : ici par souscription, cohérent avec le
+    // modèle de données (wp_amap_leaves.subscription_id) — un adhérent qui souscrit plusieurs
+    // paniers maraîcher (foyer) dispose de 4 congés par panier, pas 4 au total.
+    if ( count( amap_get_leaves( $subscription_id ) ) >= 4 ) {
+        wp_safe_redirect( $edit_url . '&amap_notice=leave_max_reached' );
+        exit;
+    }
+
+    global $wpdb;
+    $wpdb->insert(
+        $wpdb->prefix . 'amap_leaves',
+        array(
+            'subscription_id' => $subscription_id,
+            'leave_date'      => $leave_date,
+            'declared_at'     => current_time( 'Y-m-d' ),
+        )
+    );
+
+    wp_safe_redirect( $edit_url . '&amap_notice=leave_saved' );
+    exit;
+}
+
+add_action( 'admin_post_amap_delete_leave', 'amap_handle_delete_leave' );
+
+function amap_handle_delete_leave() {
+    if ( ! current_user_can( 'amap_manage_subscriptions' ) ) {
+        wp_die( esc_html__( 'Action non autorisée.', 'association-manager' ) );
+    }
+
+    $id    = isset( $_GET['id'] ) ? absint( $_GET['id'] ) : 0;
+    $leave = $id ? amap_get_leave( $id ) : null;
+    if ( ! $leave ) {
+        wp_die( esc_html__( 'Congé introuvable.', 'association-manager' ) );
+    }
+
+    check_admin_referer( 'amap_delete_leave_' . $id );
+
+    global $wpdb;
+    $wpdb->delete( $wpdb->prefix . 'amap_leaves', array( 'id' => $id ) );
+
+    wp_safe_redirect( admin_url( 'admin.php?page=amap-subscriptions&action=edit&id=' . $leave->subscription_id . '&amap_notice=leave_deleted' ) );
     exit;
 }
