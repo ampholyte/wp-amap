@@ -56,6 +56,11 @@ function amap_maybe_render_member_area() {
         $subscribe_form_data = amap_get_member_subscribe_form_data( $user );
     }
 
+    $leave_form_data = null;
+    if ( $is_member && 'declare_leave' === $action ) {
+        $leave_form_data = amap_get_member_leave_form_data( $user );
+    }
+
     get_header();
     ?>
     <main>
@@ -64,6 +69,8 @@ function amap_maybe_render_member_area() {
         amap_render_member_profile_edit_form( $user );
     } elseif ( $subscribe_form_data ) {
         get_template_part( 'template-parts/login/member-area-subscribe', null, $subscribe_form_data );
+    } elseif ( $leave_form_data ) {
+        get_template_part( 'template-parts/login/member-area-leave', null, $leave_form_data );
     } else {
         get_template_part(
             'template-parts/login/member-area',
@@ -177,6 +184,64 @@ function amap_get_member_subscribe_form_data( $user ) {
         'basket_sizes'   => $basket_sizes,
         'products'       => $products,
         'delivery_dates' => $delivery_dates,
+    );
+}
+
+/**
+ * Valide la souscription visée par ?amap_member_action=declare_leave&subscription_id=X et
+ * prépare les données du formulaire (member-area-leave.php). Contrairement à
+ * amap_get_member_subscribe_form_data() (qui valide un contrat public), la souscription doit en
+ * plus appartenir à l'utilisateur connecté — sinon wp_die(), un adhérent ne doit jamais pouvoir
+ * agir sur la souscription d'un autre en changeant l'ID dans l'URL.
+ *
+ * Les dates proposées dans le formulaire sont calculées ici plutôt que saisies librement par
+ * l'adhérent (contrairement à l'admin) : jour de semaine du groupe, période du contrat, délai
+ * d'une semaine et non déjà déclarées — toutes les règles de amap_handle_add_leave() sont ainsi
+ * satisfaites par construction, un parcours normal ne peut donc jamais déclencher les wp_die() de
+ * amap_handle_add_member_leave().
+ */
+function amap_get_member_leave_form_data( $user ) {
+    $subscription_id = isset( $_GET['subscription_id'] ) ? absint( $_GET['subscription_id'] ) : 0;
+    $subscription    = $subscription_id ? amap_get_subscription( $subscription_id ) : null;
+    if ( ! $subscription || (int) $subscription->member_user_id !== $user->ID ) {
+        wp_die( esc_html__( 'Souscription introuvable.', 'association-manager' ) );
+    }
+
+    $contract = amap_get_contract( $subscription->contract_id );
+    if ( ! $contract || 'basket_recurring' !== $contract->contract_type ) {
+        wp_die( esc_html__( "Cette souscription n'est pas concernée par les congés.", 'association-manager' ) );
+    }
+
+    $group  = amap_get_group( $subscription->group_id );
+    $leaves = amap_get_leaves( $subscription_id );
+
+    $available_dates = array();
+    if ( $group && count( $leaves ) < (int) $contract->max_leaves ) {
+        $min_date    = ( new DateTime( current_time( 'Y-m-d' ) ) )->modify( '+7 days' )->format( 'Y-m-d' );
+        $taken_dates = wp_list_pluck( $leaves, 'leave_date' );
+
+        // Ancré sur start_date et espacé de frequency_weeks semaines : ne propose que les
+        // vraies dates de distribution d'un contrat bimensuel/etc., pas toutes les occurrences
+        // du jour de semaine (voir amap_get_weekday_dates_in_range()).
+        foreach ( amap_get_weekday_dates_in_range( $contract->start_date, $contract->end_date, (int) $group->weekday, (int) $contract->frequency_weeks ) as $candidate_date ) {
+            if ( $candidate_date < $min_date || in_array( $candidate_date, $taken_dates, true ) ) {
+                continue;
+            }
+
+            $available_dates[] = array(
+                'date'  => $candidate_date,
+                'label' => date_i18n( 'l j F Y', strtotime( $candidate_date ) ),
+            );
+        }
+    }
+
+    return array(
+        'subscription'     => $subscription,
+        'contract'         => $contract,
+        'producer'         => get_user_by( 'id', $contract->producer_user_id ),
+        'group'            => $group,
+        'leaves'           => $leaves,
+        'available_dates'  => $available_dates,
     );
 }
 

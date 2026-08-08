@@ -419,9 +419,8 @@ Commit à venir.
 
 ## Étape 8 (fait) — `wp_amap_leaves`
 
-Table des congés maraîcher (voir modèle de données ci-dessus et `metier-producteurs.md`), CRUD
-admin uniquement à ce stade — le self-service adhérent est reporté à un chantier ultérieur, non
-attaqué ici.
+Table des congés maraîcher (voir modèle de données ci-dessus et `metier-producteurs.md`). CRUD
+admin d'abord (ci-dessous), self-service adhérent ensuite (étape 8b).
 
 Découpage tranché en conversation (2026-08-08), en s'écartant de la formulation initiale
 ("capability" et "page admin" dédiées, comme "Groupes"/"Souscriptions") au profit du même
@@ -431,10 +430,12 @@ souscription déjà existante, donc pas de nouvelle page ni de nouvelle capabili
 réutilisée, visible uniquement en mode édition d'une souscription dont le contrat est
 `basket_recurring` (jamais `product_grid` : "un producteur n'a pas de congés"). CRUD = ajout +
 suppression uniquement (pas de "modifier" : changer une date de congé revient à supprimer puis
-rajouter), avec un compteur "X congé(s) déclaré(s) sur 4 autorisés" et le formulaire d'ajout masqué
-une fois le maximum atteint.
+rajouter), avec un compteur "X congé(s) déclaré(s) sur Y autorisés" et le formulaire d'ajout masqué
+une fois le maximum atteint (`Y` codé en dur à `4` à cette étape, rendu configurable par contrat à
+l'étape 8c ci-dessous).
 
-**Validations serveur** (`amap_handle_add_leave()`) :
+**Validations serveur** (`amap_handle_add_leave()`, revues à l'étape 8c — voir plus bas pour la
+version actuelle) :
 1. Souscription existante et contrat `basket_recurring`, sinon `wp_die()` (requête trafiquée,
    l'UI ne propose jamais cette section sinon).
 2. `leave_date` valide (réutilise `amap_is_valid_date()` de `contracts.php`).
@@ -448,9 +449,10 @@ une fois le maximum atteint.
    exception possible pour l'instant), donc pas de cas légitime de congé "hors jour habituel".
 5. Pas de doublon `(subscription_id, leave_date)`, revérifié en PHP (`amap_subscription_has_leave()`)
    avant la contrainte SQL.
-6. Maximum 4 congés déjà posés pour cette souscription (`amap_count`, via `amap_get_leaves()`) —
-   par souscription et non par adhérent, cohérent avec le modèle de données : un adhérent qui
-   souscrit plusieurs paniers maraîcher (foyer) dispose de 4 congés par panier, pas 4 au total.
+6. Maximum de congés déjà posés pour cette souscription (`4` codé en dur à cette étape, voir
+   étape 8c) — par souscription et non par adhérent, cohérent avec le modèle de données : un
+   adhérent qui souscrit plusieurs paniers maraîcher (foyer) dispose de ce quota par panier, pas
+   au total.
 
 Pas de validation à la suppression (le bureau garde la main pour corriger une erreur de saisie,
 "admin est root").
@@ -461,18 +463,89 @@ des règles du plan initial :
   **non appliqué à la saisie admin**, contrairement à d'autres règles de données du plugin
   (ex. période du contrat) qui s'appliquent même en admin. Cette règle ne concerne que la future
   auto-déclaration front — le bureau doit pouvoir saisir un congé à tout moment, y compris en
-  dernière minute pour un adhérent qui appelle. Non codée du tout à ce stade (pas de champ,
-  pas de vérification), à ajouter avec le formulaire front self-service.
+  dernière minute pour un adhérent qui appelle. Non codée à ce stade (pas de champ, pas de
+  vérification), ajoutée à l'étape 8b ci-dessous.
 - **Pas de contrôle de parité hebdo/bimensuelle** : un contrat maraîcher peut être hebdomadaire ou
   bimensuel (`frequency_weeks`), donc toutes les dates "bon jour de semaine" ne sont pas
   forcément réellement livrées en bimensuel. Non vérifié : `frequency_weeks` n'entre dans aucun
   calcul de ce plugin (déjà le cas ailleurs), et ajouter ce contrôle nécessiterait de définir une
-  semaine de référence arbitraire.
+  semaine de référence arbitraire. **Revu à l'étape 8c** : l'ancrage sur `start_date` s'est avéré
+  non ambigu, le contrôle a été ajouté.
 - **4 congés non posés en fin de contrat** (point ouvert hérité de `metier-producteurs.md`) :
   sans impact technique, voir la note mise à jour plus haut dans ce document — question de
   politique associative hors outil.
 
 Nettoyage à la suppression d'une souscription : `amap_handle_delete_subscription()` supprime
 désormais aussi les congés orphelins, comme les `subscription_items`.
+
+Commit à venir.
+
+### Étape 8b (fait) — Auto-déclaration adhérent des congés (front)
+
+Découpage tranché en conversation (2026-08-08), sur le même schéma que "Souscrire" (étape 7.2/
+7.3) : nouvelle route `?amap_member_action=declare_leave&subscription_id=X` interceptée par
+`amap_maybe_render_member_area()`, nouveau template `member-area-leave.php` (thème), traité par
+`amap_handle_add_member_leave()` (`subscriptions.php`).
+
+- **Liste déroulante plutôt que champ date libre** : `amap_get_member_leave_form_data()`
+  (`member-area.php`) calcule les dates éligibles (réutilise
+  `amap_get_weekday_dates_in_range()` de `contracts.php`) — jour de semaine du groupe, période du
+  contrat, délai d'une semaine, non déjà déclarées. Ce choix élimine par construction toutes les
+  erreurs de saisie qu'un champ libre aurait permises : `amap_handle_add_member_leave()` revérifie
+  tout côté serveur mais avec `wp_die()`, jamais un message d'erreur convivial — même philosophie
+  que `amap_handle_add_member_subscription()` à l'étape 7.3 ("ne peuvent survenir que par lien
+  périmé, requête trafiquée... jamais par un parcours normal").
+- **Vérification de propriété** : contrairement à l'admin (`amap_manage_subscriptions`, le bureau
+  peut toucher n'importe quelle souscription), `amap_get_member_leave_form_data()` et
+  `amap_handle_add_member_leave()` vérifient que la souscription visée appartient bien à
+  `wp_get_current_user()->ID` avant toute chose, sinon `wp_die()` — un adhérent ne doit jamais
+  pouvoir agir sur la souscription d'un autre en changeant un ID dans l'URL.
+- **"Mes contrats"** (`member-area-member.php`) : sous chaque souscription `basket_recurring`,
+  affichage des congés déjà déclarés (dates + compteur "X/Y autorisés") et lien "Déclarer un
+  congé" (`amap_get_member_leave_url()`, `auth.php`), masqué une fois le quota atteint.
+- **Périmètre volontairement réduit**, tranché avec l'utilisateur avant codage : pas d'annulation
+  d'un congé depuis le front (une erreur se corrige via le bureau, qui a déjà la main en admin
+  depuis l'étape 8 — cohérent avec "admin est root") ; pas d'email de confirmation pour cette
+  action (la notice de succès sur la page suffit, contrairement à la souscription — étape 7.4 —
+  dont l'enjeu est plus important) ; parcours sur une page dédiée plutôt qu'un formulaire replié
+  dans la carte de "Mes contrats" (même schéma que "Souscrire", pas de JS supplémentaire).
+
+Commit à venir.
+
+### Étape 8c (fait) — `max_leaves` configurable et respect de la fréquence bimensuelle
+
+Deux limites de l'étape 8 remontées par l'utilisateur après usage réel (2026-08-08) :
+
+- **Nombre de congés configurable par contrat**, plutôt que la valeur `4` codée en dur partout
+  (admin, front, "Mes contrats"). Nouvelle colonne `wp_amap_contracts.max_leaves` (même
+  discriminant que `frequency_weeks` : obligatoire et positif pour `basket_recurring`, forcée à
+  `NULL` sinon, même champ masqué/affiché en JS selon le type sélectionné). Migration de secours
+  dans `amap_activate()` : les contrats `basket_recurring` déjà enregistrés reçoivent `max_leaves
+  = 4` (l'ancienne valeur codée en dur) pour ne pas casser silencieusement les congés déjà en
+  place sur des contrats de test existants — le bureau ajuste ensuite depuis la page "Contrats"
+  si besoin. Toutes les vérifications et tous les affichages ("X congé(s) déclaré(s) sur Y
+  autorisés") lisent désormais `$contract->max_leaves`.
+- **Respect de la fréquence bimensuelle/etc.** : un contrat maraîcher `basket_recurring` peut
+  avoir `frequency_weeks > 1` (livraison toutes les 2 semaines) — toutes les dates tombant sur le
+  bon jour de semaine ne sont donc pas réellement livrées. `amap_get_weekday_dates_in_range()`
+  (`contracts.php`) gagne un 4e paramètre `$step_weeks` (défaut `1`, comportement inchangé pour
+  son usage existant côté génération de dates `product_grid`) : ancré sur la première occurrence
+  du jour de semaine à partir de `start_date`, puis espacé de `$step_weeks` semaines — pas de
+  semaine de référence arbitraire, l'ancrage sur `start_date` du contrat est la donnée déjà
+  disponible et non ambiguë. Appelé avec `$contract->frequency_weeks` pour les congés (admin,
+  front), toujours avec `1` pour la génération `product_grid` (contrats sans notion de
+  fréquence).
+- **Conséquence sur l'admin** : la saisie libre d'une date de congé (`<input type="date">`) est
+  remplacée par une liste déroulante des vraies dates de distribution restantes (même principe
+  que le front depuis l'étape 8b), calculée par `amap_render_subscriptions_page()` avec le même
+  helper. Les trois validations serveur `leave_invalid`/`leave_out_of_range`/
+  `leave_invalid_weekday` de l'étape 8 sont fusionnées en une seule (`leave_not_a_distribution_date`)
+  côté période+jour+fréquence, `amap_handle_add_leave()` revérifiant l'appartenance de la date
+  soumise à la liste calculée plutôt que trois règles séparées — plus simple et évite de dupliquer
+  la logique d'ancrage à deux endroits.
+- **Front inchangé dans sa structure** (liste déroulante déjà en place depuis l'étape 8b) :
+  `amap_get_member_leave_form_data()` et `amap_handle_add_member_leave()` appellent simplement
+  `amap_get_weekday_dates_in_range()` avec `frequency_weeks`, le délai d'une semaine restant un
+  filtre indépendant appliqué en plus (toujours absent côté admin, cf. étape 8).
 
 Commit à venir.

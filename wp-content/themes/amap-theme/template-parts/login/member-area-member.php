@@ -47,6 +47,45 @@ $contract_types      = amap_get_contract_types();
                         <?php endif; ?>
                         <li><?php esc_html_e( 'Signé le', 'association-manager' ); ?> : <?php echo esc_html( $item['subscription']->signed_at ); ?></li>
                     </ul>
+
+                    <?php if ( 'basket_recurring' === $item['contract']->contract_type ) : ?>
+                        <?php
+                        $item_leaves     = amap_get_leaves( $item['subscription']->id );
+                        $item_max_leaves = (int) $item['contract']->max_leaves;
+                        ?>
+                        <p class="description">
+                            <?php
+                            printf(
+                                /* translators: 1: nombre de congés déjà déclarés. 2: nombre de congés autorisés pour ce contrat. */
+                                esc_html__( '%1$d congé(s) déclaré(s) sur %2$d autorisés.', 'association-manager' ),
+                                count( $item_leaves ),
+                                $item_max_leaves
+                            );
+                            ?>
+                            <?php if ( ! empty( $item_leaves ) ) : ?>
+                                (<?php
+                                echo esc_html(
+                                    implode(
+                                        ', ',
+                                        array_map(
+                                            static function ( $leave ) {
+                                                return date_i18n( 'j F', strtotime( $leave->leave_date ) );
+                                            },
+                                            $item_leaves
+                                        )
+                                    )
+                                );
+                                ?>)
+                            <?php endif; ?>
+                        </p>
+                        <?php if ( count( $item_leaves ) < $item_max_leaves ) : ?>
+                            <p>
+                                <a class="button-secondary" href="<?php echo esc_url( amap_get_member_leave_url( $item['subscription']->id ) ); ?>">
+                                    <?php esc_html_e( 'Déclarer un congé', 'association-manager' ); ?>
+                                </a>
+                            </p>
+                        <?php endif; ?>
+                    <?php endif; ?>
                 </li>
             <?php endforeach; ?>
         </ul>

@@ -16,6 +16,8 @@ $display_name = $current_user->display_name ? $current_user->display_name : $cur
     <div class="amap-notice amap-notice--success"><?php esc_html_e( 'Vos informations ont été mises à jour.', 'association-manager' ); ?></div>
 <?php elseif ( 'subscription_created' === ( $args['notice'] ?? '' ) ) : ?>
     <div class="amap-notice amap-notice--success"><?php esc_html_e( 'Votre souscription a bien été enregistrée.', 'association-manager' ); ?></div>
+<?php elseif ( 'leave_declared' === ( $args['notice'] ?? '' ) ) : ?>
+    <div class="amap-notice amap-notice--success"><?php esc_html_e( 'Votre congé a bien été déclaré.', 'association-manager' ); ?></div>
 <?php endif; ?>
 
 <p>

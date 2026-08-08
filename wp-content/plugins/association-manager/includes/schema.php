@@ -10,7 +10,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 function amap_activate() {
     // update_option() (et non plus add_option()) : la version doit refléter le schéma du
     // code à chaque activation. dbDelta() est idempotent, le rappeler ne pose pas de problème.
-    update_option( 'amap_db_version', '3.16' );
+    update_option( 'amap_db_version', '3.17' );
     amap_create_tables();
     amap_drop_obsolete_tables();
 
@@ -154,8 +154,9 @@ function amap_create_tables() {
     // Table mère des contrats, discriminée par contract_type : 'basket_recurring' (maraîcher,
     // panier à fréquence fixe) ou 'product_grid' (laitière/boulangers, grille produit×date
     // remplie une fois à la signature — tables filles prévues aux étapes 4b/4c). frequency_weeks
-    // n'a de sens que pour basket_recurring (1 = hebdo, 2 = toutes les 2 semaines) ; NULL sinon,
-    // contrôlé côté PHP comme les autres discriminants du plugin.
+    // et max_leaves n'ont de sens que pour basket_recurring (1 = hebdo, 2 = toutes les 2 semaines ;
+    // nombre de congés maraîcher autorisés sur la durée du contrat, voir wp_amap_leaves) ; NULL
+    // sinon, contrôlé côté PHP comme les autres discriminants du plugin.
     $sql_contracts = "CREATE TABLE $contracts_table (
         id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
         producer_user_id bigint(20) unsigned NOT NULL,
@@ -164,12 +165,21 @@ function amap_create_tables() {
         start_date date NOT NULL,
         end_date date NOT NULL,
         frequency_weeks tinyint(2) unsigned DEFAULT NULL,
+        max_leaves tinyint(2) unsigned DEFAULT NULL,
         is_active tinyint(1) unsigned NOT NULL DEFAULT 1,
         created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
         PRIMARY KEY  (id)
     ) $charset_collate;";
 
     dbDelta( $sql_contracts );
+
+    // dbDelta() ajoute la colonne max_leaves mais ne peut pas deviner une valeur pour les
+    // contrats basket_recurring déjà enregistrés (NULL par défaut) : reprend la valeur qui était
+    // jusqu'ici codée en dur (4) pour ne pas casser silencieusement les congés déjà en place sur
+    // des contrats de test existants. Le bureau ajuste ensuite depuis la page "Contrats" si besoin.
+    $wpdb->query(
+        "UPDATE $contracts_table SET max_leaves = 4 WHERE contract_type = 'basket_recurring' AND max_leaves IS NULL"
+    );
 
     $contract_basket_sizes_table = $wpdb->prefix . 'amap_contract_basket_sizes';
 

@@ -183,11 +183,17 @@ function amap_contract_has_delivery_date( $contract_id, $group_id, $delivery_dat
 
 /**
  * Toutes les occurrences calendaires d'un jour de semaine donné (convention 0=lundi..6=dimanche,
- * comme amap_get_weekday_labels()) entre deux dates incluses. Sert uniquement à proposer les
- * dates candidates d'une génération en masse — jamais utilisée pour valider le formulaire manuel,
- * qui reste volontairement permissif sur le jour de semaine (dates exceptionnelles).
+ * comme amap_get_weekday_labels()) entre deux dates incluses, espacées de $step_weeks semaines
+ * (1 par défaut = chaque semaine). Deux usages :
+ * - $step_weeks = 1, pour proposer les dates candidates d'une génération en masse de dates de
+ *   livraison product_grid — jamais utilisée pour valider le formulaire manuel de ces dates, qui
+ *   reste volontairement permissif sur le jour de semaine (dates exceptionnelles).
+ * - $step_weeks = frequency_weeks d'un contrat basket_recurring, pour ne lister QUE les vraies
+ *   distributions d'un contrat bimensuel/etc. (amap_get_member_leave_form_data(),
+ *   amap_handle_add_leave(), amap_handle_add_member_leave()) : ancré sur la première occurrence
+ *   du jour de semaine à partir de $start_date, jamais sur une semaine de référence arbitraire.
  */
-function amap_get_weekday_dates_in_range( $start_date, $end_date, $weekday ) {
+function amap_get_weekday_dates_in_range( $start_date, $end_date, $weekday, $step_weeks = 1 ) {
     $dates = array();
 
     try {
@@ -203,7 +209,7 @@ function amap_get_weekday_dates_in_range( $start_date, $end_date, $weekday ) {
         $current->modify( '+1 day' );
     }
 
-    $interval = new DateInterval( 'P7D' );
+    $interval = new DateInterval( 'P' . ( 7 * max( 1, $step_weeks ) ) . 'D' );
     while ( $current <= $end ) {
         $dates[] = $current->format( 'Y-m-d' );
         $current->add( $interval );
@@ -246,6 +252,7 @@ function amap_render_contracts_page() {
             'start_date'       => $editing_contract->start_date,
             'end_date'         => $editing_contract->end_date,
             'frequency_weeks'  => null !== $editing_contract->frequency_weeks ? (string) $editing_contract->frequency_weeks : '',
+            'max_leaves'       => null !== $editing_contract->max_leaves ? (string) $editing_contract->max_leaves : '',
             'is_active'        => (bool) $editing_contract->is_active,
         );
     } else {
@@ -389,6 +396,8 @@ function amap_render_contracts_page() {
             <div class="notice notice-error"><p><?php esc_html_e( 'Dates invalides : la date de fin doit être après la date de début.', 'association-manager' ); ?></p></div>
         <?php elseif ( 'invalid_frequency' === $notice ) : ?>
             <div class="notice notice-error"><p><?php esc_html_e( 'La fréquence (en semaines) est obligatoire et doit être un nombre positif pour un contrat de type panier récurrent.', 'association-manager' ); ?></p></div>
+        <?php elseif ( 'invalid_max_leaves' === $notice ) : ?>
+            <div class="notice notice-error"><p><?php esc_html_e( 'Le nombre de congés maximum est obligatoire et doit être un nombre positif pour un contrat de type panier récurrent.', 'association-manager' ); ?></p></div>
         <?php endif; ?>
 
         <?php if ( empty( $producers ) ) : ?>
@@ -437,6 +446,12 @@ function amap_render_contracts_page() {
                                 <tr>
                                     <th><?php esc_html_e( 'Fréquence (en semaines)', 'association-manager' ); ?></th>
                                     <td><?php echo esc_html( $editing_contract->frequency_weeks ); ?></td>
+                                </tr>
+                            <?php endif; ?>
+                            <?php if ( null !== $editing_contract->max_leaves ) : ?>
+                                <tr>
+                                    <th><?php esc_html_e( 'Congés maximum autorisés', 'association-manager' ); ?></th>
+                                    <td><?php echo esc_html( $editing_contract->max_leaves ); ?></td>
                                 </tr>
                             <?php endif; ?>
                             <tr>
@@ -510,6 +525,13 @@ function amap_render_contracts_page() {
                             <p class="description"><?php esc_html_e( '1 = livraison chaque semaine, 2 = toutes les deux semaines, etc. Uniquement pour un panier récurrent.', 'association-manager' ); ?></p>
                         </td>
                     </tr>
+                    <tr id="amap-contract-max-leaves-row">
+                        <th><label for="amap-contract-max-leaves"><?php esc_html_e( 'Congés maximum autorisés', 'association-manager' ); ?></label></th>
+                        <td>
+                            <input type="number" id="amap-contract-max-leaves" name="max_leaves" min="1" max="52" value="<?php echo esc_attr( $form_data['max_leaves'] ?? '' ); ?>">
+                            <p class="description"><?php esc_html_e( 'Nombre de congés maraîcher qu\'un adhérent peut poser sur la durée de ce contrat. Uniquement pour un panier récurrent.', 'association-manager' ); ?></p>
+                        </td>
+                    </tr>
                     <tr>
                         <th><?php esc_html_e( 'Statut', 'association-manager' ); ?></th>
                         <td>
@@ -555,9 +577,12 @@ function amap_render_contracts_page() {
             ( function () {
                 var typeField     = document.getElementById( 'amap-contract-type' );
                 var frequencyRow  = document.getElementById( 'amap-contract-frequency-row' );
+                var maxLeavesRow  = document.getElementById( 'amap-contract-max-leaves-row' );
 
                 function toggleFrequencyRow() {
-                    frequencyRow.hidden = ( 'basket_recurring' !== typeField.value );
+                    var isBasketRecurring = ( 'basket_recurring' === typeField.value );
+                    frequencyRow.hidden = ! isBasketRecurring;
+                    maxLeavesRow.hidden = ! isBasketRecurring;
                 }
 
                 typeField.addEventListener( 'change', toggleFrequencyRow );
@@ -1158,6 +1183,7 @@ function amap_render_contracts_page() {
                             <th><?php esc_html_e( 'Type', 'association-manager' ); ?></th>
                             <th><?php esc_html_e( 'Période', 'association-manager' ); ?></th>
                             <th><?php esc_html_e( 'Fréquence', 'association-manager' ); ?></th>
+                            <th><?php esc_html_e( 'Congés max', 'association-manager' ); ?></th>
                             <th><?php esc_html_e( 'Actif', 'association-manager' ); ?></th>
                             <th><?php esc_html_e( 'Actions', 'association-manager' ); ?></th>
                         </tr>
@@ -1171,6 +1197,7 @@ function amap_render_contracts_page() {
                                 <td><?php echo esc_html( $contract_types[ $contract->contract_type ] ?? $contract->contract_type ); ?></td>
                                 <td><?php echo esc_html( $contract->start_date . ' → ' . $contract->end_date ); ?></td>
                                 <td><?php echo esc_html( null !== $contract->frequency_weeks ? $contract->frequency_weeks : '—' ); ?></td>
+                                <td><?php echo esc_html( null !== $contract->max_leaves ? $contract->max_leaves : '—' ); ?></td>
                                 <td><?php echo $contract->is_active ? esc_html__( 'Oui', 'association-manager' ) : esc_html__( 'Non', 'association-manager' ); ?></td>
                                 <td>
                                     <a href="<?php echo esc_url( admin_url( 'admin.php?page=amap-contracts&action=edit&id=' . $contract->id ) ); ?>">
@@ -1214,8 +1241,9 @@ function amap_handle_add_contract() {
     $start_date       = isset( $_POST['start_date'] ) ? sanitize_text_field( wp_unslash( $_POST['start_date'] ) ) : '';
     $end_date         = isset( $_POST['end_date'] ) ? sanitize_text_field( wp_unslash( $_POST['end_date'] ) ) : '';
     $frequency_weeks  = isset( $_POST['frequency_weeks'] ) ? sanitize_text_field( wp_unslash( $_POST['frequency_weeks'] ) ) : '';
+    $max_leaves       = isset( $_POST['max_leaves'] ) ? sanitize_text_field( wp_unslash( $_POST['max_leaves'] ) ) : '';
     $is_active        = isset( $_POST['is_active'] );
-    $submitted        = compact( 'label', 'producer_user_id', 'contract_type', 'start_date', 'end_date', 'frequency_weeks', 'is_active' );
+    $submitted        = compact( 'label', 'producer_user_id', 'contract_type', 'start_date', 'end_date', 'frequency_weeks', 'max_leaves', 'is_active' );
 
     $valid_producer_ids = wp_list_pluck( amap_get_producer_users(), 'ID' );
 
@@ -1232,17 +1260,25 @@ function amap_handle_add_contract() {
         exit;
     }
 
-    // frequency_weeks n'a de sens que pour un panier récurrent : obligatoire dans ce cas,
-    // forcé à NULL sinon (même si le formulaire masque le champ en JS, on revalide côté serveur).
+    // frequency_weeks et max_leaves n'ont de sens que pour un panier récurrent : obligatoires
+    // dans ce cas, forcés à NULL sinon (même si le formulaire masque les champs en JS, on
+    // revalide côté serveur).
     if ( 'basket_recurring' === $contract_type ) {
         if ( '' === $frequency_weeks || ! ctype_digit( $frequency_weeks ) || (int) $frequency_weeks < 1 ) {
             amap_store_contract_form_data( $submitted );
             wp_safe_redirect( admin_url( 'admin.php?page=amap-contracts&amap_notice=invalid_frequency' ) );
             exit;
         }
+        if ( '' === $max_leaves || ! ctype_digit( $max_leaves ) || (int) $max_leaves < 1 ) {
+            amap_store_contract_form_data( $submitted );
+            wp_safe_redirect( admin_url( 'admin.php?page=amap-contracts&amap_notice=invalid_max_leaves' ) );
+            exit;
+        }
         $frequency_weeks = (int) $frequency_weeks;
+        $max_leaves      = (int) $max_leaves;
     } else {
         $frequency_weeks = null;
+        $max_leaves      = null;
     }
 
     global $wpdb;
@@ -1255,6 +1291,7 @@ function amap_handle_add_contract() {
             'start_date'       => $start_date,
             'end_date'         => $end_date,
             'frequency_weeks'  => $frequency_weeks,
+            'max_leaves'       => $max_leaves,
             'is_active'        => $is_active ? 1 : 0,
         )
     );
@@ -1285,8 +1322,9 @@ function amap_handle_update_contract() {
     $start_date       = isset( $_POST['start_date'] ) ? sanitize_text_field( wp_unslash( $_POST['start_date'] ) ) : '';
     $end_date         = isset( $_POST['end_date'] ) ? sanitize_text_field( wp_unslash( $_POST['end_date'] ) ) : '';
     $frequency_weeks  = isset( $_POST['frequency_weeks'] ) ? sanitize_text_field( wp_unslash( $_POST['frequency_weeks'] ) ) : '';
+    $max_leaves       = isset( $_POST['max_leaves'] ) ? sanitize_text_field( wp_unslash( $_POST['max_leaves'] ) ) : '';
     $is_active        = isset( $_POST['is_active'] );
-    $submitted        = compact( 'label', 'producer_user_id', 'contract_type', 'start_date', 'end_date', 'frequency_weeks', 'is_active' );
+    $submitted        = compact( 'label', 'producer_user_id', 'contract_type', 'start_date', 'end_date', 'frequency_weeks', 'max_leaves', 'is_active' );
 
     $valid_producer_ids = wp_list_pluck( amap_get_producer_users(), 'ID' );
 
@@ -1309,9 +1347,16 @@ function amap_handle_update_contract() {
             wp_safe_redirect( $edit_url . '&amap_notice=invalid_frequency' );
             exit;
         }
+        if ( '' === $max_leaves || ! ctype_digit( $max_leaves ) || (int) $max_leaves < 1 ) {
+            amap_store_contract_form_data( $submitted );
+            wp_safe_redirect( $edit_url . '&amap_notice=invalid_max_leaves' );
+            exit;
+        }
         $frequency_weeks = (int) $frequency_weeks;
+        $max_leaves      = (int) $max_leaves;
     } else {
         $frequency_weeks = null;
+        $max_leaves      = null;
     }
 
     global $wpdb;
@@ -1324,6 +1369,7 @@ function amap_handle_update_contract() {
             'start_date'       => $start_date,
             'end_date'         => $end_date,
             'frequency_weeks'  => $frequency_weeks,
+            'max_leaves'       => $max_leaves,
             'is_active'        => $is_active ? 1 : 0,
         ),
         array( 'id' => $id )

@@ -109,6 +109,20 @@ function amap_get_member_subscribe_url( $contract_id ) {
     );
 }
 
+/**
+ * URL du formulaire de déclaration d'un congé pour une souscription donnée
+ * (member-area-leave.php), depuis le lien "Déclarer un congé" de l'onglet "Espace adhérent".
+ */
+function amap_get_member_leave_url( $subscription_id ) {
+    return add_query_arg(
+        array(
+            'amap_member_action' => 'declare_leave',
+            'subscription_id'    => $subscription_id,
+        ),
+        amap_get_member_area_url()
+    );
+}
+
 function amap_get_magic_link_url( $token ) {
     return add_query_arg(
         array(
