@@ -95,6 +95,20 @@ function amap_get_member_area_tab_url( $tab ) {
     return add_query_arg( 'amap_tab', $tab, amap_get_member_area_url() );
 }
 
+/**
+ * URL du formulaire de souscription à un contrat donné (member-area-subscribe.php), depuis le
+ * bouton "Souscrire" de l'onglet "Espace adhérent".
+ */
+function amap_get_member_subscribe_url( $contract_id ) {
+    return add_query_arg(
+        array(
+            'amap_member_action' => 'subscribe',
+            'contract_id'        => $contract_id,
+        ),
+        amap_get_member_area_url()
+    );
+}
+
 function amap_get_magic_link_url( $token ) {
     return add_query_arg(
         array(

@@ -48,12 +48,22 @@ function amap_maybe_render_member_area() {
     $requested_tab = isset( $_GET['amap_tab'] ) ? sanitize_key( wp_unslash( $_GET['amap_tab'] ) ) : '';
     $tab           = in_array( $requested_tab, $available_tabs, true ) ? $requested_tab : reset( $available_tabs );
 
+    // Le formulaire de souscription valide (et wp_die()/redirige si besoin) AVANT tout affichage
+    // — même principe que amap_maybe_render_magic_link_confirmation() — pour ne jamais laisser
+    // échapper un en-tête de page avant un wp_die() ou une redirection.
+    $subscribe_form_data = null;
+    if ( $is_member && 'subscribe' === $action ) {
+        $subscribe_form_data = amap_get_member_subscribe_form_data( $user );
+    }
+
     get_header();
     ?>
     <main>
     <?php
     if ( $is_amap_user && 'edit_profile' === $action ) {
         amap_render_member_profile_edit_form( $user );
+    } elseif ( $subscribe_form_data ) {
+        get_template_part( 'template-parts/login/member-area-subscribe', null, $subscribe_form_data );
     } else {
         get_template_part(
             'template-parts/login/member-area',
@@ -65,7 +75,7 @@ function amap_maybe_render_member_area() {
                 'is_amap_user'     => $is_amap_user,
                 'can_manage_users' => $can_manage_users,
                 'tab'              => $tab,
-                'profile_updated'  => ( 'profile_updated' === $notice ),
+                'notice'           => $notice,
             )
         );
     }
@@ -74,6 +84,100 @@ function amap_maybe_render_member_area() {
     <?php
     get_footer();
     exit;
+}
+
+/**
+ * Valide le contrat visé par ?amap_member_action=subscribe&contract_id=X et prépare les données
+ * du formulaire (member-area-subscribe.php). Un contrat inactif/inexistant, ou dont le
+ * producteur ne livre pas le groupe de l'adhérent, ne peut venir que d'un lien périmé ou
+ * trafiqué, vu que la liste des "contrats disponibles" (amap_get_available_contracts_for_member())
+ * ne les propose jamais — wp_die() dans ces cas. Souscrire plusieurs fois au même contrat est
+ * volontairement permis (voir amap_get_available_contracts_for_member()), donc pas de vérif de
+ * doublon ici. L'absence de groupe rattaché redirige vers l'onglet adhérent, qui explique déjà la
+ * marche à suivre ; les tailles de panier manquantes relèvent d'une configuration incomplète côté
+ * bureau, pas d'une tentative de trafiquer la requête.
+ */
+function amap_get_member_subscribe_form_data( $user ) {
+    $contract_id = isset( $_GET['contract_id'] ) ? absint( $_GET['contract_id'] ) : 0;
+    $contract    = $contract_id ? amap_get_contract( $contract_id ) : null;
+
+    if ( ! $contract || ! $contract->is_active ) {
+        wp_die( esc_html__( "Ce contrat n'est pas ouvert à la souscription.", 'association-manager' ) );
+    }
+
+    // Point de retrait fixe de l'adhérent (fixé par le bureau, page "Utilisateurs AMAP"), jamais
+    // un choix laissé au formulaire — voir amap_get_available_contracts_for_member().
+    $member_group = amap_get_member_group( $user->ID );
+    if ( ! $member_group ) {
+        wp_safe_redirect( amap_get_member_area_tab_url( 'member' ) );
+        exit;
+    }
+
+    $producer_group_ids = array_map( 'intval', wp_list_pluck( amap_get_producer_groups( $contract->producer_user_id ), 'id' ) );
+    if ( ! in_array( (int) $member_group->id, $producer_group_ids, true ) ) {
+        wp_die( esc_html__( "Ce contrat n'est pas disponible pour votre groupe.", 'association-manager' ) );
+    }
+
+    $basket_sizes   = array();
+    $products       = array();
+    $delivery_dates = array();
+
+    if ( 'basket_recurring' === $contract->contract_type ) {
+        $basket_sizes = array_map(
+            static function ( $size ) {
+                return array(
+                    'id'    => (int) $size->id,
+                    'label' => $size->label . ' (' . number_format_i18n( (float) $size->price, 2 ) . ' €)',
+                );
+            },
+            amap_get_contract_basket_sizes( $contract->id )
+        );
+
+        if ( empty( $basket_sizes ) ) {
+            wp_die( esc_html__( "Aucune taille de panier n'est configurée pour ce contrat. Contactez le bureau.", 'association-manager' ) );
+        }
+    } else {
+        $products = array_map(
+            static function ( $product ) {
+                return array(
+                    'id'    => (int) $product->id,
+                    'label' => $product->label . ' (' . number_format_i18n( (float) $product->price, 2 ) . ' €)',
+                );
+            },
+            amap_get_contract_products( $contract->id )
+        );
+
+        if ( empty( $products ) ) {
+            wp_die( esc_html__( "Aucun produit n'est configuré pour ce contrat. Contactez le bureau.", 'association-manager' ) );
+        }
+
+        // Groupe déjà fixé (contrairement à l'admin, qui construit les dates de tous les
+        // groupes puisque le bureau choisit le groupe dans le même formulaire) : seules les
+        // dates du groupe de l'adhérent sont nécessaires ici.
+        foreach ( amap_get_contract_delivery_dates( $contract->id ) as $delivery_date_row ) {
+            if ( (int) $delivery_date_row->group_id !== (int) $member_group->id ) {
+                continue;
+            }
+
+            $delivery_dates[] = array(
+                'id'    => (int) $delivery_date_row->id,
+                'label' => date_i18n( 'j F Y', strtotime( $delivery_date_row->delivery_date ) ),
+            );
+        }
+
+        if ( empty( $delivery_dates ) ) {
+            wp_die( esc_html__( "Aucune date de livraison n'est configurée pour votre groupe sur ce contrat. Contactez le bureau.", 'association-manager' ) );
+        }
+    }
+
+    return array(
+        'contract'       => $contract,
+        'producer'       => get_user_by( 'id', $contract->producer_user_id ),
+        'group'          => $member_group,
+        'basket_sizes'   => $basket_sizes,
+        'products'       => $products,
+        'delivery_dates' => $delivery_dates,
+    );
 }
 
 /**

@@ -10,7 +10,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 function amap_activate() {
     // update_option() (et non plus add_option()) : la version doit refléter le schéma du
     // code à chaque activation. dbDelta() est idempotent, le rappeler ne pose pas de problème.
-    update_option( 'amap_db_version', '3.13' );
+    update_option( 'amap_db_version', '3.15' );
     amap_create_tables();
     amap_drop_obsolete_tables();
 
@@ -130,6 +130,25 @@ function amap_create_tables() {
 
     dbDelta( $sql_group_producers );
 
+    $group_members_table = $wpdb->prefix . 'amap_group_members';
+
+    // Rattachement adhérent↔groupe (point de retrait), fixé par le bureau sur la page
+    // "Utilisateurs AMAP" plutôt que choisi librement par l'adhérent à chaque souscription.
+    // UNIQUE(member_user_id), et non UNIQUE(group_id, member_user_id) comme pour
+    // wp_amap_group_producers : on suppose pour l'instant qu'un adhérent n'appartient qu'à un
+    // seul groupe (contrairement à un producteur, qui peut en livrer plusieurs) — à desserrer
+    // le jour où cette hypothèse ne tient plus.
+    $sql_group_members = "CREATE TABLE $group_members_table (
+        id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+        group_id bigint(20) unsigned NOT NULL,
+        member_user_id bigint(20) unsigned NOT NULL,
+        created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY  (id),
+        UNIQUE KEY member_user_id (member_user_id)
+    ) $charset_collate;";
+
+    dbDelta( $sql_group_members );
+
     $contracts_table = $wpdb->prefix . 'amap_contracts';
 
     // Table mère des contrats, discriminée par contract_type : 'basket_recurring' (maraîcher,
@@ -211,14 +230,18 @@ function amap_create_tables() {
 
     $subscriptions_table = $wpdb->prefix . 'amap_subscriptions';
 
-    // Souscription d'un adhérent à un contrat. group_id : point de retrait choisi par
-    // l'adhérent, indépendant de celui des autres adhérents du même contrat (un producteur peut
-    // livrer plusieurs groupes, voir wp_amap_contract_delivery_dates). basket_size_id n'a de
-    // sens que pour un contrat basket_recurring, NULL sinon (même discriminant que
-    // wp_amap_contracts.frequency_weeks). signed_at est saisi manuellement par le bureau (date
-    // de signature du contrat papier, potentiellement antérieure à la saisie informatique) alors
-    // que created_at reste l'horodatage technique automatique. UNIQUE(contract_id,
-    // member_user_id) : un adhérent ne peut signer qu'une fois le même contrat.
+    // Souscription d'un adhérent à un contrat. group_id : point de retrait de l'adhérent au
+    // moment de la signature, dérivé de son rattachement (wp_amap_group_members) plutôt que
+    // choisi librement — dupliqué ici (plutôt que rejoint à chaque lecture) car un changement de
+    // rattachement plus tard ne doit pas modifier rétroactivement une souscription déjà signée.
+    // basket_size_id n'a de sens que pour un contrat basket_recurring, NULL sinon (même
+    // discriminant que wp_amap_contracts.frequency_weeks). signed_at est saisi manuellement par
+    // le bureau (date de signature du contrat papier, potentiellement antérieure à la saisie
+    // informatique) alors que created_at reste l'horodatage technique automatique. Pas de
+    // contrainte UNIQUE(contract_id, member_user_id) (existait jusqu'à l'étape 7.3) : un compte
+    // adhérent représente parfois un foyer entier, qui doit pouvoir souscrire plusieurs fois au
+    // même contrat sous des lignes séparées (ex. 2 grands paniers + 1 petit) — l'index reste en
+    // KEY simple, seulement pour les performances des lectures par (contract_id, member_user_id).
     $sql_subscriptions = "CREATE TABLE $subscriptions_table (
         id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
         contract_id bigint(20) unsigned NOT NULL,
@@ -228,10 +251,21 @@ function amap_create_tables() {
         signed_at date NOT NULL,
         created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
         PRIMARY KEY  (id),
-        UNIQUE KEY contract_member (contract_id, member_user_id)
+        KEY contract_member (contract_id, member_user_id)
     ) $charset_collate;";
 
     dbDelta( $sql_subscriptions );
+
+    // dbDelta() ne modifie pas fiablement un index existant qui change de type (UNIQUE → simple)
+    // même à nom et colonnes identiques (limitation déjà rencontrée à l'étape 4c pour un
+    // changement de composition de colonnes) : la contrainte UNIQUE posée à l'étape 5 est retirée
+    // explicitement ici plutôt que par un DROP TABLE, pour ne pas perdre les souscriptions déjà
+    // enregistrées.
+    $existing_unique_index = $wpdb->get_row( "SHOW INDEX FROM $subscriptions_table WHERE Key_name = 'contract_member' AND Non_unique = 0" );
+    if ( $existing_unique_index ) {
+        $wpdb->query( "ALTER TABLE $subscriptions_table DROP INDEX contract_member" );
+        $wpdb->query( "ALTER TABLE $subscriptions_table ADD KEY contract_member (contract_id, member_user_id)" );
+    }
 
     $subscription_items_table = $wpdb->prefix . 'amap_subscription_items';
 

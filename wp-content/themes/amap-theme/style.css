@@ -208,6 +208,11 @@ select:focus {
     border-color: var(--color-primary);
 }
 
+.description {
+    color: var(--color-text-muted);
+    font-size: 0.9rem;
+}
+
 /* Boutons */
 button,
 input[type="submit"],
@@ -389,6 +394,43 @@ input[type="submit"]:hover,
 .amap-status-badge--ended {
     background: var(--color-bg);
     color: var(--color-text-muted);
+}
+
+/* Formulaire de souscription : grille produits×dates (member-area-subscribe.php) */
+.amap-items-grid-wrapper {
+    overflow-x: auto;
+    margin-bottom: var(--space-3);
+}
+
+table.amap-items-grid {
+    border-collapse: collapse;
+    margin-top: var(--space-2);
+}
+
+table.amap-items-grid th,
+table.amap-items-grid td {
+    border: 1px solid var(--color-border);
+    padding: var(--space-2) var(--space-3);
+    text-align: center;
+}
+
+table.amap-items-grid thead th {
+    background: var(--color-primary-bg);
+    white-space: normal;
+    min-width: 90px;
+}
+
+table.amap-items-grid tbody th {
+    background: var(--color-bg);
+    white-space: nowrap;
+    text-align: left;
+}
+
+.amap-item-quantity {
+    width: 4em;
+    max-width: 4em;
+    margin-bottom: 0;
+    text-align: center;
 }
 
 /* Erreur de validation propre à un champ (ex. téléphone) */

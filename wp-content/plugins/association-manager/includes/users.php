@@ -102,19 +102,23 @@ function amap_render_users_page() {
         delete_transient( $transient_key );
     } elseif ( $editing_user ) {
         // Pas d'erreur en attente : on préremplit avec les valeurs actuelles de l'utilisateur.
-        $contact   = amap_get_user_contact( $editing_user->ID );
-        $form_data = array(
+        $contact      = amap_get_user_contact( $editing_user->ID );
+        $member_group = amap_get_member_group( $editing_user->ID );
+        $form_data    = array(
             'last_name'  => $editing_user->last_name,
             'first_name' => $editing_user->first_name,
             'email'      => $editing_user->user_email,
             'phone'      => $contact->phone ?? '',
             'address'    => $contact->address ?? '',
             'roles'      => array_intersect( $editing_user->roles, array_keys( amap_get_available_roles() ) ),
+            'group_id'   => $member_group ? (string) $member_group->id : '',
         );
     } else {
         $form_data = array();
     }
-    $selected_roles = $form_data['roles'] ?? array();
+    $selected_roles    = $form_data['roles'] ?? array();
+    $selected_group_id = $form_data['group_id'] ?? '';
+    $groups            = amap_get_groups();
 
     $users = amap_get_amap_users();
     ?>
@@ -221,10 +225,24 @@ function amap_render_users_page() {
                     <td>
                         <?php foreach ( amap_get_available_roles() as $role_slug => $role_label ) : ?>
                             <label>
-                                <input type="checkbox" name="roles[]" value="<?php echo esc_attr( $role_slug ); ?>" <?php checked( in_array( $role_slug, $selected_roles, true ) ); ?>>
+                                <input type="checkbox" id="amap-user-role-<?php echo esc_attr( $role_slug ); ?>" name="roles[]" value="<?php echo esc_attr( $role_slug ); ?>" <?php checked( in_array( $role_slug, $selected_roles, true ) ); ?>>
                                 <?php echo esc_html( $role_label ); ?>
                             </label><br>
                         <?php endforeach; ?>
+                    </td>
+                </tr>
+                <tr id="amap-user-group-row"<?php echo in_array( 'amap_member', $selected_roles, true ) ? '' : ' hidden'; ?>>
+                    <th><label for="amap-user-group"><?php esc_html_e( 'Groupe (point de retrait)', 'association-manager' ); ?></label></th>
+                    <td>
+                        <select id="amap-user-group" name="group_id">
+                            <option value=""><?php esc_html_e( '— aucun pour l\'instant —', 'association-manager' ); ?></option>
+                            <?php foreach ( $groups as $group ) : ?>
+                                <option value="<?php echo esc_attr( $group->id ); ?>" <?php selected( (string) $group->id, $selected_group_id ); ?>>
+                                    <?php echo esc_html( $group->name ); ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                        <p class="description"><?php esc_html_e( "Point de retrait de l'adhérent : détermine les contrats qu'il pourra voir et souscrire.", 'association-manager' ); ?></p>
                     </td>
                 </tr>
             </table>
@@ -255,6 +273,17 @@ function amap_render_users_page() {
                 cancel.addEventListener( 'click', function () {
                     wrapper.hidden = true;
                     toggle.hidden  = false;
+                } );
+            }
+        } )();
+        </script>
+        <script>
+        ( function () {
+            var memberCheckbox = document.getElementById( 'amap-user-role-amap_member' );
+            var groupRow        = document.getElementById( 'amap-user-group-row' );
+            if ( memberCheckbox && groupRow ) {
+                memberCheckbox.addEventListener( 'change', function () {
+                    groupRow.hidden = ! memberCheckbox.checked;
                 } );
             }
         } )();
@@ -296,12 +325,16 @@ function amap_render_users_page() {
                         <th><?php esc_html_e( 'Téléphone', 'association-manager' ); ?></th>
                         <th><?php esc_html_e( 'Adresse', 'association-manager' ); ?></th>
                         <th><?php esc_html_e( 'Rôles', 'association-manager' ); ?></th>
+                        <th><?php esc_html_e( 'Groupe', 'association-manager' ); ?></th>
                         <th><?php esc_html_e( 'Actions', 'association-manager' ); ?></th>
                     </tr>
                 </thead>
                 <tbody>
                     <?php foreach ( $users as $user ) : ?>
-                        <?php $contact = amap_get_user_contact( $user->ID ); ?>
+                        <?php
+                        $contact      = amap_get_user_contact( $user->ID );
+                        $member_group = in_array( 'amap_member', $user->roles, true ) ? amap_get_member_group( $user->ID ) : null;
+                        ?>
                         <tr>
                             <td><?php echo esc_html( $user->last_name ); ?></td>
                             <td><?php echo esc_html( $user->first_name ); ?></td>
@@ -309,6 +342,7 @@ function amap_render_users_page() {
                             <td><?php echo esc_html( $contact->phone ?? '' ); ?></td>
                             <td><?php echo esc_html( $contact->address ?? '' ); ?></td>
                             <td><?php echo esc_html( amap_format_user_roles( $user->roles ) ); ?></td>
+                            <td><?php echo esc_html( $member_group ? $member_group->name : '—' ); ?></td>
                             <td>
                                 <a href="<?php echo esc_url( admin_url( 'admin.php?page=amap-users&action=edit&id=' . $user->ID ) ); ?>">
                                     <?php esc_html_e( 'Modifier', 'association-manager' ); ?>
@@ -450,9 +484,11 @@ function amap_handle_add_user() {
     $address    = isset( $_POST['address'] ) ? sanitize_text_field( wp_unslash( $_POST['address'] ) ) : '';
     $roles      = isset( $_POST['roles'] ) ? array_map( 'sanitize_key', wp_unslash( $_POST['roles'] ) ) : array();
     $roles      = array_values( array_intersect( $roles, array_keys( amap_get_available_roles() ) ) );
-    $submitted  = compact( 'last_name', 'first_name', 'email', 'phone', 'address', 'roles' );
+    $group_id   = isset( $_POST['group_id'] ) ? absint( $_POST['group_id'] ) : 0;
+    $submitted  = compact( 'last_name', 'first_name', 'email', 'phone', 'address', 'roles', 'group_id' );
 
-    if ( '' === $last_name || '' === $first_name || '' === $email || '' === $phone || empty( $roles ) ) {
+    if ( '' === $last_name || '' === $first_name || '' === $email || '' === $phone || empty( $roles )
+        || ( $group_id && ! amap_get_group( $group_id ) ) ) {
         amap_store_user_form_data( $submitted );
         wp_safe_redirect( admin_url( 'admin.php?page=amap-users&amap_notice=invalid' ) );
         exit;
@@ -480,6 +516,13 @@ function amap_handle_add_user() {
     // casquette (ex. producteur) à un compte déjà adhérent, sans dupliquer l'identité.
     foreach ( $roles as $role ) {
         $user->add_role( $role );
+    }
+
+    // Comme les rôles, le groupe n'est fixé que si "Adhérent" est coché dans CETTE soumission :
+    // un compte déjà adhérent, réutilisé ici seulement pour lui ajouter une autre casquette, ne
+    // doit pas se voir modifier ou retirer son groupe existant.
+    if ( in_array( 'amap_member', $roles, true ) ) {
+        amap_set_member_group( $user->ID, $group_id );
     }
 
     if ( ! amap_save_user_contact( $user->ID, $phone, $address ) ) {
@@ -517,9 +560,11 @@ function amap_handle_update_user() {
     $address    = isset( $_POST['address'] ) ? sanitize_text_field( wp_unslash( $_POST['address'] ) ) : '';
     $roles      = isset( $_POST['roles'] ) ? array_map( 'sanitize_key', wp_unslash( $_POST['roles'] ) ) : array();
     $roles      = array_values( array_intersect( $roles, array_keys( amap_get_available_roles() ) ) );
-    $submitted  = compact( 'last_name', 'first_name', 'email', 'phone', 'address', 'roles' );
+    $group_id   = isset( $_POST['group_id'] ) ? absint( $_POST['group_id'] ) : 0;
+    $submitted  = compact( 'last_name', 'first_name', 'email', 'phone', 'address', 'roles', 'group_id' );
 
-    if ( '' === $last_name || '' === $first_name || '' === $email || '' === $phone || empty( $roles ) ) {
+    if ( '' === $last_name || '' === $first_name || '' === $email || '' === $phone || empty( $roles )
+        || ( $group_id && ! amap_get_group( $group_id ) ) ) {
         amap_store_user_form_data( $submitted );
         wp_safe_redirect( $edit_url . '&amap_notice=invalid' );
         exit;
@@ -569,6 +614,11 @@ function amap_handle_update_user() {
         }
     }
 
+    // Contrairement à l'ajout, l'édition applique ici aussi l'état exact de la casquette
+    // adhérent : décocher "Adhérent" retire le groupe (amap_set_member_group( $id, 0 )), pour ne
+    // pas laisser un rattachement orphelin sur un compte qui n'est plus adhérent.
+    amap_set_member_group( $id, in_array( 'amap_member', $roles, true ) ? $group_id : 0 );
+
     if ( ! amap_save_user_contact( $id, $phone, $address ) ) {
         wp_safe_redirect( admin_url( 'admin.php?page=amap-users&amap_notice=contact_error' ) );
         exit;
@@ -603,6 +653,7 @@ function amap_handle_delete_user() {
 
     global $wpdb;
     $wpdb->delete( $wpdb->prefix . 'amap_users', array( 'user_id' => $id ) );
+    $wpdb->delete( $wpdb->prefix . 'amap_group_members', array( 'member_user_id' => $id ) );
 
     wp_safe_redirect( admin_url( 'admin.php?page=amap-users' ) );
     exit;

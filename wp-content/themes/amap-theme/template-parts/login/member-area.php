@@ -12,8 +12,10 @@ $display_name = $current_user->display_name ? $current_user->display_name : $cur
 
 <h1><?php esc_html_e( 'Espace adhérent', 'association-manager' ); ?></h1>
 
-<?php if ( ! empty( $args['profile_updated'] ) ) : ?>
+<?php if ( 'profile_updated' === ( $args['notice'] ?? '' ) ) : ?>
     <div class="amap-notice amap-notice--success"><?php esc_html_e( 'Vos informations ont été mises à jour.', 'association-manager' ); ?></div>
+<?php elseif ( 'subscription_created' === ( $args['notice'] ?? '' ) ) : ?>
+    <div class="amap-notice amap-notice--success"><?php esc_html_e( 'Votre souscription a bien été enregistrée.', 'association-manager' ); ?></div>
 <?php endif; ?>
 
 <p>

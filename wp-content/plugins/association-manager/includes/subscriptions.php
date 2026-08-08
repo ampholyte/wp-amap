@@ -35,24 +35,6 @@ function amap_get_subscription( $id ) {
     );
 }
 
-/**
- * Revérifie côté PHP la contrainte UNIQUE(contract_id, member_user_id), même principe que
- * amap_contract_has_delivery_date().
- */
-function amap_member_has_subscription( $contract_id, $member_user_id, $exclude_id = 0 ) {
-    global $wpdb;
-
-    $sql    = "SELECT COUNT(*) FROM {$wpdb->prefix}amap_subscriptions WHERE contract_id = %d AND member_user_id = %d";
-    $params = array( $contract_id, $member_user_id );
-
-    if ( $exclude_id ) {
-        $sql     .= ' AND id != %d';
-        $params[] = $exclude_id;
-    }
-
-    return (bool) $wpdb->get_var( $wpdb->prepare( $sql, $params ) );
-}
-
 function amap_store_subscription_form_data( array $data ) {
     set_transient( 'amap_subscription_form_' . get_current_user_id(), $data, 60 );
 }
@@ -102,6 +84,124 @@ function amap_get_member_subscriptions( $member_user_id ) {
     }
 
     return $result;
+}
+
+/**
+ * Contrats ouverts à la souscription (`is_active`) des producteurs livrant le groupe de
+ * l'adhérent connecté (amap_get_member_group(), fixé par le bureau sur la page "Utilisateurs
+ * AMAP") — proposés dans l'onglet "Espace adhérent" (member-area-member.php) avec un bouton
+ * "Souscrire" menant au formulaire de member-area-subscribe.php. Un contrat déjà souscrit reste
+ * proposé : un compte adhérent représente parfois un foyer entier, qui peut avoir besoin de
+ * souscrire plusieurs fois au même contrat (ex. 2 grands paniers + 1 petit). Sans groupe
+ * rattaché, aucun contrat ne peut être proposé.
+ */
+function amap_get_available_contracts_for_member( $member_user_id ) {
+    $member_group = amap_get_member_group( $member_user_id );
+    if ( ! $member_group ) {
+        return array();
+    }
+
+    $available = array();
+
+    foreach ( amap_get_contracts() as $contract ) {
+        if ( ! $contract->is_active ) {
+            continue;
+        }
+
+        $producer_group_ids = array_map( 'intval', wp_list_pluck( amap_get_producer_groups( $contract->producer_user_id ), 'id' ) );
+        if ( ! in_array( (int) $member_group->id, $producer_group_ids, true ) ) {
+            continue;
+        }
+
+        $available[] = array(
+            'contract' => $contract,
+            'producer' => get_user_by( 'id', $contract->producer_user_id ),
+        );
+    }
+
+    return $available;
+}
+
+add_action( 'admin_post_amap_add_member_subscription', 'amap_handle_add_member_subscription' );
+
+/**
+ * Traite le formulaire front de souscription (member-area-subscribe.php), soumis par un
+ * adhérent depuis son espace membre — pendant équivalent de amap_handle_add_subscription() côté
+ * admin, mais member_user_id est TOUJOURS l'utilisateur connecté (jamais lu du POST) : un
+ * adhérent ne peut ainsi jamais souscrire au nom d'un autre, même en trafiquant le formulaire.
+ * group_id n'est pas non plus lu du POST : il est dérivé du rattachement fixé par le bureau
+ * (amap_get_member_group()), jamais un choix laissé à l'adhérent (voir
+ * amap_get_available_contracts_for_member()). Souscrire plusieurs fois au même contrat est
+ * volontairement permis (un compte adhérent peut représenter un foyer entier, ex. 2 grands
+ * paniers + 1 petit sous 3 lignes séparées) : les vérifications ci-dessous (contrat actif,
+ * groupe/taille appartenant bien au contrat) ne peuvent donc échouer que par lien périmé ou
+ * requête trafiquée, jamais par une resoumission légitime — d'où wp_die() plutôt qu'une
+ * redirection avec message.
+ */
+function amap_handle_add_member_subscription() {
+    $user = wp_get_current_user();
+    if ( ! is_user_logged_in() || ! in_array( 'amap_member', $user->roles, true ) ) {
+        wp_die( esc_html__( 'Action non autorisée.', 'association-manager' ) );
+    }
+
+    $contract_id = isset( $_POST['contract_id'] ) ? absint( $_POST['contract_id'] ) : 0;
+
+    check_admin_referer( 'amap_subscribe_contract_' . $contract_id );
+
+    $contract = $contract_id ? amap_get_contract( $contract_id ) : null;
+    if ( ! $contract || ! $contract->is_active ) {
+        wp_die( esc_html__( "Ce contrat n'est pas ouvert à la souscription.", 'association-manager' ) );
+    }
+
+    $member_user_id = $user->ID;
+
+    $member_group       = amap_get_member_group( $member_user_id );
+    $producer_group_ids = array_map( 'intval', wp_list_pluck( amap_get_producer_groups( $contract->producer_user_id ), 'id' ) );
+
+    if ( ! $member_group || ! in_array( (int) $member_group->id, $producer_group_ids, true ) ) {
+        wp_die( esc_html__( "Ce contrat n'est pas disponible pour votre groupe.", 'association-manager' ) );
+    }
+
+    $group_id = (int) $member_group->id;
+
+    $basket_size_id = isset( $_POST['basket_size_id'] ) ? absint( $_POST['basket_size_id'] ) : 0;
+    if ( 'basket_recurring' === $contract->contract_type ) {
+        $contract_basket_size = $basket_size_id ? amap_get_contract_basket_size( $basket_size_id ) : null;
+        if ( ! $contract_basket_size || (int) $contract_basket_size->contract_id !== $contract_id ) {
+            wp_die( esc_html__( 'Taille de panier invalide pour ce contrat.', 'association-manager' ) );
+        }
+    } else {
+        $basket_size_id = null;
+    }
+
+    global $wpdb;
+    $wpdb->insert(
+        $wpdb->prefix . 'amap_subscriptions',
+        array(
+            'contract_id'    => $contract_id,
+            'member_user_id' => $member_user_id,
+            'group_id'       => $group_id,
+            'basket_size_id' => $basket_size_id,
+            // Signature immédiate : contrairement à l'admin (où signed_at peut être antidaté
+            // pour une saisie a posteriori), ici l'action EST la signature.
+            'signed_at'      => current_time( 'Y-m-d' ),
+        )
+    );
+
+    if ( 'product_grid' === $contract->contract_type ) {
+        amap_insert_subscription_items( $wpdb->insert_id, $contract_id, $group_id );
+    }
+
+    wp_safe_redirect(
+        add_query_arg(
+            array(
+                'amap_tab'           => 'member',
+                'amap_member_notice' => 'subscription_created',
+            ),
+            amap_get_member_area_url()
+        )
+    );
+    exit;
 }
 
 function amap_render_subscriptions_page() {
@@ -284,8 +384,6 @@ function amap_render_subscriptions_page() {
             <div class="notice notice-error"><p><?php esc_html_e( 'Champs obligatoires manquants ou invalides.', 'association-manager' ); ?></p></div>
         <?php elseif ( 'invalid_date' === $notice ) : ?>
             <div class="notice notice-error"><p><?php esc_html_e( 'Date de signature invalide.', 'association-manager' ); ?></p></div>
-        <?php elseif ( 'duplicate' === $notice ) : ?>
-            <div class="notice notice-error"><p><?php esc_html_e( 'Cet adhérent a déjà souscrit à ce contrat.', 'association-manager' ); ?></p></div>
         <?php endif; ?>
 
         <?php if ( empty( $members ) || empty( $selectable_contracts ) ) : ?>
@@ -836,12 +934,6 @@ function amap_handle_add_subscription() {
         $basket_size_id = null;
     }
 
-    if ( amap_member_has_subscription( $contract_id, $member_user_id ) ) {
-        amap_store_subscription_form_data( $submitted );
-        wp_safe_redirect( admin_url( 'admin.php?page=amap-subscriptions&amap_notice=duplicate' ) );
-        exit;
-    }
-
     global $wpdb;
     $wpdb->insert(
         $wpdb->prefix . 'amap_subscriptions',
@@ -915,12 +1007,6 @@ function amap_handle_update_subscription() {
         }
     } else {
         $basket_size_id = null;
-    }
-
-    if ( amap_member_has_subscription( $contract_id, $member_user_id, $id ) ) {
-        amap_store_subscription_form_data( $submitted );
-        wp_safe_redirect( $edit_url . '&amap_notice=duplicate' );
-        exit;
     }
 
     global $wpdb;

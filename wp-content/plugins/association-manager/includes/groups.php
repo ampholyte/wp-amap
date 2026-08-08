@@ -81,6 +81,46 @@ function amap_get_producer_groups( $producer_user_id ) {
 }
 
 /**
+ * Groupe rattaché à un adhérent (fixé par le bureau sur la page "Utilisateurs AMAP", voir
+ * amap_set_member_group()) — au plus un groupe par adhérent pour l'instant, contrairement à
+ * amap_get_producer_groups() qui en retourne plusieurs pour un producteur. Retourne null tant
+ * qu'aucun groupe n'a été fixé.
+ */
+function amap_get_member_group( $member_user_id ) {
+    global $wpdb;
+
+    $group_id = $wpdb->get_var(
+        $wpdb->prepare(
+            "SELECT group_id FROM {$wpdb->prefix}amap_group_members WHERE member_user_id = %d",
+            $member_user_id
+        )
+    );
+
+    return $group_id ? amap_get_group( $group_id ) : null;
+}
+
+/**
+ * Fixe le groupe d'un adhérent, ou le retire si $group_id vaut 0 (ex. la casquette adhérent est
+ * retirée du compte). Delete puis insert plutôt qu'un update : il n'existe jamais qu'une seule
+ * ligne par adhérent (UNIQUE(member_user_id)), pas besoin de distinguer création/modification.
+ */
+function amap_set_member_group( $member_user_id, $group_id ) {
+    global $wpdb;
+
+    $wpdb->delete( $wpdb->prefix . 'amap_group_members', array( 'member_user_id' => $member_user_id ) );
+
+    if ( $group_id ) {
+        $wpdb->insert(
+            $wpdb->prefix . 'amap_group_members',
+            array(
+                'group_id'       => $group_id,
+                'member_user_id' => $member_user_id,
+            )
+        );
+    }
+}
+
+/**
  * Les colonnes TIME de MySQL sont lues sous la forme "HH:MM:SS" par $wpdb : on ne garde que
  * "HH:MM", à la fois pour l'affichage dans le tableau et pour préremplir un <input type="time">.
  */
@@ -421,9 +461,10 @@ function amap_handle_delete_group() {
 
     global $wpdb;
     // Pas de contrainte FOREIGN KEY SQL sur group_id (cohérent avec le reste du plugin) : le
-    // nettoyage des rattachements producteurs orphelins, ainsi que des dates de livraison de
-    // contrats déjà générées pour ce groupe, se fait explicitement ici.
+    // nettoyage des rattachements producteurs et adhérents orphelins, ainsi que des dates de
+    // livraison de contrats déjà générées pour ce groupe, se fait explicitement ici.
     $wpdb->delete( $wpdb->prefix . 'amap_group_producers', array( 'group_id' => $id ) );
+    $wpdb->delete( $wpdb->prefix . 'amap_group_members', array( 'group_id' => $id ) );
     $wpdb->delete( $wpdb->prefix . 'amap_contract_delivery_dates', array( 'group_id' => $id ) );
     $wpdb->delete( $wpdb->prefix . 'amap_groups', array( 'id' => $id ) );
 
