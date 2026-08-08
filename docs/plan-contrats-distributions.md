@@ -113,7 +113,7 @@ préfixées `amap_`, réutilisant le pattern CRUD déjà en place pour "Utilisat
 9. wp_amap_distribution_exceptions (dépend de 1 seulement)          ✅ fait
 10. wp_amap_distribution_volunteers (dépend de 1 + 5, pour connaître les adhérents éligibles
     par groupe) — roster bénévoles, règles 2-3/distribution et 3/an/adhérent en PHP   ✅ fait
-11. Notification adhérents lors d'exception (dépend de 9 + 5, réutilise amap_send_email())
+11. Notification adhérents lors d'exception (dépend de 9 + 5, réutilise amap_send_email())   ✅ fait
 ```
 
 Point ouvert acté en conversation le 2026-08-08, à traiter à l'étape 7 : la page admin
@@ -709,5 +709,62 @@ Aligné sur le pattern déjà en place sur la page "Contrats" (`amap-contract-vi
   ou d'un bénévole renvoie déjà sur cette même page. Aligné sur `amap_handle_update_contract()`
   (page "Contrats") : redirection vers `$edit_url` après enregistrement, la vue affichant alors les
   données à jour.
+
+Commit à venir.
+
+## Étape 11 (fait) — Notification adhérents lors d'une exception de distribution
+
+Voir `metier-producteurs.md` : contrairement aux congés individuels (qui n'affectent pas la
+distribution elle-même), une exception modifie un événement partagé par tout le groupe et doit
+donc être communiquée aux adhérents.
+
+**Pivot décidé en conversation avant codage** (2026-08-08), qui écarte l'audience envisagée
+initialement (boucle sur `amap_get_group_member_users( $group_id )`, un email individuel par
+adhérent du groupe) : le bureau redoutait de dépasser la limite d'envois quotidiens de Brevo si
+plusieurs groupes ont une exception le même jour (jusqu'à ~80 emails individuels pour un seul
+groupe). Retenu à la place :
+- Nouvelle colonne `wp_amap_groups.notification_email` — une adresse alias (ex. liste de
+  diffusion créée côté bureau, hors outil) reçoit **un seul email** par exception, quel que soit
+  le nombre d'adhérents du groupe. Optionnelle : champ `<input type="email">` ajouté au formulaire
+  "Groupes" existant (après "Heure de fin"), validée avec `is_email()` côté serveur si non vide
+  (notice `invalid_email`, même principe que `invalid_time`), stockée `NULL` si vide. Migration
+  non destructive : simple `ADD COLUMN` nullable via `dbDelta()` (contrairement aux migrations
+  destructives du complément à 4c/7.2, qui touchaient un index).
+- Si l'adresse n'est pas configurée pour un groupe, **aucune notification n'est envoyée** pour ses
+  exceptions (pas de fallback vers une boucle individuelle, qui réintroduirait le risque de
+  volume) — un bandeau d'avertissement (`notice-warning`) apparaît en permanence en tête de la
+  section "Exceptions de distribution" tant que le champ est vide, pour inciter le bureau à le
+  renseigner.
+- `amap_get_group_member_users()` (étape 10) reste inchangée et non concernée par cette étape :
+  toujours utilisée pour le roster des bénévoles de distribution, seule l'audience de la
+  *notification* d'exception change.
+
+**Déclencheurs, contenu et sémantique de `notified_at`** (points tranchés en conversation,
+2026-08-08) :
+- **Création, modification et suppression** déclenchent chacune un envoi (pas seulement la
+  création) : une exception a un vrai CRUD (contrairement aux congés), donc une correction de
+  date/horaire/lieu ou une suppression (retour à la distribution normale) doivent aussi être
+  communiquées, sinon l'adresse de notification garderait une information erronée ou périmée.
+  Un email de suppression a un contenu dédié ("Retour à la normale — ...") plutôt que de réutiliser
+  le gabarit annulation/déplacement.
+- **Contenu complet** : groupe, date de distribution concernée, type (annulée/déplacée), nouvelle
+  date/horaire/lieu si déplacée, motif si renseigné — même niveau de détail que le tableau admin
+  existant de la section "Exceptions de distribution".
+- **`notified_at` renseigné dès la tentative d'envoi**, succès ou échec de l'appel à
+  `amap_send_email()` — cohérent avec le fire-and-forget déjà en place ailleurs dans le plugin
+  (résultat de `amap_send_email()` jamais vérifié, ex. `amap_send_subscription_confirmation_email()`
+  à l'étape 7.4). N'est mis à jour que si un envoi a effectivement été tenté (adresse configurée) :
+  reste `NULL` si le groupe n'a pas d'adresse de notification. Sans objet à la suppression (la
+  ligne disparaît).
+
+**Implémentation** : nouvelle fonction `amap_notify_distribution_exception( $exception, $group,
+$event )` (`groups.php`, à côté des autres helpers d'exceptions), appelée depuis
+`amap_handle_add_distribution_exception()` (`$event = 'created'`, après l'insert, avec un second
+`$wpdb->update()` ciblé sur `notified_at` si un envoi a été tenté),
+`amap_handle_update_distribution_exception()` (`$event = 'updated'`, même principe après l'update)
+et `amap_handle_delete_distribution_exception()` (`$event = 'deleted'`, juste avant le
+`$wpdb->delete()`, avec les données de `$exception` déjà chargées en mémoire pour la validation
+d'origine). Pas de nouvelle page, capability ni fichier : suit le principe déjà appliqué aux étapes
+9/10 (tout dans `groups.php`).
 
 Commit à venir.

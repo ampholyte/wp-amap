@@ -100,7 +100,12 @@ function amap_create_tables() {
     // weekday : 0=lundi ... 6=dimanche (voir amap_get_weekday_labels()), jour fixe de la
     // distribution hebdomadaire du groupe. start_time/end_time : plage horaire fixe de cette
     // même distribution (ex. les adhérents doivent être présents 15 min avant/après, mais ce
-    // délai est une règle appliquée à l'usage, pas stockée ici).
+    // délai est une règle appliquée à l'usage, pas stockée ici). notification_email : adresse
+    // alias gérée côté bureau (hors outil, ex. liste de diffusion) qui reçoit un récapitulatif
+    // lors d'une exception de distribution (étape 11) — un seul envoi par exception plutôt qu'une
+    // boucle sur chaque adhérent du groupe, pour rester sous la limite d'envois quotidiens de
+    // Brevo si plusieurs groupes ont une exception le même jour. Optionnelle : si vide, aucune
+    // notification n'est envoyée pour ce groupe (voir amap_notify_distribution_exception()).
     $sql_groups = "CREATE TABLE $groups_table (
         id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
         name varchar(120) NOT NULL,
@@ -108,6 +113,7 @@ function amap_create_tables() {
         weekday tinyint(1) unsigned NOT NULL,
         start_time time NOT NULL,
         end_time time NOT NULL,
+        notification_email varchar(255) DEFAULT NULL,
         created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
         PRIMARY KEY  (id)
     ) $charset_collate;";

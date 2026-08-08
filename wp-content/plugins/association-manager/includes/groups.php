@@ -216,6 +216,82 @@ function amap_store_distribution_exception_form_data( array $data ) {
     set_transient( 'amap_distribution_exception_form_' . get_current_user_id(), $data, 60 );
 }
 
+/**
+ * Notifie l'adresse de notification du groupe ($group->notification_email, alias géré côté
+ * bureau) d'une exception de distribution créée, modifiée ou supprimée — jamais une boucle
+ * d'envois individuels à amap_get_group_member_users() : un seul email par exception, pour rester
+ * sous la limite d'envois quotidiens de Brevo si plusieurs groupes ont une exception le même
+ * jour. Ne fait rien si aucune adresse n'est configurée pour ce groupe. Retourne true si un envoi
+ * a été tenté (indépendamment de son succès réel) afin que l'appelant sache s'il doit renseigner
+ * notified_at, false sinon.
+ */
+function amap_notify_distribution_exception( $exception, $group, $event ) {
+    if ( empty( $group->notification_email ) ) {
+        return false;
+    }
+
+    $type_labels = amap_get_distribution_exception_type_labels();
+    $type_label  = $type_labels[ $exception->exception_type ] ?? $exception->exception_type;
+
+    if ( 'deleted' === $event ) {
+        $subject = sprintf(
+            // translators: 1: nom du groupe, 2: date de la distribution concernée.
+            __( 'Retour à la normale — %1$s du %2$s', 'association-manager' ),
+            $group->name,
+            $exception->distribution_date
+        );
+
+        $html_body  = '<p>' . sprintf(
+            // translators: 1: nom du groupe, 2: date de la distribution concernée.
+            esc_html__( "L'exception précédemment annoncée pour la distribution de %1\$s du %2\$s a été annulée.", 'association-manager' ),
+            esc_html( $group->name ),
+            esc_html( $exception->distribution_date )
+        ) . '</p>';
+        $html_body .= '<p>' . esc_html__( "Cette distribution aura donc lieu normalement, au lieu et à l'horaire habituels du groupe.", 'association-manager' ) . '</p>';
+    } else {
+        $subject = sprintf(
+            // translators: 1: libellé du type d'exception, 2: nom du groupe, 3: date concernée.
+            __( 'Distribution %1$s — %2$s du %3$s', 'association-manager' ),
+            $type_label,
+            $group->name,
+            $exception->distribution_date
+        );
+
+        $html_body = '<p>' . sprintf(
+            // translators: 1: nom du groupe, 2: date concernée, 3: libellé du type (en minuscule).
+            esc_html__( 'La distribution de %1$s du %2$s est %3$s.', 'association-manager' ),
+            esc_html( $group->name ),
+            esc_html( $exception->distribution_date ),
+            esc_html( mb_strtolower( $type_label ) )
+        ) . '</p>';
+
+        if ( 'moved' === $exception->exception_type ) {
+            $moved_parts = array();
+            if ( $exception->new_date ) {
+                $moved_parts[] = esc_html__( 'Nouvelle date', 'association-manager' ) . ' : ' . esc_html( $exception->new_date );
+            }
+            if ( $exception->new_start_time && $exception->new_end_time ) {
+                $moved_parts[] = esc_html__( 'Nouvel horaire', 'association-manager' ) . ' : '
+                    . esc_html( amap_format_time( $exception->new_start_time ) . '-' . amap_format_time( $exception->new_end_time ) );
+            }
+            if ( $exception->new_place ) {
+                $moved_parts[] = esc_html__( 'Nouveau lieu', 'association-manager' ) . ' : ' . esc_html( $exception->new_place );
+            }
+            if ( ! empty( $moved_parts ) ) {
+                $html_body .= '<ul><li>' . implode( '</li><li>', $moved_parts ) . '</li></ul>';
+            }
+        }
+
+        if ( $exception->reason ) {
+            $html_body .= '<p>' . esc_html__( 'Motif', 'association-manager' ) . ' : ' . esc_html( $exception->reason ) . '</p>';
+        }
+    }
+
+    amap_send_email( $group->notification_email, $subject, $html_body );
+
+    return true;
+}
+
 function amap_get_distribution_volunteers( $group_id ) {
     global $wpdb;
 
@@ -357,11 +433,12 @@ function amap_render_groups_page() {
         delete_transient( $transient_key );
     } elseif ( $editing_group ) {
         $form_data = array(
-            'name'           => $editing_group->name,
-            'delivery_place' => $editing_group->delivery_place,
-            'weekday'        => (string) $editing_group->weekday,
-            'start_time'     => amap_format_time( $editing_group->start_time ),
-            'end_time'       => amap_format_time( $editing_group->end_time ),
+            'name'                => $editing_group->name,
+            'delivery_place'      => $editing_group->delivery_place,
+            'weekday'             => (string) $editing_group->weekday,
+            'start_time'          => amap_format_time( $editing_group->start_time ),
+            'end_time'            => amap_format_time( $editing_group->end_time ),
+            'notification_email'  => (string) $editing_group->notification_email,
         );
     } else {
         $form_data = array();
@@ -376,6 +453,8 @@ function amap_render_groups_page() {
             <div class="notice notice-error"><p><?php esc_html_e( 'Champs obligatoires manquants.', 'association-manager' ); ?></p></div>
         <?php elseif ( 'invalid_time' === $notice ) : ?>
             <div class="notice notice-error"><p><?php esc_html_e( "L'heure de fin doit être après l'heure de début.", 'association-manager' ); ?></p></div>
+        <?php elseif ( 'invalid_email' === $notice ) : ?>
+            <div class="notice notice-error"><p><?php esc_html_e( "L'adresse de notification n'est pas une adresse email valide.", 'association-manager' ); ?></p></div>
         <?php endif; ?>
 
         <?php if ( ! $editing_id ) : ?>
@@ -404,6 +483,10 @@ function amap_render_groups_page() {
                         <tr>
                             <th><?php esc_html_e( 'Horaire', 'association-manager' ); ?></th>
                             <td><?php echo esc_html( amap_format_time( $editing_group->start_time ) . ' - ' . amap_format_time( $editing_group->end_time ) ); ?></td>
+                        </tr>
+                        <tr>
+                            <th><?php esc_html_e( 'Adresse de notification', 'association-manager' ); ?></th>
+                            <td><?php echo esc_html( $editing_group->notification_email ? $editing_group->notification_email : '—' ); ?></td>
                         </tr>
                     </tbody>
                 </table>
@@ -458,6 +541,15 @@ function amap_render_groups_page() {
                 <tr>
                     <th><label for="amap-group-end-time"><?php esc_html_e( 'Heure de fin', 'association-manager' ); ?></label></th>
                     <td><input type="time" id="amap-group-end-time" name="end_time" value="<?php echo esc_attr( $form_data['end_time'] ?? '' ); ?>" required></td>
+                </tr>
+                <tr>
+                    <th><label for="amap-group-notification-email"><?php esc_html_e( 'Adresse de notification', 'association-manager' ); ?></label></th>
+                    <td>
+                        <input type="email" id="amap-group-notification-email" name="notification_email" value="<?php echo esc_attr( $form_data['notification_email'] ?? '' ); ?>">
+                        <p class="description">
+                            <?php esc_html_e( "Optionnelle. Adresse (ex. un alias créé par le bureau) qui recevra un récapitulatif en cas d'annulation ou de déplacement d'une distribution de ce groupe. Laissée vide, aucune notification ne sera envoyée aux adhérents.", 'association-manager' ); ?>
+                        </p>
+                    </td>
                 </tr>
             </table>
             <p>
@@ -580,6 +672,11 @@ function amap_render_groups_page() {
                 <p class="description">
                     <?php esc_html_e( "Annulation ou déplacement ponctuel d'une distribution, décidé par le bureau. Ne concerne qu'une date précise : la distribution normale du groupe n'est pas affectée les autres semaines.", 'association-manager' ); ?>
                 </p>
+                <?php if ( empty( $editing_group->notification_email ) ) : ?>
+                    <div class="notice notice-warning"><p>
+                        <?php esc_html_e( "Aucune adresse de notification configurée pour ce groupe (voir « Modifier les infos » ci-dessus) : les adhérents ne seront pas prévenus d'une exception de distribution.", 'association-manager' ); ?>
+                    </p></div>
+                <?php endif; ?>
             <?php if ( 'exception_invalid' === $notice ) : ?>
                 <div class="notice notice-error"><p><?php esc_html_e( 'Champs obligatoires manquants ou invalides.', 'association-manager' ); ?></p></div>
             <?php elseif ( 'exception_invalid_weekday' === $notice ) : ?>
@@ -953,12 +1050,13 @@ function amap_handle_add_group() {
 
     check_admin_referer( 'amap_add_group' );
 
-    $name           = isset( $_POST['name'] ) ? sanitize_text_field( wp_unslash( $_POST['name'] ) ) : '';
-    $delivery_place = isset( $_POST['delivery_place'] ) ? sanitize_text_field( wp_unslash( $_POST['delivery_place'] ) ) : '';
-    $weekday        = isset( $_POST['weekday'] ) ? sanitize_key( wp_unslash( $_POST['weekday'] ) ) : '';
-    $start_time     = isset( $_POST['start_time'] ) ? sanitize_text_field( wp_unslash( $_POST['start_time'] ) ) : '';
-    $end_time       = isset( $_POST['end_time'] ) ? sanitize_text_field( wp_unslash( $_POST['end_time'] ) ) : '';
-    $submitted      = compact( 'name', 'delivery_place', 'weekday', 'start_time', 'end_time' );
+    $name               = isset( $_POST['name'] ) ? sanitize_text_field( wp_unslash( $_POST['name'] ) ) : '';
+    $delivery_place     = isset( $_POST['delivery_place'] ) ? sanitize_text_field( wp_unslash( $_POST['delivery_place'] ) ) : '';
+    $weekday            = isset( $_POST['weekday'] ) ? sanitize_key( wp_unslash( $_POST['weekday'] ) ) : '';
+    $start_time         = isset( $_POST['start_time'] ) ? sanitize_text_field( wp_unslash( $_POST['start_time'] ) ) : '';
+    $end_time           = isset( $_POST['end_time'] ) ? sanitize_text_field( wp_unslash( $_POST['end_time'] ) ) : '';
+    $notification_email = isset( $_POST['notification_email'] ) ? sanitize_email( wp_unslash( $_POST['notification_email'] ) ) : '';
+    $submitted          = compact( 'name', 'delivery_place', 'weekday', 'start_time', 'end_time', 'notification_email' );
 
     if ( '' === $name || '' === $delivery_place || ! array_key_exists( (int) $weekday, amap_get_weekday_labels() )
         || ! amap_is_valid_time( $start_time ) || ! amap_is_valid_time( $end_time ) ) {
@@ -973,15 +1071,23 @@ function amap_handle_add_group() {
         exit;
     }
 
+    // Optionnelle : seule une valeur non vide et malformée est bloquante.
+    if ( '' !== $notification_email && ! is_email( $notification_email ) ) {
+        amap_store_group_form_data( $submitted );
+        wp_safe_redirect( admin_url( 'admin.php?page=amap-groups&amap_notice=invalid_email' ) );
+        exit;
+    }
+
     global $wpdb;
     $wpdb->insert(
         $wpdb->prefix . 'amap_groups',
         array(
-            'name'           => $name,
-            'delivery_place' => $delivery_place,
-            'weekday'        => (int) $weekday,
-            'start_time'     => $start_time,
-            'end_time'       => $end_time,
+            'name'                => $name,
+            'delivery_place'      => $delivery_place,
+            'weekday'             => (int) $weekday,
+            'start_time'          => $start_time,
+            'end_time'            => $end_time,
+            'notification_email'  => '' !== $notification_email ? $notification_email : null,
         )
     );
 
@@ -1005,12 +1111,13 @@ function amap_handle_update_group() {
 
     $edit_url = admin_url( 'admin.php?page=amap-groups&action=edit&id=' . $id );
 
-    $name           = isset( $_POST['name'] ) ? sanitize_text_field( wp_unslash( $_POST['name'] ) ) : '';
-    $delivery_place = isset( $_POST['delivery_place'] ) ? sanitize_text_field( wp_unslash( $_POST['delivery_place'] ) ) : '';
-    $weekday        = isset( $_POST['weekday'] ) ? sanitize_key( wp_unslash( $_POST['weekday'] ) ) : '';
-    $start_time     = isset( $_POST['start_time'] ) ? sanitize_text_field( wp_unslash( $_POST['start_time'] ) ) : '';
-    $end_time       = isset( $_POST['end_time'] ) ? sanitize_text_field( wp_unslash( $_POST['end_time'] ) ) : '';
-    $submitted      = compact( 'name', 'delivery_place', 'weekday', 'start_time', 'end_time' );
+    $name               = isset( $_POST['name'] ) ? sanitize_text_field( wp_unslash( $_POST['name'] ) ) : '';
+    $delivery_place     = isset( $_POST['delivery_place'] ) ? sanitize_text_field( wp_unslash( $_POST['delivery_place'] ) ) : '';
+    $weekday            = isset( $_POST['weekday'] ) ? sanitize_key( wp_unslash( $_POST['weekday'] ) ) : '';
+    $start_time         = isset( $_POST['start_time'] ) ? sanitize_text_field( wp_unslash( $_POST['start_time'] ) ) : '';
+    $end_time           = isset( $_POST['end_time'] ) ? sanitize_text_field( wp_unslash( $_POST['end_time'] ) ) : '';
+    $notification_email = isset( $_POST['notification_email'] ) ? sanitize_email( wp_unslash( $_POST['notification_email'] ) ) : '';
+    $submitted          = compact( 'name', 'delivery_place', 'weekday', 'start_time', 'end_time', 'notification_email' );
 
     if ( '' === $name || '' === $delivery_place || ! array_key_exists( (int) $weekday, amap_get_weekday_labels() )
         || ! amap_is_valid_time( $start_time ) || ! amap_is_valid_time( $end_time ) ) {
@@ -1025,15 +1132,22 @@ function amap_handle_update_group() {
         exit;
     }
 
+    if ( '' !== $notification_email && ! is_email( $notification_email ) ) {
+        amap_store_group_form_data( $submitted );
+        wp_safe_redirect( $edit_url . '&amap_notice=invalid_email' );
+        exit;
+    }
+
     global $wpdb;
     $wpdb->update(
         $wpdb->prefix . 'amap_groups',
         array(
-            'name'           => $name,
-            'delivery_place' => $delivery_place,
-            'weekday'        => (int) $weekday,
-            'start_time'     => $start_time,
-            'end_time'       => $end_time,
+            'name'                => $name,
+            'delivery_place'      => $delivery_place,
+            'weekday'             => (int) $weekday,
+            'start_time'          => $start_time,
+            'end_time'            => $end_time,
+            'notification_email'  => '' !== $notification_email ? $notification_email : null,
         ),
         array( 'id' => $id )
     );
@@ -1223,6 +1337,15 @@ function amap_handle_add_distribution_exception() {
         )
     );
 
+    $new_exception = amap_get_distribution_exception( $wpdb->insert_id );
+    if ( amap_notify_distribution_exception( $new_exception, $group, 'created' ) ) {
+        $wpdb->update(
+            $wpdb->prefix . 'amap_distribution_exceptions',
+            array( 'notified_at' => current_time( 'mysql' ) ),
+            array( 'id' => $new_exception->id )
+        );
+    }
+
     wp_safe_redirect( $edit_url . '&amap_notice=exception_saved' );
     exit;
 }
@@ -1338,6 +1461,15 @@ function amap_handle_update_distribution_exception() {
         array( 'id' => $id )
     );
 
+    $updated_exception = amap_get_distribution_exception( $id );
+    if ( amap_notify_distribution_exception( $updated_exception, $group, 'updated' ) ) {
+        $wpdb->update(
+            $wpdb->prefix . 'amap_distribution_exceptions',
+            array( 'notified_at' => current_time( 'mysql' ) ),
+            array( 'id' => $id )
+        );
+    }
+
     wp_safe_redirect( $edit_url . '&amap_notice=exception_saved' );
     exit;
 }
@@ -1356,6 +1488,11 @@ function amap_handle_delete_distribution_exception() {
     }
 
     check_admin_referer( 'amap_delete_distribution_exception_' . $id );
+
+    $group = amap_get_group( $exception->group_id );
+    if ( $group ) {
+        amap_notify_distribution_exception( $exception, $group, 'deleted' );
+    }
 
     global $wpdb;
     $wpdb->delete( $wpdb->prefix . 'amap_distribution_exceptions', array( 'id' => $id ) );
