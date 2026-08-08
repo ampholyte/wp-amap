@@ -15,6 +15,11 @@ notifications, emails, espace adhérent).
 - Avancer par étapes courtes. Après chaque étape : expliquer ce qui a été fait, comment le
   tester, et attendre validation avant de poursuivre. Ne pas générer un gros bloc de code ou
   plusieurs fonctionnalités d'un coup.
+- Chaque étape qui produit du rendu front (template, page, formulaire) inclut son CSS/UX-UI :
+  ne pas laisser le style pour une passe globale de fin de projet. Une étape n'est considérée
+  terminée que lorsque son rendu est à la fois fonctionnel et stylé.
+- Le design doit rester simple à l'utilisation (parcours clair, peu de friction, adapté à des
+  adhérents non technophiles) et responsive (utilisable aussi bien sur mobile que sur desktop).
 - Ne pas committer sans demande explicite (déjà couvert par les instructions générales de
   l'outil, rappelé ici car ce projet avance par petites étapes validées une à une).
 
