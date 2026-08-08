@@ -19,7 +19,7 @@ Précisions métier actées pendant la conception :
   début et 15 min après la fin ; chaque adhérent doit assurer **au moins 3 distributions par
   an**. C'est un roster de présence, distinct des souscriptions (qui concernent la réception de
   produits, pas la tenue de la distribution).
-- **Un producteur n'a pas de "congés"** — les congés (étape 7) concernent exclusivement
+- **Un producteur n'a pas de "congés"** — les congés (étape 8) concernent exclusivement
   l'adhérent et sa souscription au panier maraîcher, jamais le producteur lui-même.
 - Si le bureau annule une distribution un jour où un adhérent avait déclaré un congé, **le congé
   n'est pas restitué/annulé automatiquement** — comportement à affiner plus tard si besoin.
@@ -100,16 +100,30 @@ préfixées `amap_`, réutilisant le pattern CRUD déjà en place pour "Utilisat
    contract_delivery_dates (4c) — tables filles selon         ✅ fait (commits df12d2e,
    contract_type                                                 b680604, 4412500)
 5. wp_amap_subscriptions (dépend de 2 + 3/4a)                 ✅ fait (commit 081a008)
-6. wp_amap_subscription_items (dépend de 4b/4c + 5)
-7. wp_amap_leaves (dépend de 5) — CRUD admin d'abord, self-service adhérent plus tard
-8. wp_amap_distribution_exceptions (dépend de 1 seulement)
-9. wp_amap_distribution_volunteers (dépend de 1 + 5, pour connaître les adhérents éligibles
-   par groupe) — roster bénévoles, règles 2-3/distribution et 3/an/adhérent en PHP
-10. Notification adhérents lors d'exception (dépend de 8 + 5, réutilise amap_send_email())
+6. wp_amap_subscription_items (dépend de 4b/4c + 5)           ✅ fait
+7. Espace adhérent : souscription en ligne (dépend de 5 + 6) — bascule de la création d'une
+   souscription (signature + grille produits×dates) de l'admin vers le front, voir note
+   ci-dessous
+8. wp_amap_leaves (dépend de 5) — CRUD admin d'abord, self-service adhérent plus tard
+9. wp_amap_distribution_exceptions (dépend de 1 seulement)
+10. wp_amap_distribution_volunteers (dépend de 1 + 5, pour connaître les adhérents éligibles
+    par groupe) — roster bénévoles, règles 2-3/distribution et 3/an/adhérent en PHP
+11. Notification adhérents lors d'exception (dépend de 9 + 5, réutilise amap_send_email())
 ```
 
+Point ouvert acté en conversation le 2026-08-08, à traiter à l'étape 7 : la page admin
+"Souscriptions" (étapes 5+6) fait aujourd'hui saisir par le bureau, dans un simple menu déroulant,
+*qui* souscrit et *quand*, y compris la grille produits×dates — ce qui revient à faire signer et
+commander l'adhérent par procuration. La création d'une souscription a plus de sens comme action
+de l'adhérent lui-même, depuis l'espace membre (authentifié par lien magique, déjà en place — voir
+`includes/auth.php`), que comme saisie a posteriori par le bureau. Décision : l'admin (Ajouter/
+Modifier/Supprimer une souscription et sa grille, étapes 5/6) reste en l'état, entièrement
+éditable, comme outil de secours pour le bureau ("admin est root") ; l'étape 7 ajoute le vrai
+parcours de souscription côté front, à concevoir en détail au moment de l'attaquer (formulaire,
+UX adaptée à des adhérents non technophiles, notifications).
+
 Le bloc producteur de l'espace membre ne pourra afficher des données réelles qu'à partir de la
-fin de l'étape 4 (contrats+groupes), et complètement qu'après les étapes 1-6, 8 et 9. Cette
+fin de l'étape 4 (contrats+groupes), et complètement qu'après les étapes 1-6, 9 et 10. Cette
 restitution finale sera elle-même scindée en plusieurs sous-étapes (contrats+groupes, prochaine
 distribution, produits à livrer, adhérents par groupe) — pas livrée d'un bloc.
 
@@ -218,6 +232,52 @@ plat plutôt qu'un élément appartenant à un seul contrat comme les tables fil
   signature papier peut avoir eu lieu avant la saisie informatique, contrairement à `created_at`
   qui reste l'horodatage technique automatique.
 - Suppression d'une souscription : simple delete, aucune table fille à nettoyer pour l'instant
-  (`wp_amap_subscription_items` et `wp_amap_leaves` n'existent pas encore, voir étapes 6/7).
+  (`wp_amap_subscription_items` et `wp_amap_leaves` n'existent pas encore, voir étapes 6/8).
 
 Commit `081a008`.
+
+## Étape 6 (fait) — `wp_amap_subscription_items`
+
+Grille produit×date (voir modèle de données ci-dessus), `product_grid` uniquement. Pas de
+nouvelle page ni de CRUD classique : la grille se remplit dans le même formulaire que "Ajouter"/
+"Modifier une souscription" (page "Souscriptions"), plutôt que d'être une collection éditable
+ligne à ligne comme les tables filles de l'étape 4.
+
+- **Vue/édition en modification** : ouvrir une souscription existante affiche d'abord une vue en
+  lecture seule (infos + grille produits×dates au même visuel que la saisie, cases sans commande
+  affichées en `—`), avec un bouton "Modifier" qui bascule vers le formulaire éditable — même
+  pattern que `amap-contract-view`/`amap-contract-edit-form` sur la page "Contrats". La création
+  ("Ajouter une souscription") va directement au formulaire, rien à afficher en lecture seule
+  avant qu'elle existe.
+- **Formulaire d'ajout et de modification** : une fois Contrat (`product_grid`) et Groupe choisis,
+  une section "Produits commandés" apparaît sous le formulaire, dans le même `<form>`. Grille avec
+  **lignes = dates de livraison du groupe choisi**, **colonnes = produits du contrat** —
+  orientation retenue pour limiter le nombre de colonnes (généralement moins de produits que de
+  dates sur un trimestre), donc moins de scroll horizontal. Un bouton "Dupliquer la 1ère date sur
+  toutes les autres" recopie toute la première ligne (cas fréquent : même commande chaque
+  semaine). Grille creuse : une case vide/à 0 ne crée aucune ligne en base. Données précalculées
+  en JSON par contrat (même principe que l'étape 5), étendues avec `products` et
+  `delivery_dates_by_group` ; la grille elle-même est entièrement construite en JS (pas de rendu
+  PHP initial), y compris au premier chargement de la page. En modification, préremplie depuis les
+  `subscription_items` existants.
+- **Pas de verrouillage, grille resynchronisée à chaque modification** : premier essai qui
+  verrouillait Contrat/Groupe et gardait la grille insert-only, tranché en sens inverse par
+  l'utilisateur — l'admin reste éditable sur tous les champs même après signature ("admin est
+  root", le bureau garde la main pour corriger une erreur de saisie). `amap_handle_update_subscription()`
+  resynchronise entièrement la grille à chaque enregistrement (delete puis réinsertion des cases
+  > 0 via `amap_insert_subscription_items()`, réutilisée telle quelle depuis l'ajout) plutôt qu'un
+  update ligne à ligne. Changer le contrat/groupe d'une souscription qui a déjà des
+  `subscription_items` rebâtit donc la grille sur le nouveau contrat, au prix de perdre les
+  quantités saisies pour l'ancien — assumé, à la charge du bureau. Si le contrat n'est plus
+  `product_grid`, les `subscription_items` existants sont supprimés ; si la grille n'a pas été
+  soumise du tout (JS non chargé), ils sont laissés intacts plutôt qu'effacés par erreur.
+- **Validation serveur** (`amap_insert_subscription_items()`) : chaque couple
+  (`contract_product_id`, `contract_delivery_date_id`) posté est revérifié comme appartenant
+  réellement au contrat et au groupe choisis (jamais les IDs postés en confiance), quantité
+  revalidée en entier positif.
+- **Schéma** : `created_at` et `UNIQUE(subscription_id, contract_product_id,
+  contract_delivery_date_id)` ajoutés en plus des colonnes du modèle de données, par cohérence
+  avec les autres tables du plugin (confirmé avec l'utilisateur avant implémentation).
+- Suppression d'une souscription : nettoyage explicite des `subscription_items` orphelins
+  ajouté à `amap_handle_delete_subscription()`, même principe que les tables filles à la
+  suppression d'un contrat (étape 4).

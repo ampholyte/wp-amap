@@ -10,7 +10,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 function amap_activate() {
     // update_option() (et non plus add_option()) : la version doit refléter le schéma du
     // code à chaque activation. dbDelta() est idempotent, le rappeler ne pose pas de problème.
-    update_option( 'amap_db_version', '3.12' );
+    update_option( 'amap_db_version', '3.13' );
     amap_create_tables();
     amap_drop_obsolete_tables();
 
@@ -232,6 +232,27 @@ function amap_create_tables() {
     ) $charset_collate;";
 
     dbDelta( $sql_subscriptions );
+
+    $subscription_items_table = $wpdb->prefix . 'amap_subscription_items';
+
+    // Grille produit×date, uniquement pour une souscription à un contrat product_grid : quantité
+    // commandée par l'adhérent pour chaque couple (produit, date de livraison). Resynchronisée en
+    // bloc (delete + réinsertion des cases > 0) à chaque modification de la souscription côté
+    // admin (voir amap_handle_update_subscription()), pas de mise à jour ligne à ligne.
+    // UNIQUE(subscription_id, contract_product_id, contract_delivery_date_id) : garde-fou contre
+    // un doublon de case de la grille, même principe que les autres contraintes UNIQUE du plugin.
+    $sql_subscription_items = "CREATE TABLE $subscription_items_table (
+        id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+        subscription_id bigint(20) unsigned NOT NULL,
+        contract_product_id bigint(20) unsigned NOT NULL,
+        contract_delivery_date_id bigint(20) unsigned NOT NULL,
+        quantity smallint(5) unsigned NOT NULL,
+        created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY  (id),
+        UNIQUE KEY subscription_item (subscription_id, contract_product_id, contract_delivery_date_id)
+    ) $charset_collate;";
+
+    dbDelta( $sql_subscription_items );
 }
 
 function amap_drop_obsolete_tables() {
