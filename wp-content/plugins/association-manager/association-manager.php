@@ -1149,6 +1149,12 @@ function amap_render_users_page() {
             </form>
         </p>
 
+        <?php if ( ! $editing_id ) : ?>
+            <p>
+                <button type="button" class="button button-primary" id="amap-user-add-toggle"><?php esc_html_e( '+ Ajouter un utilisateur', 'association-manager' ); ?></button>
+            </p>
+        <?php endif; ?>
+        <div id="amap-user-form-wrapper"<?php echo $editing_id ? '' : ' hidden'; ?>>
         <h2>
             <?php echo $editing_id
                 ? esc_html__( 'Modifier un utilisateur', 'association-manager' )
@@ -1212,9 +1218,31 @@ function amap_render_users_page() {
                     <a href="<?php echo esc_url( admin_url( 'admin.php?page=amap-users' ) ); ?>" class="button">
                         <?php esc_html_e( 'Annuler', 'association-manager' ); ?>
                     </a>
+                <?php else : ?>
+                    <button type="button" class="button" id="amap-user-add-cancel"><?php esc_html_e( 'Annuler', 'association-manager' ); ?></button>
                 <?php endif; ?>
             </p>
         </form>
+        </div>
+        <script>
+        ( function () {
+            var toggle  = document.getElementById( 'amap-user-add-toggle' );
+            var wrapper = document.getElementById( 'amap-user-form-wrapper' );
+            var cancel  = document.getElementById( 'amap-user-add-cancel' );
+            if ( toggle ) {
+                toggle.addEventListener( 'click', function () {
+                    wrapper.hidden = false;
+                    toggle.hidden  = true;
+                } );
+            }
+            if ( cancel ) {
+                cancel.addEventListener( 'click', function () {
+                    wrapper.hidden = true;
+                    toggle.hidden  = false;
+                } );
+            }
+        } )();
+        </script>
         <script>
         ( function () {
             var form        = document.getElementById( 'amap-user-form' );
@@ -1771,6 +1799,12 @@ function amap_render_groups_page() {
             <div class="notice notice-error"><p><?php esc_html_e( "L'heure de fin doit être après l'heure de début.", 'association-manager' ); ?></p></div>
         <?php endif; ?>
 
+        <?php if ( ! $editing_id ) : ?>
+            <p>
+                <button type="button" class="button button-primary" id="amap-group-add-toggle"><?php esc_html_e( '+ Ajouter un groupe', 'association-manager' ); ?></button>
+            </p>
+        <?php endif; ?>
+        <div id="amap-group-form-wrapper"<?php echo $editing_id ? '' : ' hidden'; ?>>
         <h2>
             <?php echo $editing_id
                 ? esc_html__( 'Modifier un groupe', 'association-manager' )
@@ -1821,9 +1855,31 @@ function amap_render_groups_page() {
                     <a href="<?php echo esc_url( admin_url( 'admin.php?page=amap-groups' ) ); ?>" class="button">
                         <?php esc_html_e( 'Annuler', 'association-manager' ); ?>
                     </a>
+                <?php else : ?>
+                    <button type="button" class="button" id="amap-group-add-cancel"><?php esc_html_e( 'Annuler', 'association-manager' ); ?></button>
                 <?php endif; ?>
             </p>
         </form>
+        </div>
+        <script>
+        ( function () {
+            var toggle  = document.getElementById( 'amap-group-add-toggle' );
+            var wrapper = document.getElementById( 'amap-group-form-wrapper' );
+            var cancel  = document.getElementById( 'amap-group-add-cancel' );
+            if ( toggle ) {
+                toggle.addEventListener( 'click', function () {
+                    wrapper.hidden = false;
+                    toggle.hidden  = true;
+                } );
+            }
+            if ( cancel ) {
+                cancel.addEventListener( 'click', function () {
+                    wrapper.hidden = true;
+                    toggle.hidden  = false;
+                } );
+            }
+        } )();
+        </script>
 
         <?php if ( $editing_id ) : ?>
             <?php
@@ -2386,6 +2442,12 @@ function amap_render_contracts_page() {
         <?php if ( empty( $producers ) ) : ?>
             <p><?php esc_html_e( "Aucun compte producteur pour le moment : créez d'abord un producteur depuis la page Utilisateurs AMAP.", 'association-manager' ); ?></p>
         <?php else : ?>
+            <?php if ( ! $editing_id ) : ?>
+                <p>
+                    <button type="button" class="button button-primary" id="amap-contract-add-toggle"><?php esc_html_e( '+ Ajouter un contrat', 'association-manager' ); ?></button>
+                </p>
+            <?php endif; ?>
+            <div id="amap-contract-form-wrapper"<?php echo $editing_id ? '' : ' hidden'; ?>>
             <h2>
                 <?php echo $editing_id
                     ? esc_html__( 'Modifier un contrat', 'association-manager' )
@@ -2461,9 +2523,12 @@ function amap_render_contracts_page() {
                         <a href="<?php echo esc_url( admin_url( 'admin.php?page=amap-contracts' ) ); ?>" class="button">
                             <?php esc_html_e( 'Annuler', 'association-manager' ); ?>
                         </a>
+                    <?php else : ?>
+                        <button type="button" class="button" id="amap-contract-add-cancel"><?php esc_html_e( 'Annuler', 'association-manager' ); ?></button>
                     <?php endif; ?>
                 </p>
             </form>
+            </div>
             <script>
             ( function () {
                 var typeField     = document.getElementById( 'amap-contract-type' );
@@ -2475,6 +2540,25 @@ function amap_render_contracts_page() {
 
                 typeField.addEventListener( 'change', toggleFrequencyRow );
                 toggleFrequencyRow();
+            } )();
+            </script>
+            <script>
+            ( function () {
+                var toggle  = document.getElementById( 'amap-contract-add-toggle' );
+                var wrapper = document.getElementById( 'amap-contract-form-wrapper' );
+                var cancel  = document.getElementById( 'amap-contract-add-cancel' );
+                if ( toggle ) {
+                    toggle.addEventListener( 'click', function () {
+                        wrapper.hidden = false;
+                        toggle.hidden  = true;
+                    } );
+                }
+                if ( cancel ) {
+                    cancel.addEventListener( 'click', function () {
+                        wrapper.hidden = true;
+                        toggle.hidden  = false;
+                    } );
+                }
             } )();
             </script>
         <?php endif; ?>
@@ -2531,6 +2615,12 @@ function amap_render_contracts_page() {
                 </table>
             <?php endif; ?>
 
+            <?php if ( ! $size_editing_id ) : ?>
+                <p>
+                    <button type="button" class="button button-primary" id="amap-basket-size-add-toggle"><?php esc_html_e( '+ Ajouter une taille de panier', 'association-manager' ); ?></button>
+                </p>
+            <?php endif; ?>
+            <div id="amap-basket-size-form-wrapper"<?php echo $size_editing_id ? '' : ' hidden'; ?>>
             <h3>
                 <?php echo $size_editing_id
                     ? esc_html__( 'Modifier une taille de panier', 'association-manager' )
@@ -2562,11 +2652,33 @@ function amap_render_contracts_page() {
                         <a href="<?php echo esc_url( admin_url( 'admin.php?page=amap-contracts&action=edit&id=' . $editing_id ) ); ?>" class="button">
                             <?php esc_html_e( 'Annuler', 'association-manager' ); ?>
                         </a>
+                    <?php else : ?>
+                        <button type="button" class="button" id="amap-basket-size-add-cancel"><?php esc_html_e( 'Annuler', 'association-manager' ); ?></button>
                     <?php endif; ?>
                 </p>
             </form>
             </div>
             </div>
+            </div>
+            <script>
+            ( function () {
+                var toggle  = document.getElementById( 'amap-basket-size-add-toggle' );
+                var wrapper = document.getElementById( 'amap-basket-size-form-wrapper' );
+                var cancel  = document.getElementById( 'amap-basket-size-add-cancel' );
+                if ( toggle ) {
+                    toggle.addEventListener( 'click', function () {
+                        wrapper.hidden = false;
+                        toggle.hidden  = true;
+                    } );
+                }
+                if ( cancel ) {
+                    cancel.addEventListener( 'click', function () {
+                        wrapper.hidden = true;
+                        toggle.hidden  = false;
+                    } );
+                }
+            } )();
+            </script>
         <?php endif; ?>
 
         <?php if ( $editing_id && $editing_contract && 'product_grid' === $editing_contract->contract_type ) : ?>
@@ -2621,6 +2733,12 @@ function amap_render_contracts_page() {
                 </table>
             <?php endif; ?>
 
+            <?php if ( ! $product_editing_id ) : ?>
+                <p>
+                    <button type="button" class="button button-primary" id="amap-contract-product-add-toggle"><?php esc_html_e( '+ Ajouter un produit', 'association-manager' ); ?></button>
+                </p>
+            <?php endif; ?>
+            <div id="amap-contract-product-form-wrapper"<?php echo $product_editing_id ? '' : ' hidden'; ?>>
             <h3>
                 <?php echo $product_editing_id
                     ? esc_html__( 'Modifier un produit', 'association-manager' )
@@ -2652,11 +2770,33 @@ function amap_render_contracts_page() {
                         <a href="<?php echo esc_url( admin_url( 'admin.php?page=amap-contracts&action=edit&id=' . $editing_id ) ); ?>" class="button">
                             <?php esc_html_e( 'Annuler', 'association-manager' ); ?>
                         </a>
+                    <?php else : ?>
+                        <button type="button" class="button" id="amap-contract-product-add-cancel"><?php esc_html_e( 'Annuler', 'association-manager' ); ?></button>
                     <?php endif; ?>
                 </p>
             </form>
             </div>
             </div>
+            </div>
+            <script>
+            ( function () {
+                var toggle  = document.getElementById( 'amap-contract-product-add-toggle' );
+                var wrapper = document.getElementById( 'amap-contract-product-form-wrapper' );
+                var cancel  = document.getElementById( 'amap-contract-product-add-cancel' );
+                if ( toggle ) {
+                    toggle.addEventListener( 'click', function () {
+                        wrapper.hidden = false;
+                        toggle.hidden  = true;
+                    } );
+                }
+                if ( cancel ) {
+                    cancel.addEventListener( 'click', function () {
+                        wrapper.hidden = true;
+                        toggle.hidden  = false;
+                    } );
+                }
+            } )();
+            </script>
 
             <?php
             $delivery_dates     = amap_get_contract_delivery_dates( $editing_id );
@@ -2807,6 +2947,12 @@ function amap_render_contracts_page() {
                     <?php endif; ?>
                 <?php endif; ?>
 
+                <?php if ( ! $delivery_date_editing_id ) : ?>
+                    <p>
+                        <button type="button" class="button button-primary" id="amap-delivery-date-add-toggle"><?php esc_html_e( '+ Ajouter une date de livraison', 'association-manager' ); ?></button>
+                    </p>
+                <?php endif; ?>
+                <div id="amap-delivery-date-form-wrapper"<?php echo $delivery_date_editing_id ? '' : ' hidden'; ?>>
                 <h3>
                     <?php echo $delivery_date_editing_id
                         ? esc_html__( 'Modifier une date de livraison', 'association-manager' )
@@ -2859,9 +3005,31 @@ function amap_render_contracts_page() {
                             <a href="<?php echo esc_url( admin_url( 'admin.php?page=amap-contracts&action=edit&id=' . $editing_id ) ); ?>" class="button">
                                 <?php esc_html_e( 'Annuler', 'association-manager' ); ?>
                             </a>
+                        <?php else : ?>
+                            <button type="button" class="button" id="amap-delivery-date-add-cancel"><?php esc_html_e( 'Annuler', 'association-manager' ); ?></button>
                         <?php endif; ?>
                     </p>
                 </form>
+                </div>
+                <script>
+                ( function () {
+                    var toggle  = document.getElementById( 'amap-delivery-date-add-toggle' );
+                    var wrapper = document.getElementById( 'amap-delivery-date-form-wrapper' );
+                    var cancel  = document.getElementById( 'amap-delivery-date-add-cancel' );
+                    if ( toggle ) {
+                        toggle.addEventListener( 'click', function () {
+                            wrapper.hidden = false;
+                            toggle.hidden  = true;
+                        } );
+                    }
+                    if ( cancel ) {
+                        cancel.addEventListener( 'click', function () {
+                            wrapper.hidden = true;
+                            toggle.hidden  = false;
+                        } );
+                    }
+                } )();
+                </script>
             <?php endif; ?>
             </div>
             </div>

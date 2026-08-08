@@ -34,7 +34,7 @@ sont traités en sous-étapes courtes séparées (même principe que A-D) :
 
 ```
 E1. Formulaires admin en tableau natif (.form-table)               ✅ fait
-E2. Masquer les formulaires de création derrière un bouton
+E2. Masquer les formulaires de création derrière un bouton         ✅ fait
 E3. Onglets sur la page admin "Contrats"
 ```
 
@@ -53,6 +53,19 @@ simples listes de cases à cocher de longueur variable (rôles dans Utilisateurs
 resté en une seule ligne de `.form-table` avec les cases à cocher en `<td>` —, "Producteurs
 rattachés" sur Groupes, "Générer des dates" sur Contrats), `.form-table` étant pensé pour des
 paires label/champ fixes, pas pour des checklists répétées.
+
+## Sous-étape E2 (fait) — Masquer les formulaires de création derrière un bouton
+
+Fichiers modifiés : les 3 mêmes fonctions. Sur chacun des 6 formulaires "création" (Utilisateurs,
+Groupes, Contrat, Taille de panier, Produit, Date de livraison), quand on n'est **pas** en train
+de modifier un élément existant, le formulaire est masqué (`hidden`) derrière un bouton
+`+ Ajouter …` ; un clic le révèle et masque le bouton, un bouton "Annuler" à l'intérieur du
+formulaire fait l'inverse. En mode modification (`?action=edit&id=X` ou équivalent), le
+formulaire reste affiché directement comme avant (pas de bouton à cliquer). Choix tranché avec
+l'utilisateur : affichage/masquage simple (`hidden` + `addEventListener`, quelques lignes de JS
+par formulaire), pas de fenêtre modale — cohérent avec le principe "pas de complexité non
+nécessaire" déjà suivi sur ce projet. Chaque formulaire garde son propre petit script
+autonome (comme le reste du fichier), pas de fonction JS partagée globale.
 
 ## Sous-étape A (fait) — Fondations du design system
 
