@@ -10,7 +10,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 function amap_activate() {
     // update_option() (et non plus add_option()) : la version doit refléter le schéma du
     // code à chaque activation. dbDelta() est idempotent, le rappeler ne pose pas de problème.
-    update_option( 'amap_db_version', '3.18' );
+    update_option( 'amap_db_version', '3.19' );
     amap_create_tables();
     amap_drop_obsolete_tables();
 
@@ -353,6 +353,28 @@ function amap_create_tables() {
     ) $charset_collate;";
 
     dbDelta( $sql_distribution_exceptions );
+
+    $distribution_volunteers_table = $wpdb->prefix . 'amap_distribution_volunteers';
+
+    // Roster des adhérents bénévoles tenant une distribution (voir metier-producteurs.md) : 2 à 3
+    // bénévoles par distribution, présents 15 min avant/après, chaque adhérent devant en assurer au
+    // moins 3 par an. Distinct des souscriptions (qui concernent la réception de produits, pas la
+    // tenue de la distribution) : un adhérent n'est éligible que pour son propre groupe de retrait
+    // (wp_amap_group_members), voir amap_get_group_member_users(). Règles "2 à 3 par distribution"
+    // et "au moins 3 par an" : vérifications applicatives (COUNT), pas de contrainte SQL.
+    // UNIQUE(group_id, distribution_date, member_user_id) : un adhérent ne peut être inscrit deux
+    // fois sur la même distribution.
+    $sql_distribution_volunteers = "CREATE TABLE $distribution_volunteers_table (
+        id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+        group_id bigint(20) unsigned NOT NULL,
+        distribution_date date NOT NULL,
+        member_user_id bigint(20) unsigned NOT NULL,
+        created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY  (id),
+        UNIQUE KEY group_distribution_member (group_id, distribution_date, member_user_id)
+    ) $charset_collate;";
+
+    dbDelta( $sql_distribution_volunteers );
 }
 
 function amap_drop_obsolete_tables() {

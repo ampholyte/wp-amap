@@ -112,7 +112,7 @@ préfixées `amap_`, réutilisant le pattern CRUD déjà en place pour "Utilisat
 8. wp_amap_leaves (dépend de 5) — CRUD admin d'abord, self-service adhérent plus tard   ✅ fait
 9. wp_amap_distribution_exceptions (dépend de 1 seulement)          ✅ fait
 10. wp_amap_distribution_volunteers (dépend de 1 + 5, pour connaître les adhérents éligibles
-    par groupe) — roster bénévoles, règles 2-3/distribution et 3/an/adhérent en PHP
+    par groupe) — roster bénévoles, règles 2-3/distribution et 3/an/adhérent en PHP   ✅ fait
 11. Notification adhérents lors d'exception (dépend de 9 + 5, réutilise amap_send_email())
 ```
 
@@ -615,5 +615,99 @@ plutôt que pour cette seule page (choix de l'utilisateur) : `amap_render_admin_
 (nouvelle fonction, `association-manager.php`, hook `admin_head` filtré sur les quatre pages AMAP)
 ajoute un unique style partagé (bordure plus épaisse, texte en gras, fond légèrement teinté) plutôt
 qu'une duplication du même `<style>` dans chacun des quatre fichiers de page.
+
+Commit à venir.
+
+## Étape 10 (fait) — `wp_amap_distribution_volunteers`
+
+Roster des adhérents bénévoles tenant une distribution (voir modèle de données ci-dessus et
+`metier-producteurs.md`). Décisions actées en conversation avant codage (2026-08-08) :
+
+- **Emplacement** : section "Bénévoles de distribution" nichée dans la page "Groupes" (mode
+  édition d'un groupe, sous "Exceptions de distribution"), pas de nouvelle page ni de nouvelle
+  capability — réutilise `amap_manage_groups`, même principe que l'étape 9. Nouveau code dans
+  `groups.php`, comme la logique des exceptions.
+- **Éligibilité limitée aux adhérents du groupe** : le menu déroulant "Adhérent" du formulaire
+  d'ajout ne propose que les adhérents dont **ce groupe** est le point de retrait fixe
+  (`amap_get_group_member_users( $group_id )`, nouvelle fonction, sens inverse de
+  `amap_get_member_group()`), plutôt que tous les adhérents de l'AMAP — cohérent avec "un adhérent
+  ne participe qu'aux distributions où son contrat est rattaché". Choix assumé, desserrable plus
+  tard si un vrai cas de bénévolat croisé apparaît (même logique que le choix "1 seul groupe par
+  adhérent" pris à l'étape 7.2/7.3). Cette même fonction sert de garde-fou serveur (jamais un autre
+  adhérent accepté en confiance) et alimente le compteur annuel ci-dessous.
+- **CRUD = ajout + suppression uniquement** (pas de "modifier", comme les congés à l'étape 8) :
+  changer un bénévole pour une date revient à retirer puis rajouter.
+- **Règle "2 à 3 par distribution"** : seul le maximum de 3 est bloquant côté serveur
+  (`amap_count_group_distribution_volunteers()`, notice `volunteer_full`) ; le minimum de 2 n'est
+  **jamais bloquant** à l'ajout (on ne peut pas empêcher d'ajouter le 1er bénévole sous prétexte
+  qu'il en faudrait 2) — affiché uniquement comme badge informatif (rouge si `< 2`, vert sinon) en
+  face de chaque distribution du tableau.
+- **Règle "au moins 3 par an"** : purement informative, **jamais bloquante** dans un sens comme
+  dans l'autre — ni pour empêcher un ajout au-delà de 3 (un adhérent peut très bien assurer 30
+  distributions dans l'année s'il le souhaite), ni pour en forcer un en-deçà
+  (`amap_count_member_distribution_volunteers_in_year()`). Affichée dans une section "Compteur
+  annuel" séparée (liste des adhérents éligibles du groupe + "X distribution(s) assurée(s) cette
+  année", badge rouge si `< 3`, vert sinon, sans notion de plafond). Année civile en cours
+  (`YEAR(distribution_date)`), interprétation la plus simple de "par an" à ce stade.
+
+**Validations serveur** (`amap_handle_add_distribution_volunteer()`) :
+1. `group_id` existant (`amap_get_group()`), sinon `wp_die()` (requête trafiquée).
+2. `distribution_date` valide (`amap_is_valid_date()`), sinon notice `volunteer_invalid`.
+3. `distribution_date` doit tomber sur le `weekday` du groupe, sinon notice
+   `volunteer_invalid_weekday` (même logique que les exceptions : les distributions normales ne
+   sont pas stockées ligne par ligne).
+4. `member_user_id` doit figurer dans `amap_get_group_member_users( $group_id )`, sinon `wp_die()`
+   (l'UI ne propose jamais un autre adhérent).
+5. Pas de doublon `(group_id, distribution_date, member_user_id)`, revérifié en PHP
+   (`amap_group_distribution_has_volunteer()`) avant la contrainte SQL → notice
+   `volunteer_duplicate`.
+6. Maximum 3 déjà atteint pour `(group_id, distribution_date)` → notice `volunteer_full`, bloquant
+   (seule validation métier bloquante de cette étape).
+
+Suppression : simple delete, aucune validation ("admin est root", comme Groupes/Contrats/congés/
+exceptions). Nettoyage à la suppression d'un groupe : `amap_handle_delete_group()` supprime
+désormais aussi les bénévoles orphelins, comme les rattachements/dates/exceptions.
+
+**Point remonté après test réel** (2026-08-08) : la page "Groupes" en mode édition empilait
+désormais quatre blocs (infos du groupe, Producteurs rattachés, Exceptions de distribution,
+Bénévoles de distribution), jugée trop dense pour un membre du bureau. Passe UX ciblée,
+transversale aux trois sections nichées (pas seulement "Bénévoles") :
+- **Sections repliables** : "Producteurs rattachés", "Exceptions de distribution" et "Bénévoles
+  de distribution" passent dans un `<details>/<summary>` HTML natif, fermé par défaut — extension
+  au niveau section du principe déjà utilisé pour les formulaires "+ Ajouter" (cachés tant qu'on
+  n'a pas cliqué). Une section s'ouvre automatiquement (attribut `open`) si un message de succès/
+  erreur la concerne, ou si on modifie une exception — jamais masquer un retour pertinent après une
+  action. Chaque section garde un `id` (`amap-group-producers`/`-exceptions`/`-volunteers`), sans
+  usage pour l'instant côté affichage (le sommaire d'ancres envisagé initialement a été retiré peu
+  après, jugé superflu une fois les sections elles-mêmes clairement étiquetées).
+- **Suppression de la liste dupliquée** dans "Bénévoles de distribution" : le compteur annuel de
+  chaque adhérent (`amap_count_member_distribution_volunteers_in_year()`) est intégré directement
+  dans le libellé du menu déroulant "Adhérent" du formulaire d'ajout (ex. "Dupont Marie (2
+  distributions cette année)") plutôt qu'affiché une seconde fois dans une liste "Compteur annuel"
+  séparée.
+
+Aucun changement d'URL, d'action `admin-post.php` ni de validation serveur : uniquement de la
+présentation.
+
+**Deuxième point remonté** (2026-08-08) : le clic sur "Modifier" depuis la liste des groupes
+menait directement au formulaire d'édition des infos du groupe (nom/lieu/jour/horaire) grand
+ouvert, avant même le sommaire et les sections nichées — c'était le "gros bloc" le plus immédiat.
+Aligné sur le pattern déjà en place sur la page "Contrats" (`amap-contract-view`/
+`amap-contract-edit-form`, étape 4) :
+- Le lien de la liste des groupes devient **"Voir le groupe"** (au lieu de "Modifier"), plus
+  cohérent avec ce qui s'affiche réellement en arrivant sur la page.
+- En arrivant sur `?action=edit&id=X`, on voit d'abord une **vue en lecture seule** (tableau nom/
+  lieu/jour/horaire) avec un bouton **"Modifier les infos"** qui bascule vers le formulaire
+  éditable (`amap-group-view` / `amap-group-edit-form`, même bascule JS que Contrats) — le
+  formulaire aux champs `<input>` n'apparaît donc plus que sur demande explicite.
+- Le bouton "Annuler" du formulaire d'édition revient à la vue (comme sur "Contrats"), plutôt que
+  de quitter la page — cohérent avec le sommaire et les sections nichées juste en dessous, qu'on ne
+  veut pas perdre en repartant vers la liste complète pour un simple clic "Annuler".
+- **Incohérence corrigée dans la foulée** : `amap_handle_update_group()` redirigeait vers la liste
+  des groupes après un enregistrement réussi, alors que la vue en lecture seule vit maintenant sur
+  la page du groupe (`$edit_url`) — la modification d'une exception, d'un rattachement producteur
+  ou d'un bénévole renvoie déjà sur cette même page. Aligné sur `amap_handle_update_contract()`
+  (page "Contrats") : redirection vers `$edit_url` après enregistrement, la vue affichant alors les
+  données à jour.
 
 Commit à venir.
