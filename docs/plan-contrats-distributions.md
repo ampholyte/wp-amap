@@ -102,8 +102,8 @@ préfixées `amap_`, réutilisant le pattern CRUD déjà en place pour "Utilisat
 5. wp_amap_subscriptions (dépend de 2 + 3/4a)                 ✅ fait (commit 081a008)
 6. wp_amap_subscription_items (dépend de 4b/4c + 5)           ✅ fait
 7. Espace adhérent : souscription en ligne (dépend de 5 + 6) — bascule de la création d'une
-   souscription (signature + grille produits×dates) de l'admin vers le front, voir note
-   ci-dessous
+   souscription (signature + grille produits×dates) de l'admin vers le front, voir note        🔧 en cours
+   ci-dessous                                                                                     (7.1 fait)
 8. wp_amap_leaves (dépend de 5) — CRUD admin d'abord, self-service adhérent plus tard
 9. wp_amap_distribution_exceptions (dépend de 1 seulement)
 10. wp_amap_distribution_volunteers (dépend de 1 + 5, pour connaître les adhérents éligibles
@@ -281,3 +281,51 @@ ligne à ligne comme les tables filles de l'étape 4.
 - Suppression d'une souscription : nettoyage explicite des `subscription_items` orphelins
   ajouté à `amap_handle_delete_subscription()`, même principe que les tables filles à la
   suppression d'un contrat (étape 4).
+
+## Étape 7 (en cours) — Espace adhérent : souscription en ligne
+
+Découpage acté en conversation (2026-08-08) : la page admin "Souscriptions" (étapes 5+6) reste
+en l'état, éditable, comme outil de secours pour le bureau ("admin est root") ; l'étape 7 ajoute
+le vrai parcours front, en plusieurs sous-étapes validées séparément :
+
+```
+7.1 Mes contrats (lecture seule)                    ✅ fait (commit 7ab1911)
+7.2 Liste des contrats proposables à la souscription
+7.3 Formulaire de souscription (front)
+7.4 Email de confirmation de souscription
+```
+
+Menu à terme dans l'espace membre (`member-area.php`) : Espace adhérent / Espace producteur /
+Espace bureau / Mes infos / Déconnexion — sections affichées selon les rôles cumulés de
+l'utilisateur, cohérent avec les "casquettes cumulables" du projet. "Espace bureau" n'est pas
+une section de contenu : lien direct vers wp-admin (`amap_manage_users`), le bureau restant
+géré en admin, jamais côté front (voir `CLAUDE.md`).
+
+### Étape 7.1 (fait) — "Mes contrats" (lecture seule)
+
+- **Navigation à onglets**, construite en même temps que 7.1 plutôt qu'ajoutée plus tard : un
+  paramètre `amap_tab` (`member`/`producer`/`profile`) sur la page `espace-adherent`, même
+  principe que `amap_login_step`/`amap_member_action` déjà utilisés dans `auth.php`. La valeur
+  reçue en requête n'est jamais utilisée telle quelle pour choisir un template : revalidée par
+  `amap_maybe_render_member_area()` contre la liste des onglets réellement accessibles à
+  l'utilisateur (calculée depuis ses rôles), onglet par défaut = premier onglet accessible dans
+  l'ordre adhérent > producteur > profil. `member-area.php` (thème) devient une coquille
+  (en-tête + badges + nav) qui charge le fragment du bon onglet :
+  `member-area-nav.php`, `member-area-member.php` ("Mes contrats"), `member-area-producer.php`
+  (reprend tel quel le placeholder existant), `member-area-profile.php` (reprend tel quel la
+  carte "Mes informations" déplacée depuis l'ancien `member-area.php` à plat).
+- **Contenu adhérent** : `amap_get_member_subscriptions( $member_user_id )` (nouvelle fonction,
+  `subscriptions.php`) liste les souscriptions de l'adhérent connecté, enrichies en PHP (même
+  principe de jointure que `amap_get_producer_groups()`) avec contrat, producteur, groupe,
+  taille de panier le cas échéant, et un statut dérivé des dates du contrat
+  (`amap_get_contract_period_status()`, nouveau, `contracts.php` : à venir/en cours/terminé,
+  distinct de `is_active` qui ne dit qu'"ouvert à la souscription"). Un contrat supprimé
+  entre-temps (pas de contrainte FOREIGN KEY SQL dans ce plugin) est simplement ignoré plutôt que
+  de faire planter l'affichage.
+- Pas encore de bouton "Souscrire" ni de détail ligne à ligne de la grille produits×dates à ce
+  stade : scope volontairement limité à la lecture, le reste vient en 7.2/7.3.
+- CSS : nouvelles classes `.amap-nav`/`.amap-nav-item` (scroll horizontal en mobile) et
+  `.amap-subscription-list`/`.amap-status-badge`, sur les mêmes variables (`--space-*`,
+  `--color-*`, `--radius`) que `.amap-badge`/`.amap-card` déjà en place.
+
+Commit `7ab1911`.
