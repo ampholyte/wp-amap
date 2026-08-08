@@ -122,6 +122,110 @@ function amap_get_available_contracts_for_member( $member_user_id ) {
     return $available;
 }
 
+/**
+ * Envoie l'email de confirmation après une souscription front réussie
+ * (amap_handle_add_member_subscription()) — récupère elle-même contrat/producteur/groupe/taille
+ * depuis $subscription_id, même principe de jointure que amap_get_member_subscriptions(). Ne
+ * distingue pas les souscriptions saisies côté admin : appelée uniquement depuis le parcours
+ * front, la saisie de secours par le bureau n'en a pas besoin.
+ */
+function amap_send_subscription_confirmation_email( $subscription_id ) {
+    $subscription = amap_get_subscription( $subscription_id );
+    if ( ! $subscription ) {
+        return;
+    }
+
+    $contract = amap_get_contract( $subscription->contract_id );
+    $member   = get_user_by( 'id', $subscription->member_user_id );
+    if ( ! $contract || ! $member ) {
+        return;
+    }
+
+    $producer = get_user_by( 'id', $contract->producer_user_id );
+    $group    = amap_get_group( $subscription->group_id );
+
+    $recap_items = array(
+        esc_html__( 'Contrat', 'association-manager' ) . ' : ' . esc_html( $contract->label ),
+        esc_html__( 'Producteur', 'association-manager' ) . ' : ' . esc_html( $producer ? $producer->display_name : '—' ),
+        esc_html__( 'Groupe (point de retrait)', 'association-manager' ) . ' : ' . esc_html( $group ? $group->name : '—' ),
+        esc_html__( 'Date de signature', 'association-manager' ) . ' : ' . esc_html( $subscription->signed_at ),
+    );
+
+    if ( $subscription->basket_size_id ) {
+        $basket_size = amap_get_contract_basket_size( $subscription->basket_size_id );
+        if ( $basket_size ) {
+            $recap_items[] = sprintf(
+                '%s : %s (%s €)',
+                esc_html__( 'Taille de panier', 'association-manager' ),
+                esc_html( $basket_size->label ),
+                esc_html( number_format_i18n( (float) $basket_size->price, 2 ) )
+            );
+        }
+    }
+
+    // translators: %s: nom affiché de l'adhérent.
+    $html_body  = '<p>' . sprintf(
+        esc_html__( 'Bonjour %s, votre souscription a bien été enregistrée.', 'association-manager' ),
+        esc_html( $member->display_name )
+    ) . '</p>';
+    $html_body .= '<ul><li>' . implode( '</li><li>', $recap_items ) . '</li></ul>';
+
+    if ( 'product_grid' === $contract->contract_type ) {
+        $html_body .= '<h3>' . esc_html__( 'Produits commandés', 'association-manager' ) . '</h3>';
+        $html_body .= amap_get_subscription_recap_html( $subscription_id );
+    }
+
+    // translators: %s: libellé du contrat.
+    $subject = sprintf( __( 'Confirmation de votre souscription — %s', 'association-manager' ), $contract->label );
+
+    amap_send_email( $member->user_email, $subject, $html_body );
+}
+
+/**
+ * Grille produits×dates d'une souscription product_grid mise en forme pour l'email de
+ * confirmation : une entrée par date de livraison ayant au moins une quantité commandée (grille
+ * creuse, comme partout ailleurs dans le plugin), listant les produits commandés à cette date —
+ * plus lisible dans un email qu'un tableau HTML avec des cases vides.
+ */
+function amap_get_subscription_recap_html( $subscription_id ) {
+    $items_by_date = array();
+    foreach ( amap_get_subscription_items( $subscription_id ) as $item ) {
+        $items_by_date[ (int) $item->contract_delivery_date_id ][] = $item;
+    }
+
+    $recaps_by_date = array();
+    foreach ( $items_by_date as $delivery_date_id => $date_items ) {
+        $delivery_date = amap_get_contract_delivery_date( $delivery_date_id );
+        if ( ! $delivery_date ) {
+            continue;
+        }
+
+        $product_lines = array();
+        foreach ( $date_items as $item ) {
+            $product = amap_get_contract_product( $item->contract_product_id );
+            if ( ! $product ) {
+                continue;
+            }
+            $product_lines[] = esc_html( $product->label . ' × ' . $item->quantity );
+        }
+
+        if ( empty( $product_lines ) ) {
+            continue;
+        }
+
+        $recaps_by_date[ $delivery_date->delivery_date ] = '<li>' . esc_html( date_i18n( 'j F Y', strtotime( $delivery_date->delivery_date ) ) )
+            . '<ul><li>' . implode( '</li><li>', $product_lines ) . '</li></ul></li>';
+    }
+
+    if ( empty( $recaps_by_date ) ) {
+        return '<p>' . esc_html__( 'Aucun produit enregistré pour cette souscription.', 'association-manager' ) . '</p>';
+    }
+
+    ksort( $recaps_by_date );
+
+    return '<ul>' . implode( '', $recaps_by_date ) . '</ul>';
+}
+
 add_action( 'admin_post_amap_add_member_subscription', 'amap_handle_add_member_subscription' );
 
 /**
@@ -187,10 +291,18 @@ function amap_handle_add_member_subscription() {
             'signed_at'      => current_time( 'Y-m-d' ),
         )
     );
+    // Capturé tout de suite : amap_insert_subscription_items() enchaîne d'autres $wpdb->insert()
+    // juste après, qui écraseraient $wpdb->insert_id avant l'envoi de l'email de confirmation.
+    $subscription_id = $wpdb->insert_id;
 
     if ( 'product_grid' === $contract->contract_type ) {
-        amap_insert_subscription_items( $wpdb->insert_id, $contract_id, $group_id );
+        amap_insert_subscription_items( $subscription_id, $contract_id, $group_id );
     }
+
+    // Le résultat n'est pas vérifié : un échec d'envoi ne doit pas remettre en cause une
+    // souscription déjà enregistrée en base, même logique que l'appel à amap_send_magic_link()
+    // dans amap_handle_login_email_step().
+    amap_send_subscription_confirmation_email( $subscription_id );
 
     wp_safe_redirect(
         add_query_arg(

@@ -102,8 +102,8 @@ préfixées `amap_`, réutilisant le pattern CRUD déjà en place pour "Utilisat
 5. wp_amap_subscriptions (dépend de 2 + 3/4a)                 ✅ fait (commit 081a008)
 6. wp_amap_subscription_items (dépend de 4b/4c + 5)           ✅ fait
 7. Espace adhérent : souscription en ligne (dépend de 5 + 6) — bascule de la création d'une
-   souscription (signature + grille produits×dates) de l'admin vers le front, voir note        🔧 en cours
-   ci-dessous                                                                                     (7.1 fait)
+   souscription (signature + grille produits×dates) de l'admin vers le front, voir note        ✅ fait
+   ci-dessous
 8. wp_amap_leaves (dépend de 5) — CRUD admin d'abord, self-service adhérent plus tard
 9. wp_amap_distribution_exceptions (dépend de 1 seulement)
 10. wp_amap_distribution_volunteers (dépend de 1 + 5, pour connaître les adhérents éligibles
@@ -282,7 +282,7 @@ ligne à ligne comme les tables filles de l'étape 4.
   ajouté à `amap_handle_delete_subscription()`, même principe que les tables filles à la
   suppression d'un contrat (étape 4).
 
-## Étape 7 (en cours) — Espace adhérent : souscription en ligne
+## Étape 7 (fait) — Espace adhérent : souscription en ligne
 
 Découpage acté en conversation (2026-08-08) : la page admin "Souscriptions" (étapes 5+6) reste
 en l'état, éditable, comme outil de secours pour le bureau ("admin est root") ; l'étape 7 ajoute
@@ -292,7 +292,7 @@ le vrai parcours front, en plusieurs sous-étapes validées séparément :
 7.1 Mes contrats (lecture seule)                    ✅ fait (commit 7ab1911)
 7.2 Liste des contrats proposables à la souscription ✅ fait, fusionnée avec 7.3
 7.3 Formulaire de souscription (front)               ✅ fait
-7.4 Email de confirmation de souscription
+7.4 Email de confirmation de souscription            ✅ fait
 ```
 
 Menu à terme dans l'espace membre (`member-area.php`) : Espace adhérent / Espace producteur /
@@ -380,5 +380,34 @@ signature, pas une saisie a posteriori. Validations bloquantes par `wp_die()` (c
 inactif/inexistant, groupe du producteur ne correspondant pas à celui de l'adhérent, taille de
 panier ou produits manquants côté configuration) : ne peuvent survenir que par lien périmé,
 requête trafiquée, ou configuration incomplète du bureau — jamais par un parcours normal.
+
+Commit à venir.
+
+### Étape 7.4 (fait) — Email de confirmation de souscription
+
+Envoyé depuis `amap_handle_add_member_subscription()`, juste après l'enregistrement en base
+(souscription + `subscription_items` le cas échéant), sans bloquer la redirection si l'envoi
+échoue — même logique de fire-and-forget que l'appel à `amap_send_magic_link()` dans
+`amap_handle_login_email_step()` : un échec d'envoi ne doit pas remettre en cause une
+souscription déjà enregistrée.
+
+- **`amap_send_subscription_confirmation_email( $subscription_id )`** (nouvelle fonction,
+  `subscriptions.php`) — récupère elle-même contrat/producteur/groupe/taille depuis
+  `$subscription_id` (même principe de jointure que `amap_get_member_subscriptions()`), construit
+  le HTML (petites chaînes `sprintf`/concat, comme `amap_send_login_link()` dans `auth.php`), puis
+  appelle `amap_send_email()`. Contenu : contrat, producteur, groupe (point de retrait), date de
+  signature, taille de panier (`basket_recurring`) ou récap produits×dates (`product_grid`).
+- **`amap_get_subscription_recap_html( $subscription_id )`** — pour `product_grid`, une entrée par
+  date de livraison ayant au moins une quantité commandée (grille creuse, comme partout ailleurs
+  dans le plugin), plutôt qu'un tableau HTML complet avec cases vides, plus lisible dans un email.
+- `$subscription_id` est capturé dans une variable juste après l'insert de la souscription : les
+  inserts suivants de `amap_insert_subscription_items()` écrasent `$wpdb->insert_id`, il fallait
+  donc le lire avant, pas seulement au moment de l'appel à cette dernière fonction.
+
+Point ouvert noté par l'utilisateur après validation (2026-08-08) : le design de cet email (et des
+autres emails transactionnels — lien de connexion, réinitialisation de mot de passe) reste
+volontairement sommaire (HTML minimal, pas de mise en page/branding). Une passe de design plus
+soignée sur l'ensemble des emails est à prévoir plus tard, hors scope de ce chantier
+contrats/distributions.
 
 Commit à venir.
