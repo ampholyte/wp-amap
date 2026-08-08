@@ -114,6 +114,12 @@ préfixées `amap_`, réutilisant le pattern CRUD déjà en place pour "Utilisat
 10. wp_amap_distribution_volunteers (dépend de 1 + 5, pour connaître les adhérents éligibles
     par groupe) — roster bénévoles, règles 2-3/distribution et 3/an/adhérent en PHP   ✅ fait
 11. Notification adhérents lors d'exception (dépend de 9 + 5, réutilise amap_send_email())   ✅ fait
+12. Restitution du bloc producteur (espace membre), dépend de 1-6, 9, 10 — scindée en sous-
+    étapes, voir note ci-dessous :
+    12.1 Mes contrats + mes groupes (lecture seule)
+    12.2 Prochaine distribution (jour fixe du groupe + exceptions éventuelles)
+    12.3 Produits à livrer pour la prochaine distribution
+    12.4 Adhérents disponibles par groupe
 ```
 
 Point ouvert acté en conversation le 2026-08-08, à traiter à l'étape 7 : la page admin
