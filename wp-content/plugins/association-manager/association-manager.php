@@ -2427,7 +2427,34 @@ function amap_render_contracts_page() {
     $producers      = amap_get_producer_users();
     $contract_types = amap_get_contract_types();
     $contracts      = amap_get_contracts();
+
+    // Onglet actif à l'affichage : par défaut "Infos du contrat", sauf si l'URL cible
+    // explicitement la modification d'un élément d'une autre sous-section (lien "Modifier"
+    // d'une taille/d'un produit/d'une date, ou génération en masse en cours), ou si l'URL porte
+    // explicitement ?active_tab=... (posé par les boutons Annuler et par les redirections des
+    // handlers add/update/delete de ces sous-sections, pour rester sur le bon onglet après un
+    // enregistrement/annulation/suppression).
+    $requested_tab        = isset( $_GET['active_tab'] ) ? sanitize_key( wp_unslash( $_GET['active_tab'] ) ) : '';
+    $active_contract_tab  = 'amap-contract-form-wrapper';
+    if ( 'sizes' === $requested_tab || $size_editing_id ) {
+        $active_contract_tab = 'amap-tab-sizes';
+    } elseif ( 'products' === $requested_tab || $product_editing_id ) {
+        $active_contract_tab = 'amap-tab-products';
+    } elseif ( 'dates' === $requested_tab || $delivery_date_editing_id || $generate_group_id ) {
+        $active_contract_tab = 'amap-tab-dates';
+    }
     ?>
+    <style>
+        table.widefat {
+            border: none;
+            box-shadow: none;
+        }
+        table.widefat th,
+        table.widefat td {
+            border: none;
+            border-bottom: 1px solid #e0e0e0;
+        }
+    </style>
     <div class="wrap">
         <h1><?php esc_html_e( 'Contrats', 'association-manager' ); ?></h1>
 
@@ -2447,7 +2474,58 @@ function amap_render_contracts_page() {
                     <button type="button" class="button button-primary" id="amap-contract-add-toggle"><?php esc_html_e( '+ Ajouter un contrat', 'association-manager' ); ?></button>
                 </p>
             <?php endif; ?>
-            <div id="amap-contract-form-wrapper"<?php echo $editing_id ? '' : ' hidden'; ?>>
+            <?php if ( $editing_id && $editing_contract ) : ?>
+                <h2 class="nav-tab-wrapper" id="amap-contract-tabs">
+                    <a href="<?php echo esc_url( admin_url( 'admin.php?page=amap-contracts' ) ); ?>" class="nav-tab"><?php esc_html_e( 'Liste des contrats', 'association-manager' ); ?></a>
+                    <a href="#" class="nav-tab<?php echo ( 'amap-contract-form-wrapper' === $active_contract_tab ) ? ' nav-tab-active' : ''; ?>" data-amap-tab="amap-contract-form-wrapper"><?php esc_html_e( 'Infos du contrat', 'association-manager' ); ?></a>
+                    <?php if ( 'basket_recurring' === $editing_contract->contract_type ) : ?>
+                        <a href="#" class="nav-tab<?php echo ( 'amap-tab-sizes' === $active_contract_tab ) ? ' nav-tab-active' : ''; ?>" data-amap-tab="amap-tab-sizes"><?php esc_html_e( 'Tailles de panier', 'association-manager' ); ?></a>
+                    <?php elseif ( 'product_grid' === $editing_contract->contract_type ) : ?>
+                        <a href="#" class="nav-tab<?php echo ( 'amap-tab-products' === $active_contract_tab ) ? ' nav-tab-active' : ''; ?>" data-amap-tab="amap-tab-products"><?php esc_html_e( 'Produits', 'association-manager' ); ?></a>
+                        <a href="#" class="nav-tab<?php echo ( 'amap-tab-dates' === $active_contract_tab ) ? ' nav-tab-active' : ''; ?>" data-amap-tab="amap-tab-dates"><?php esc_html_e( 'Dates de livraison', 'association-manager' ); ?></a>
+                    <?php endif; ?>
+                </h2>
+            <?php endif; ?>
+            <div id="amap-contract-form-wrapper" class="amap-tab-panel"<?php echo ( $editing_id && 'amap-contract-form-wrapper' === $active_contract_tab ) ? '' : ' hidden'; ?>>
+            <?php if ( $editing_id && $editing_contract ) : ?>
+                <?php $editing_contract_producer = get_user_by( 'id', $editing_contract->producer_user_id ); ?>
+                <div id="amap-contract-view">
+                    <table class="widefat">
+                        <tbody>
+                            <tr>
+                                <th><?php esc_html_e( 'Libellé', 'association-manager' ); ?></th>
+                                <td><?php echo esc_html( $editing_contract->label ); ?></td>
+                            </tr>
+                            <tr>
+                                <th><?php esc_html_e( 'Producteur', 'association-manager' ); ?></th>
+                                <td><?php echo esc_html( $editing_contract_producer ? $editing_contract_producer->display_name : '—' ); ?></td>
+                            </tr>
+                            <tr>
+                                <th><?php esc_html_e( 'Type de contrat', 'association-manager' ); ?></th>
+                                <td><?php echo esc_html( $contract_types[ $editing_contract->contract_type ] ?? $editing_contract->contract_type ); ?></td>
+                            </tr>
+                            <tr>
+                                <th><?php esc_html_e( 'Période', 'association-manager' ); ?></th>
+                                <td><?php echo esc_html( $editing_contract->start_date . ' → ' . $editing_contract->end_date ); ?></td>
+                            </tr>
+                            <?php if ( null !== $editing_contract->frequency_weeks ) : ?>
+                                <tr>
+                                    <th><?php esc_html_e( 'Fréquence (en semaines)', 'association-manager' ); ?></th>
+                                    <td><?php echo esc_html( $editing_contract->frequency_weeks ); ?></td>
+                                </tr>
+                            <?php endif; ?>
+                            <tr>
+                                <th><?php esc_html_e( 'Statut', 'association-manager' ); ?></th>
+                                <td><?php echo $editing_contract->is_active ? esc_html__( 'Actif', 'association-manager' ) : esc_html__( 'Inactif', 'association-manager' ); ?></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                    <p>
+                        <button type="button" class="button button-primary" id="amap-contract-edit-toggle"><?php esc_html_e( 'Modifier les infos', 'association-manager' ); ?></button>
+                    </p>
+                </div>
+            <?php endif; ?>
+            <div id="amap-contract-edit-form"<?php echo $editing_id ? ' hidden' : ''; ?>>
             <h2>
                 <?php echo $editing_id
                     ? esc_html__( 'Modifier un contrat', 'association-manager' )
@@ -2520,15 +2598,34 @@ function amap_render_contracts_page() {
                 <p>
                     <?php submit_button( $editing_id ? __( 'Enregistrer', 'association-manager' ) : __( 'Ajouter', 'association-manager' ), 'primary', 'submit', false ); ?>
                     <?php if ( $editing_id ) : ?>
-                        <a href="<?php echo esc_url( admin_url( 'admin.php?page=amap-contracts' ) ); ?>" class="button">
-                            <?php esc_html_e( 'Annuler', 'association-manager' ); ?>
-                        </a>
+                        <button type="button" class="button" id="amap-contract-edit-cancel"><?php esc_html_e( 'Annuler', 'association-manager' ); ?></button>
                     <?php else : ?>
                         <button type="button" class="button" id="amap-contract-add-cancel"><?php esc_html_e( 'Annuler', 'association-manager' ); ?></button>
                     <?php endif; ?>
                 </p>
             </form>
             </div>
+            </div>
+            <script>
+            ( function () {
+                var viewBlock  = document.getElementById( 'amap-contract-view' );
+                var editForm   = document.getElementById( 'amap-contract-edit-form' );
+                var editToggle = document.getElementById( 'amap-contract-edit-toggle' );
+                var editCancel = document.getElementById( 'amap-contract-edit-cancel' );
+                if ( editToggle ) {
+                    editToggle.addEventListener( 'click', function () {
+                        viewBlock.hidden = true;
+                        editForm.hidden  = false;
+                    } );
+                }
+                if ( editCancel ) {
+                    editCancel.addEventListener( 'click', function () {
+                        editForm.hidden  = true;
+                        viewBlock.hidden = false;
+                    } );
+                }
+            } )();
+            </script>
             <script>
             ( function () {
                 var typeField     = document.getElementById( 'amap-contract-type' );
@@ -2565,8 +2662,7 @@ function amap_render_contracts_page() {
 
         <?php if ( $editing_id && $editing_contract && 'basket_recurring' === $editing_contract->contract_type ) : ?>
             <?php $basket_sizes = amap_get_contract_basket_sizes( $editing_id ); ?>
-            <div class="postbox">
-            <h2 class="hndle"><span><?php esc_html_e( 'Tailles de panier', 'association-manager' ); ?></span></h2>
+            <div class="postbox amap-tab-panel" id="amap-tab-sizes"<?php echo ( 'amap-tab-sizes' === $active_contract_tab ) ? '' : ' hidden'; ?>>
             <div class="inside">
             <?php if ( 'basket_size_invalid' === $notice ) : ?>
                 <div class="notice notice-error"><p><?php esc_html_e( 'Libellé ou prix invalide.', 'association-manager' ); ?></p></div>
@@ -2649,7 +2745,7 @@ function amap_render_contracts_page() {
                 <p>
                     <?php submit_button( $size_editing_id ? __( 'Enregistrer', 'association-manager' ) : __( 'Ajouter', 'association-manager' ), 'primary', 'submit', false ); ?>
                     <?php if ( $size_editing_id ) : ?>
-                        <a href="<?php echo esc_url( admin_url( 'admin.php?page=amap-contracts&action=edit&id=' . $editing_id ) ); ?>" class="button">
+                        <a href="<?php echo esc_url( admin_url( 'admin.php?page=amap-contracts&action=edit&id=' . $editing_id . '&active_tab=sizes' ) ); ?>" class="button">
                             <?php esc_html_e( 'Annuler', 'association-manager' ); ?>
                         </a>
                     <?php else : ?>
@@ -2683,8 +2779,7 @@ function amap_render_contracts_page() {
 
         <?php if ( $editing_id && $editing_contract && 'product_grid' === $editing_contract->contract_type ) : ?>
             <?php $contract_products = amap_get_contract_products( $editing_id ); ?>
-            <div class="postbox">
-            <h2 class="hndle"><span><?php esc_html_e( 'Produits', 'association-manager' ); ?></span></h2>
+            <div class="postbox amap-tab-panel" id="amap-tab-products"<?php echo ( 'amap-tab-products' === $active_contract_tab ) ? '' : ' hidden'; ?>>
             <div class="inside">
             <?php if ( 'contract_product_invalid' === $notice ) : ?>
                 <div class="notice notice-error"><p><?php esc_html_e( 'Libellé ou prix invalide.', 'association-manager' ); ?></p></div>
@@ -2767,7 +2862,7 @@ function amap_render_contracts_page() {
                 <p>
                     <?php submit_button( $product_editing_id ? __( 'Enregistrer', 'association-manager' ) : __( 'Ajouter', 'association-manager' ), 'primary', 'submit', false ); ?>
                     <?php if ( $product_editing_id ) : ?>
-                        <a href="<?php echo esc_url( admin_url( 'admin.php?page=amap-contracts&action=edit&id=' . $editing_id ) ); ?>" class="button">
+                        <a href="<?php echo esc_url( admin_url( 'admin.php?page=amap-contracts&action=edit&id=' . $editing_id . '&active_tab=products' ) ); ?>" class="button">
                             <?php esc_html_e( 'Annuler', 'association-manager' ); ?>
                         </a>
                     <?php else : ?>
@@ -2815,8 +2910,7 @@ function amap_render_contracts_page() {
                 $generate_candidate_dates = array_values( array_diff( $all_weekday_dates, $existing_group_dates ) );
             }
             ?>
-            <div class="postbox">
-            <h2 class="hndle"><span><?php esc_html_e( 'Dates de livraison', 'association-manager' ); ?></span></h2>
+            <div class="postbox amap-tab-panel" id="amap-tab-dates"<?php echo ( 'amap-tab-dates' === $active_contract_tab ) ? '' : ' hidden'; ?>>
             <div class="inside">
 
             <?php if ( empty( $producer_groups ) ) : ?>
@@ -3002,7 +3096,7 @@ function amap_render_contracts_page() {
                     <p>
                         <?php submit_button( $delivery_date_editing_id ? __( 'Enregistrer', 'association-manager' ) : __( 'Ajouter', 'association-manager' ), 'primary', 'submit', false ); ?>
                         <?php if ( $delivery_date_editing_id ) : ?>
-                            <a href="<?php echo esc_url( admin_url( 'admin.php?page=amap-contracts&action=edit&id=' . $editing_id ) ); ?>" class="button">
+                            <a href="<?php echo esc_url( admin_url( 'admin.php?page=amap-contracts&action=edit&id=' . $editing_id . '&active_tab=dates' ) ); ?>" class="button">
                                 <?php esc_html_e( 'Annuler', 'association-manager' ); ?>
                             </a>
                         <?php else : ?>
@@ -3035,52 +3129,79 @@ function amap_render_contracts_page() {
             </div>
         <?php endif; ?>
 
-        <?php if ( empty( $contracts ) ) : ?>
-            <p><?php esc_html_e( 'Aucun contrat enregistré pour le moment.', 'association-manager' ); ?></p>
-        <?php else : ?>
-            <table class="widefat">
-                <thead>
-                    <tr>
-                        <th><?php esc_html_e( 'Libellé', 'association-manager' ); ?></th>
-                        <th><?php esc_html_e( 'Producteur', 'association-manager' ); ?></th>
-                        <th><?php esc_html_e( 'Type', 'association-manager' ); ?></th>
-                        <th><?php esc_html_e( 'Période', 'association-manager' ); ?></th>
-                        <th><?php esc_html_e( 'Fréquence', 'association-manager' ); ?></th>
-                        <th><?php esc_html_e( 'Actif', 'association-manager' ); ?></th>
-                        <th><?php esc_html_e( 'Actions', 'association-manager' ); ?></th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php foreach ( $contracts as $contract ) : ?>
-                        <?php $producer = get_user_by( 'id', $contract->producer_user_id ); ?>
+        <?php if ( $editing_id && $editing_contract ) : ?>
+            <script>
+            ( function () {
+                var tabWrapper = document.getElementById( 'amap-contract-tabs' );
+                if ( ! tabWrapper ) {
+                    return;
+                }
+                var tabs = tabWrapper.querySelectorAll( '.nav-tab[data-amap-tab]' );
+                tabs.forEach( function ( tab ) {
+                    tab.addEventListener( 'click', function ( event ) {
+                        event.preventDefault();
+                        tabs.forEach( function ( t ) {
+                            t.classList.remove( 'nav-tab-active' );
+                        } );
+                        document.querySelectorAll( '.amap-tab-panel' ).forEach( function ( panel ) {
+                            panel.hidden = true;
+                        } );
+                        tab.classList.add( 'nav-tab-active' );
+                        document.getElementById( tab.dataset.amapTab ).hidden = false;
+                    } );
+                } );
+            } )();
+            </script>
+        <?php endif; ?>
+
+        <?php if ( ! $editing_id ) : ?>
+            <?php if ( empty( $contracts ) ) : ?>
+                <p><?php esc_html_e( 'Aucun contrat enregistré pour le moment.', 'association-manager' ); ?></p>
+            <?php else : ?>
+                <table class="widefat">
+                    <thead>
                         <tr>
-                            <td><?php echo esc_html( $contract->label ); ?></td>
-                            <td><?php echo esc_html( $producer ? $producer->display_name : '—' ); ?></td>
-                            <td><?php echo esc_html( $contract_types[ $contract->contract_type ] ?? $contract->contract_type ); ?></td>
-                            <td><?php echo esc_html( $contract->start_date . ' → ' . $contract->end_date ); ?></td>
-                            <td><?php echo esc_html( null !== $contract->frequency_weeks ? $contract->frequency_weeks : '—' ); ?></td>
-                            <td><?php echo $contract->is_active ? esc_html__( 'Oui', 'association-manager' ) : esc_html__( 'Non', 'association-manager' ); ?></td>
-                            <td>
-                                <a href="<?php echo esc_url( admin_url( 'admin.php?page=amap-contracts&action=edit&id=' . $contract->id ) ); ?>">
-                                    <?php esc_html_e( 'Modifier', 'association-manager' ); ?>
-                                </a>
-                                |
-                                <?php
-                                $delete_url = wp_nonce_url(
-                                    admin_url( 'admin-post.php?action=amap_delete_contract&id=' . $contract->id ),
-                                    'amap_delete_contract_' . $contract->id
-                                );
-                                // translators: %s: libellé du contrat.
-                                $confirm_message = sprintf( __( 'Supprimer définitivement le contrat %s ?', 'association-manager' ), $contract->label );
-                                ?>
-                                <a href="<?php echo esc_url( $delete_url ); ?>" onclick="return confirm( '<?php echo esc_js( $confirm_message ); ?>' );">
-                                    <?php esc_html_e( 'Supprimer', 'association-manager' ); ?>
-                                </a>
-                            </td>
+                            <th><?php esc_html_e( 'Libellé', 'association-manager' ); ?></th>
+                            <th><?php esc_html_e( 'Producteur', 'association-manager' ); ?></th>
+                            <th><?php esc_html_e( 'Type', 'association-manager' ); ?></th>
+                            <th><?php esc_html_e( 'Période', 'association-manager' ); ?></th>
+                            <th><?php esc_html_e( 'Fréquence', 'association-manager' ); ?></th>
+                            <th><?php esc_html_e( 'Actif', 'association-manager' ); ?></th>
+                            <th><?php esc_html_e( 'Actions', 'association-manager' ); ?></th>
                         </tr>
-                    <?php endforeach; ?>
-                </tbody>
-            </table>
+                    </thead>
+                    <tbody>
+                        <?php foreach ( $contracts as $contract ) : ?>
+                            <?php $producer = get_user_by( 'id', $contract->producer_user_id ); ?>
+                            <tr>
+                                <td><?php echo esc_html( $contract->label ); ?></td>
+                                <td><?php echo esc_html( $producer ? $producer->display_name : '—' ); ?></td>
+                                <td><?php echo esc_html( $contract_types[ $contract->contract_type ] ?? $contract->contract_type ); ?></td>
+                                <td><?php echo esc_html( $contract->start_date . ' → ' . $contract->end_date ); ?></td>
+                                <td><?php echo esc_html( null !== $contract->frequency_weeks ? $contract->frequency_weeks : '—' ); ?></td>
+                                <td><?php echo $contract->is_active ? esc_html__( 'Oui', 'association-manager' ) : esc_html__( 'Non', 'association-manager' ); ?></td>
+                                <td>
+                                    <a href="<?php echo esc_url( admin_url( 'admin.php?page=amap-contracts&action=edit&id=' . $contract->id ) ); ?>">
+                                        <?php esc_html_e( 'Voir', 'association-manager' ); ?>
+                                    </a>
+                                    |
+                                    <?php
+                                    $delete_url = wp_nonce_url(
+                                        admin_url( 'admin-post.php?action=amap_delete_contract&id=' . $contract->id ),
+                                        'amap_delete_contract_' . $contract->id
+                                    );
+                                    // translators: %s: libellé du contrat.
+                                    $confirm_message = sprintf( __( 'Supprimer définitivement le contrat %s ?', 'association-manager' ), $contract->label );
+                                    ?>
+                                    <a href="<?php echo esc_url( $delete_url ); ?>" onclick="return confirm( '<?php echo esc_js( $confirm_message ); ?>' );">
+                                        <?php esc_html_e( 'Supprimer', 'association-manager' ); ?>
+                                    </a>
+                                </td>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            <?php endif; ?>
         <?php endif; ?>
     </div>
     <?php
@@ -3216,7 +3337,7 @@ function amap_handle_update_contract() {
         array( 'id' => $id )
     );
 
-    wp_safe_redirect( admin_url( 'admin.php?page=amap-contracts' ) );
+    wp_safe_redirect( $edit_url );
     exit;
 }
 
@@ -3263,7 +3384,7 @@ function amap_handle_add_contract_basket_size() {
 
     check_admin_referer( 'amap_add_contract_basket_size_' . $contract_id );
 
-    $edit_url = admin_url( 'admin.php?page=amap-contracts&action=edit&id=' . $contract_id );
+    $edit_url = admin_url( 'admin.php?page=amap-contracts&action=edit&id=' . $contract_id . '&active_tab=sizes' );
 
     $label     = isset( $_POST['label'] ) ? sanitize_text_field( wp_unslash( $_POST['label'] ) ) : '';
     $price     = isset( $_POST['price'] ) ? sanitize_text_field( wp_unslash( $_POST['price'] ) ) : '';
@@ -3304,7 +3425,7 @@ function amap_handle_update_contract_basket_size() {
 
     check_admin_referer( 'amap_edit_contract_basket_size_' . $id );
 
-    $edit_url = admin_url( 'admin.php?page=amap-contracts&action=edit&id=' . $basket_size->contract_id );
+    $edit_url = admin_url( 'admin.php?page=amap-contracts&action=edit&id=' . $basket_size->contract_id . '&active_tab=sizes' );
 
     $label     = isset( $_POST['label'] ) ? sanitize_text_field( wp_unslash( $_POST['label'] ) ) : '';
     $price     = isset( $_POST['price'] ) ? sanitize_text_field( wp_unslash( $_POST['price'] ) ) : '';
@@ -3349,7 +3470,7 @@ function amap_handle_delete_contract_basket_size() {
     $wpdb->delete( $wpdb->prefix . 'amap_contract_basket_sizes', array( 'id' => $id ) );
 
     wp_safe_redirect(
-        admin_url( 'admin.php?page=amap-contracts&action=edit&id=' . $basket_size->contract_id . '&amap_notice=basket_size_deleted' )
+        admin_url( 'admin.php?page=amap-contracts&action=edit&id=' . $basket_size->contract_id . '&active_tab=sizes&amap_notice=basket_size_deleted' )
     );
     exit;
 }
@@ -3369,7 +3490,7 @@ function amap_handle_add_contract_product() {
 
     check_admin_referer( 'amap_add_contract_product_' . $contract_id );
 
-    $edit_url = admin_url( 'admin.php?page=amap-contracts&action=edit&id=' . $contract_id );
+    $edit_url = admin_url( 'admin.php?page=amap-contracts&action=edit&id=' . $contract_id . '&active_tab=products' );
 
     $label     = isset( $_POST['label'] ) ? sanitize_text_field( wp_unslash( $_POST['label'] ) ) : '';
     $price     = isset( $_POST['price'] ) ? sanitize_text_field( wp_unslash( $_POST['price'] ) ) : '';
@@ -3410,7 +3531,7 @@ function amap_handle_update_contract_product() {
 
     check_admin_referer( 'amap_edit_contract_product_' . $id );
 
-    $edit_url = admin_url( 'admin.php?page=amap-contracts&action=edit&id=' . $product->contract_id );
+    $edit_url = admin_url( 'admin.php?page=amap-contracts&action=edit&id=' . $product->contract_id . '&active_tab=products' );
 
     $label     = isset( $_POST['label'] ) ? sanitize_text_field( wp_unslash( $_POST['label'] ) ) : '';
     $price     = isset( $_POST['price'] ) ? sanitize_text_field( wp_unslash( $_POST['price'] ) ) : '';
@@ -3455,7 +3576,7 @@ function amap_handle_delete_contract_product() {
     $wpdb->delete( $wpdb->prefix . 'amap_contract_products', array( 'id' => $id ) );
 
     wp_safe_redirect(
-        admin_url( 'admin.php?page=amap-contracts&action=edit&id=' . $product->contract_id . '&amap_notice=contract_product_deleted' )
+        admin_url( 'admin.php?page=amap-contracts&action=edit&id=' . $product->contract_id . '&active_tab=products&amap_notice=contract_product_deleted' )
     );
     exit;
 }
@@ -3475,7 +3596,7 @@ function amap_handle_add_contract_delivery_date() {
 
     check_admin_referer( 'amap_add_contract_delivery_date_' . $contract_id );
 
-    $edit_url           = admin_url( 'admin.php?page=amap-contracts&action=edit&id=' . $contract_id );
+    $edit_url           = admin_url( 'admin.php?page=amap-contracts&action=edit&id=' . $contract_id . '&active_tab=dates' );
     $group_id           = isset( $_POST['group_id'] ) ? absint( $_POST['group_id'] ) : 0;
     $delivery_date      = isset( $_POST['delivery_date'] ) ? sanitize_text_field( wp_unslash( $_POST['delivery_date'] ) ) : '';
     $producer_group_ids = array_map( 'absint', wp_list_pluck( amap_get_producer_groups( $contract->producer_user_id ), 'id' ) );
@@ -3532,7 +3653,7 @@ function amap_handle_update_contract_delivery_date() {
 
     check_admin_referer( 'amap_edit_contract_delivery_date_' . $id );
 
-    $edit_url           = admin_url( 'admin.php?page=amap-contracts&action=edit&id=' . $delivery_row->contract_id );
+    $edit_url           = admin_url( 'admin.php?page=amap-contracts&action=edit&id=' . $delivery_row->contract_id . '&active_tab=dates' );
     $group_id           = isset( $_POST['group_id'] ) ? absint( $_POST['group_id'] ) : 0;
     $delivery_date      = isset( $_POST['delivery_date'] ) ? sanitize_text_field( wp_unslash( $_POST['delivery_date'] ) ) : '';
     $producer_group_ids = array_map( 'absint', wp_list_pluck( amap_get_producer_groups( $contract->producer_user_id ), 'id' ) );
@@ -3588,7 +3709,7 @@ function amap_handle_delete_contract_delivery_date() {
     $wpdb->delete( $wpdb->prefix . 'amap_contract_delivery_dates', array( 'id' => $id ) );
 
     wp_safe_redirect(
-        admin_url( 'admin.php?page=amap-contracts&action=edit&id=' . $delivery_row->contract_id . '&amap_notice=contract_delivery_date_deleted' )
+        admin_url( 'admin.php?page=amap-contracts&action=edit&id=' . $delivery_row->contract_id . '&active_tab=dates&amap_notice=contract_delivery_date_deleted' )
     );
     exit;
 }

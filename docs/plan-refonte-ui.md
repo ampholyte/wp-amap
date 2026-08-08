@@ -35,8 +35,11 @@ sont traités en sous-étapes courtes séparées (même principe que A-D) :
 ```
 E1. Formulaires admin en tableau natif (.form-table)               ✅ fait
 E2. Masquer les formulaires de création derrière un bouton         ✅ fait
-E3. Onglets sur la page admin "Contrats"
+E3. Onglets sur la page admin "Contrats"                           ✅ fait
+E4. Vue/Édition séparées + masquage du tableau en mode Voir        ✅ fait
 ```
+
+Le rattrapage UX/UI est maintenant terminé sur l'ensemble des sous-étapes (A-D, E1-E4).
 
 ## Sous-étape E1 (fait) — Formulaires admin en `.form-table`
 
@@ -66,6 +69,100 @@ l'utilisateur : affichage/masquage simple (`hidden` + `addEventListener`, quelqu
 par formulaire), pas de fenêtre modale — cohérent avec le principe "pas de complexité non
 nécessaire" déjà suivi sur ce projet. Chaque formulaire garde son propre petit script
 autonome (comme le reste du fichier), pas de fonction JS partagée globale.
+
+## Sous-étape E3 (fait) — Onglets sur la page admin "Contrats"
+
+Fichier modifié : `amap_render_contracts_page()`.
+
+En mode édition d'un contrat (`$editing_id && $editing_contract`), une barre d'onglets native
+WordPress (`nav-tab-wrapper`/`nav-tab`/`nav-tab-active`) apparaît au-dessus des sections : "Infos
+du contrat" (toujours), puis "Tailles de panier" (`basket_recurring`) ou "Produits" + "Dates de
+livraison" (`product_grid`). Un seul panneau (`.amap-tab-panel`) est visible à la fois (`hidden`
+sur les autres), "Infos du contrat" étant l'onglet actif par défaut. Bascule gérée par un script
+minimal (`event.preventDefault()` sur le lien d'onglet, masque tous les panneaux, affiche celui
+ciblé par `data-amap-tab`). En mode ajout (pas encore de contrat créé), pas d'onglets : rien à
+séparer puisqu'aucune sous-section (tailles/produits/dates) n'existe encore pour un contrat qui
+n'a pas d'ID.
+
+Les 3 sous-sections gardent leur habillage `.postbox` posé en sous-étape D (juste complété d'un
+`id` et d'un `hidden` par défaut) : les onglets répondent au problème de lecture "empilement de
+plusieurs formulaires/tableaux visibles en même temps", tandis que le `.postbox` continue
+d'apporter la séparation visuelle (bordure, fond) à l'intérieur de chaque onglet.
+
+## Sous-étape E4 (fait) — Vue/Édition séparées + masquage du tableau en mode Voir
+
+Fichier modifié : `amap_render_contracts_page()`.
+
+Retour utilisateur après E3 : cliquer "Modifier" plongeait directement dans un formulaire dense
+(tous les champs + onglets), et le tableau complet de tous les contrats restait visible sous les
+onglets pendant l'édition d'un contrat précis — source de confusion sur ce qu'on est en train de
+regarder. Trois changements :
+
+- Le tableau final listant tous les contrats est maintenant masqué dès qu'un contrat est chargé
+  (`$editing_id` vrai), qu'il soit en cours de consultation ou de modification. Il reste visible
+  en mode liste par défaut et pendant l'ajout d'un nouveau contrat (rien à côté de quoi se perdre
+  dans ce cas, décision actée avec l'utilisateur).
+- Le lien "Modifier" de ce tableau devient "Voir" (même URL cible, juste le libellé).
+- Le premier onglet "Infos du contrat" est scindé en deux blocs : `#amap-contract-view` (résumé
+  en lecture seule — libellé, producteur, type, période, fréquence si `basket_recurring`, statut —
+  affiché par défaut) et `#amap-contract-edit-form` (le formulaire éditable existant, cf.
+  form-table de E1, masqué par défaut). Un bouton "Modifier les infos" bascule vers le formulaire ;
+  le bouton "Annuler" à l'intérieur du formulaire revient au résumé du même contrat plutôt que de
+  quitter la page (choix acté avec l'utilisateur, pour rester dans le contexte du contrat en
+  cours). En mode ajout d'un nouveau contrat, comportement inchangé : pas de résumé (rien à
+  résumer), le formulaire s'affiche directement quand on clique "+ Ajouter un contrat" (E2).
+
+Les onglets "Tailles de panier"/"Produits"/"Dates de livraison" et leurs formulaires masqués
+(E2/E3) ne sont pas concernés par ce changement.
+
+### Correctifs suite à un nouveau retour utilisateur sur E4
+
+- **Redirection après enregistrement d'un contrat** : `amap_handle_update_contract()`
+  redirigeait vers la liste complète (`admin.php?page=amap-contracts`) après un enregistrement
+  réussi au lieu de revenir sur la page du contrat modifié (`$edit_url`, déjà utilisée pour tous
+  les cas d'erreur de ce handler) — corrigé.
+- **Titres `hndle` redondants** : les `<h2 class="hndle">` internes aux postbox "Tailles de
+  panier", "Produits" et "Dates de livraison" faisaient doublon avec le libellé déjà affiché dans
+  l'onglet correspondant — supprimés (le `.postbox`/`.inside` reste pour la séparation visuelle,
+  seul le titre est retiré).
+- **Onglet "Liste des contrats"** : ajouté en premier dans la barre d'onglets, pour revenir à la
+  liste sans repasser par le menu AMAP. Contrairement aux autres onglets, c'est un vrai lien de
+  navigation (`href` vers `admin.php?page=amap-contracts`, pas d'attribut `data-amap-tab`) : le
+  script de bascule ne cible plus que `.nav-tab[data-amap-tab]`, ce qui laisse ce lien fonctionner
+  normalement (pas de `event.preventDefault()` dessus).
+
+**Correctif suite à un nouveau retour** : les liens "Modifier" d'une taille de panier/d'un
+produit/d'une date de livraison (`?size_action=edit`, `?product_action=edit`, `?date_action=edit`)
+rechargent la page entière — jusqu'ici l'onglet actif au chargement était toujours codé en dur sur
+"Infos du contrat", quel que soit l'élément réellement en cours de modification, ramenant
+l'utilisateur sur le mauvais onglet. Calcul d'un `$active_contract_tab` (déduit de
+`$size_editing_id`/`$product_editing_id`/`$delivery_date_editing_id`/`$generate_group_id`) qui
+détermine désormais la classe `nav-tab-active` et l'attribut `hidden` des 4 panneaux dès le rendu
+PHP, avant toute interaction JS.
+
+**Correctif complémentaire** : ce calcul ne couvrait que le cas "lien Modifier d'un élément
+précis" — les boutons "Enregistrer" et "Annuler" de ces mêmes sous-formulaires ramenaient
+pourtant aussi sur l'onglet "Infos du contrat", car leurs redirections/liens ne portaient aucune
+information sur la sous-section d'origine une fois l'édition terminée (`$size_editing_id` etc.
+retombent à 0 après un enregistrement ou une annulation). Ajout d'un paramètre `?active_tab=
+sizes|products|dates` explicite, posé par les 3 liens "Annuler" du rendu et injecté dans
+`$edit_url` de chacun des 9 handlers add/update/delete des trois sous-sections (donc propagé à
+toutes leurs redirections, succès comme erreurs de validation, sans dupliquer le paramètre sur
+chaque `wp_safe_redirect()`). `$active_contract_tab` lit désormais ce paramètre en plus des
+`*_editing_id`.
+
+**Essai visuel demandé par l'utilisateur** : bordures des tableaux `.widefat` (liste des contrats,
+tailles de panier, produits, dates de livraison, résumé "Voir") retirées via un petit `<style>`
+scopé à cette page (pas de fichier CSS pour le plugin à ce stade, cohérent avec l'absence
+d'assets déjà constatée — même logique que les `<script>` inline déjà utilisés partout ailleurs
+dans ce fichier). À valider/ajuster selon le rendu réel.
+
+**Point ouvert, reporté à une session dédiée** (5e remontée du même retour, volontairement pas
+traitée ici — vraie fonctionnalité, pas une correction de présentation) : dans l'onglet "Dates de
+livraison", regrouper l'affichage par groupe de distribution sous forme d'accordéon, avec un
+bouton "Modifier" par groupe permettant de cocher/décocher les dates existantes pour en supprimer
+plusieurs en une seule fois (sur le même principe que l'outil "Générer des dates" existant, mais
+pour une suppression en masse plutôt qu'un ajout).
 
 ## Sous-étape A (fait) — Fondations du design system
 
