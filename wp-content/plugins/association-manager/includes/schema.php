@@ -10,7 +10,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 function amap_activate() {
     // update_option() (et non plus add_option()) : la version doit refléter le schéma du
     // code à chaque activation. dbDelta() est idempotent, le rappeler ne pose pas de problème.
-    update_option( 'amap_db_version', '3.17' );
+    update_option( 'amap_db_version', '3.18' );
     amap_create_tables();
     amap_drop_obsolete_tables();
 
@@ -320,6 +320,39 @@ function amap_create_tables() {
     ) $charset_collate;";
 
     dbDelta( $sql_leaves );
+
+    $distribution_exceptions_table = $wpdb->prefix . 'amap_distribution_exceptions';
+
+    // Annulation/déplacement ponctuel d'une distribution, toujours décidé par le bureau (voir
+    // metier-producteurs.md), jamais par le producteur ou le groupe seuls. Les distributions
+    // normales ne sont pas stockées ligne par ligne (dérivées de wp_amap_groups.weekday) : seules
+    // les exceptions le sont ici. new_date/new_start_time/new_end_time/new_place sont NULL quand
+    // ils ne changent pas par rapport à la distribution normale du groupe — forcés à NULL pour
+    // exception_type = 'cancelled', et au moins l'un des trois doit être renseigné pour 'moved'
+    // (un déplacement peut ne changer que l'heure ou le lieu, à date inchangée). decided_by est le
+    // user_id du membre du bureau qui a créé la ligne, jamais modifié ensuite même si un autre
+    // membre corrige une saisie. notified_at reste NULL à cette étape : la notification aux
+    // adhérents est un chantier séparé (voir plan-contrats-distributions.md, étape 11).
+    // UNIQUE(group_id, distribution_date) : une seule exception par distribution, revérifiée côté
+    // PHP (amap_group_has_distribution_exception()) avant la contrainte SQL.
+    $sql_distribution_exceptions = "CREATE TABLE $distribution_exceptions_table (
+        id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+        group_id bigint(20) unsigned NOT NULL,
+        distribution_date date NOT NULL,
+        exception_type varchar(20) NOT NULL,
+        new_date date DEFAULT NULL,
+        new_start_time time DEFAULT NULL,
+        new_end_time time DEFAULT NULL,
+        new_place varchar(255) DEFAULT NULL,
+        reason varchar(255) DEFAULT NULL,
+        decided_by bigint(20) unsigned NOT NULL,
+        notified_at datetime DEFAULT NULL,
+        created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY  (id),
+        UNIQUE KEY group_distribution_date (group_id, distribution_date)
+    ) $charset_collate;";
+
+    dbDelta( $sql_distribution_exceptions );
 }
 
 function amap_drop_obsolete_tables() {

@@ -110,7 +110,7 @@ préfixées `amap_`, réutilisant le pattern CRUD déjà en place pour "Utilisat
    souscription (signature + grille produits×dates) de l'admin vers le front, voir note        ✅ fait
    ci-dessous
 8. wp_amap_leaves (dépend de 5) — CRUD admin d'abord, self-service adhérent plus tard   ✅ fait
-9. wp_amap_distribution_exceptions (dépend de 1 seulement)
+9. wp_amap_distribution_exceptions (dépend de 1 seulement)          ✅ fait
 10. wp_amap_distribution_volunteers (dépend de 1 + 5, pour connaître les adhérents éligibles
     par groupe) — roster bénévoles, règles 2-3/distribution et 3/an/adhérent en PHP
 11. Notification adhérents lors d'exception (dépend de 9 + 5, réutilise amap_send_email())
@@ -547,5 +547,73 @@ Deux limites de l'étape 8 remontées par l'utilisateur après usage réel (2026
   `amap_get_member_leave_form_data()` et `amap_handle_add_member_leave()` appellent simplement
   `amap_get_weekday_dates_in_range()` avec `frequency_weeks`, le délai d'une semaine restant un
   filtre indépendant appliqué en plus (toujours absent côté admin, cf. étape 8).
+
+Commit à venir.
+
+## Étape 9 (fait) — `wp_amap_distribution_exceptions`
+
+Table des annulations/déplacements ponctuels d'une distribution, décidés par le bureau (voir
+modèle de données ci-dessus et `metier-producteurs.md`). Quatre décisions actées en conversation
+avant codage (2026-08-08) :
+
+- **Emplacement** : section "Exceptions de distribution" nichée dans la page "Groupes" existante
+  (mode édition d'un groupe, sous "Producteurs rattachés"), pas de nouvelle page ni de nouvelle
+  capability — réutilise `amap_manage_groups`. Cohérent avec le principe déjà appliqué aux tables
+  filles des Contrats (étape 4) et aux congés (étape 8) : une sous-entité qui dépend d'un seul
+  parent est nichée dans la page de ce parent plutôt que listée à plat.
+- **`exception_type = 'moved'` sans nouvelle date obligatoire** : au moins un des trois champs
+  optionnels (`new_date` / `new_start_time`+`new_end_time` / `new_place`) doit être renseigné,
+  aucun n'est individuellement obligatoire. Couvre le cas "problème sur le point de livraison"
+  cité dans `metier-producteurs.md` (même date, lieu différent) sans avoir besoin d'un troisième
+  `exception_type`.
+- **Distribution passée autorisée** : `distribution_date` peut être antérieure à aujourd'hui,
+  cohérent avec "admin est root" déjà retenu pour la saisie des congés en admin (étape 8, pas de
+  délai d'une semaine côté bureau) — permet de documenter après coup une annulation décidée à la
+  dernière minute.
+- **CRUD complet (Ajouter/Modifier/Supprimer)**, pas seulement Ajouter/Supprimer comme les congés :
+  les six champs modifiables (date, type, nouvelle date/horaire/lieu, motif) rendent une correction
+  ponctuelle plus pratique qu'un delete+re-add. Même pattern que les tables filles des Contrats
+  (étape 4) : formulaire unique réutilisé pour l'ajout et la modification
+  (`?exception_action=edit&exception_id=X`), lien "Modifier" par ligne.
+
+**Validations serveur** (`amap_handle_add_distribution_exception()` / `_update_`, dupliquées entre
+les deux plutôt que factorisées, cohérent avec le reste du plugin — ex. groupes, tailles de
+panier) :
+1. `group_id` existant (`amap_get_group()`), sinon `wp_die()` (requête trafiquée). En modification,
+   `group_id` n'est jamais lu du POST : dérivé de la ligne existante, une exception reste rattachée
+   à son groupe d'origine.
+2. `distribution_date` valide (`amap_is_valid_date()`) et `exception_type` ∈
+   `amap_get_distribution_exception_type_labels()` (`cancelled`/`moved`), sinon `exception_invalid`.
+3. `distribution_date` doit tomber sur le `weekday` du groupe (`exception_invalid_weekday`) — les
+   distributions normales n'étant pas stockées ligne par ligne, c'est le seul moyen de vérifier
+   qu'elle correspond à une vraie distribution de ce groupe. Pas de borne de période (un groupe n'a
+   pas de `start_date`/`end_date` contrairement à un contrat), donc dates passées et futures
+   également acceptées (voir décision ci-dessus).
+4. Selon `exception_type` :
+   - `cancelled` : `new_date`/`new_start_time`/`new_end_time`/`new_place` forcés à `NULL` côté
+     serveur, jamais lus du POST en confiance même si le JS masque déjà ces champs.
+   - `moved` : si un horaire est fourni, les deux heures doivent l'être ensemble, valides
+     (`amap_is_valid_time()`) et `new_end_time` après `new_start_time` ; `new_date`, si fourni, doit
+     être une date valide mais n'a **pas** besoin de tomber sur le `weekday` du groupe (un
+     déplacement peut changer de jour) ; au moins un des trois champs doit être renseigné, sinon
+     `exception_invalid_moved`.
+5. Unicité `(group_id, distribution_date)` revérifiée en PHP (`amap_group_has_distribution_exception()`,
+   avec `$exclude_id` en modification) avant la contrainte SQL, même principe que
+   `amap_contract_has_delivery_date()`.
+6. `decided_by` jamais lu du POST : forcé à `get_current_user_id()` à la création, préservé tel
+   quel en modification (celui qui corrige une saisie n'en devient pas le décideur).
+7. `notified_at` non exposé dans le formulaire, reste `NULL` à cette étape — c'est l'étape 11.
+8. Suppression : aucune validation métier ("admin est root"), comme pour Groupes/Contrats/congés.
+
+Nettoyage à la suppression d'un groupe : `amap_handle_delete_group()` supprime désormais aussi les
+exceptions de distribution orphelines, comme les rattachements et dates de livraison.
+
+**Point remonté après test réel** (2026-08-08) : les messages de confirmation/erreur
+(`<div class="notice ...">`) utilisaient le style WP par défaut, jugé trop discret vu la densité
+des pages d'admin AMAP (plusieurs tableaux/formulaires imbriqués). Corrigé de façon transversale
+plutôt que pour cette seule page (choix de l'utilisateur) : `amap_render_admin_notice_styles()`
+(nouvelle fonction, `association-manager.php`, hook `admin_head` filtré sur les quatre pages AMAP)
+ajoute un unique style partagé (bordure plus épaisse, texte en gras, fond légèrement teinté) plutôt
+qu'une duplication du même `<style>` dans chacun des quatre fichiers de page.
 
 Commit à venir.
