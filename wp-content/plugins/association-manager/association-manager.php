@@ -1163,51 +1163,49 @@ function amap_render_users_page() {
                 <?php wp_nonce_field( 'amap_add_user' ); ?>
                 <input type="hidden" name="action" value="amap_add_user">
             <?php endif; ?>
-            <p>
-                <label>
-                    <?php esc_html_e( 'Nom', 'association-manager' ); ?>
-                    <input type="text" name="last_name" value="<?php echo esc_attr( $form_data['last_name'] ?? '' ); ?>" required>
-                </label>
-            </p>
-            <p>
-                <label>
-                    <?php esc_html_e( 'Prénom', 'association-manager' ); ?>
-                    <input type="text" name="first_name" value="<?php echo esc_attr( $form_data['first_name'] ?? '' ); ?>" required>
-                </label>
-            </p>
-            <p>
-                <label>
-                    <?php esc_html_e( 'Email', 'association-manager' ); ?>
-                    <input type="email" name="email" value="<?php echo esc_attr( $form_data['email'] ?? '' ); ?>" required>
-                </label><br>
-                <?php if ( ! $editing_id ) : ?>
-                    <span class="description">
-                        <?php esc_html_e( "Si un compte WordPress existe déjà avec cet email, il est réutilisé (identité inchangée) et les rôles cochés ci-dessous lui sont simplement ajoutés — utile pour faire cumuler une nouvelle casquette à un utilisateur existant.", 'association-manager' ); ?>
-                    </span>
-                <?php endif; ?>
-            </p>
-            <p>
-                <label>
-                    <?php esc_html_e( 'Téléphone', 'association-manager' ); ?>
-                    <input type="text" inputmode="tel" name="phone" id="amap-user-phone" value="<?php echo esc_attr( $form_data['phone'] ?? '' ); ?>" pattern="(0[1-9]|\+33[1-9])([\s.-]?\d{2}){4}" placeholder="0X XX XX XX XX" required>
-                    <span id="amap-user-phone-error" style="color:#d63638;" hidden><?php esc_html_e( 'Format attendu : 0X XX XX XX XX ou +33 X XX XX XX XX.', 'association-manager' ); ?></span>
-                </label>
-            </p>
-            <p>
-                <label>
-                    <?php esc_html_e( 'Adresse', 'association-manager' ); ?>
-                    <input type="text" name="address" value="<?php echo esc_attr( $form_data['address'] ?? '' ); ?>">
-                </label>
-            </p>
-            <p>
-                <strong><?php esc_html_e( 'Rôles', 'association-manager' ); ?></strong><br>
-                <?php foreach ( amap_get_available_roles() as $role_slug => $role_label ) : ?>
-                    <label>
-                        <input type="checkbox" name="roles[]" value="<?php echo esc_attr( $role_slug ); ?>" <?php checked( in_array( $role_slug, $selected_roles, true ) ); ?>>
-                        <?php echo esc_html( $role_label ); ?>
-                    </label><br>
-                <?php endforeach; ?>
-            </p>
+            <table class="form-table">
+                <tr>
+                    <th><label for="amap-user-last-name"><?php esc_html_e( 'Nom', 'association-manager' ); ?></label></th>
+                    <td><input type="text" id="amap-user-last-name" name="last_name" value="<?php echo esc_attr( $form_data['last_name'] ?? '' ); ?>" required></td>
+                </tr>
+                <tr>
+                    <th><label for="amap-user-first-name"><?php esc_html_e( 'Prénom', 'association-manager' ); ?></label></th>
+                    <td><input type="text" id="amap-user-first-name" name="first_name" value="<?php echo esc_attr( $form_data['first_name'] ?? '' ); ?>" required></td>
+                </tr>
+                <tr>
+                    <th><label for="amap-user-email"><?php esc_html_e( 'Email', 'association-manager' ); ?></label></th>
+                    <td>
+                        <input type="email" id="amap-user-email" name="email" value="<?php echo esc_attr( $form_data['email'] ?? '' ); ?>" required>
+                        <?php if ( ! $editing_id ) : ?>
+                            <p class="description">
+                                <?php esc_html_e( "Si un compte WordPress existe déjà avec cet email, il est réutilisé (identité inchangée) et les rôles cochés ci-dessous lui sont simplement ajoutés — utile pour faire cumuler une nouvelle casquette à un utilisateur existant.", 'association-manager' ); ?>
+                            </p>
+                        <?php endif; ?>
+                    </td>
+                </tr>
+                <tr>
+                    <th><label for="amap-user-phone"><?php esc_html_e( 'Téléphone', 'association-manager' ); ?></label></th>
+                    <td>
+                        <input type="text" inputmode="tel" name="phone" id="amap-user-phone" value="<?php echo esc_attr( $form_data['phone'] ?? '' ); ?>" pattern="(0[1-9]|\+33[1-9])([\s.-]?\d{2}){4}" placeholder="0X XX XX XX XX" required>
+                        <span id="amap-user-phone-error" style="color:#d63638;" hidden><?php esc_html_e( 'Format attendu : 0X XX XX XX XX ou +33 X XX XX XX XX.', 'association-manager' ); ?></span>
+                    </td>
+                </tr>
+                <tr>
+                    <th><label for="amap-user-address"><?php esc_html_e( 'Adresse', 'association-manager' ); ?></label></th>
+                    <td><input type="text" id="amap-user-address" name="address" value="<?php echo esc_attr( $form_data['address'] ?? '' ); ?>"></td>
+                </tr>
+                <tr>
+                    <th><?php esc_html_e( 'Rôles', 'association-manager' ); ?></th>
+                    <td>
+                        <?php foreach ( amap_get_available_roles() as $role_slug => $role_label ) : ?>
+                            <label>
+                                <input type="checkbox" name="roles[]" value="<?php echo esc_attr( $role_slug ); ?>" <?php checked( in_array( $role_slug, $selected_roles, true ) ); ?>>
+                                <?php echo esc_html( $role_label ); ?>
+                            </label><br>
+                        <?php endforeach; ?>
+                    </td>
+                </tr>
+            </table>
             <p>
                 <?php submit_button( $editing_id ? __( 'Enregistrer', 'association-manager' ) : __( 'Ajouter', 'association-manager' ), 'primary', 'submit', false ); ?>
                 <?php if ( $editing_id ) : ?>
@@ -1787,42 +1785,36 @@ function amap_render_groups_page() {
                 <?php wp_nonce_field( 'amap_add_group' ); ?>
                 <input type="hidden" name="action" value="amap_add_group">
             <?php endif; ?>
-            <p>
-                <label>
-                    <?php esc_html_e( 'Nom', 'association-manager' ); ?>
-                    <input type="text" name="name" value="<?php echo esc_attr( $form_data['name'] ?? '' ); ?>" required>
-                </label>
-            </p>
-            <p>
-                <label>
-                    <?php esc_html_e( 'Lieu de livraison', 'association-manager' ); ?>
-                    <input type="text" name="delivery_place" value="<?php echo esc_attr( $form_data['delivery_place'] ?? '' ); ?>" required>
-                </label>
-            </p>
-            <p>
-                <label>
-                    <?php esc_html_e( 'Jour de la semaine', 'association-manager' ); ?>
-                    <select name="weekday" required>
-                        <?php foreach ( amap_get_weekday_labels() as $weekday => $weekday_label ) : ?>
-                            <option value="<?php echo esc_attr( $weekday ); ?>" <?php selected( (string) $weekday, $form_data['weekday'] ?? '' ); ?>>
-                                <?php echo esc_html( $weekday_label ); ?>
-                            </option>
-                        <?php endforeach; ?>
-                    </select>
-                </label>
-            </p>
-            <p>
-                <label>
-                    <?php esc_html_e( 'Heure de début', 'association-manager' ); ?>
-                    <input type="time" name="start_time" value="<?php echo esc_attr( $form_data['start_time'] ?? '' ); ?>" required>
-                </label>
-            </p>
-            <p>
-                <label>
-                    <?php esc_html_e( 'Heure de fin', 'association-manager' ); ?>
-                    <input type="time" name="end_time" value="<?php echo esc_attr( $form_data['end_time'] ?? '' ); ?>" required>
-                </label>
-            </p>
+            <table class="form-table">
+                <tr>
+                    <th><label for="amap-group-name"><?php esc_html_e( 'Nom', 'association-manager' ); ?></label></th>
+                    <td><input type="text" id="amap-group-name" name="name" value="<?php echo esc_attr( $form_data['name'] ?? '' ); ?>" required></td>
+                </tr>
+                <tr>
+                    <th><label for="amap-group-delivery-place"><?php esc_html_e( 'Lieu de livraison', 'association-manager' ); ?></label></th>
+                    <td><input type="text" id="amap-group-delivery-place" name="delivery_place" value="<?php echo esc_attr( $form_data['delivery_place'] ?? '' ); ?>" required></td>
+                </tr>
+                <tr>
+                    <th><label for="amap-group-weekday"><?php esc_html_e( 'Jour de la semaine', 'association-manager' ); ?></label></th>
+                    <td>
+                        <select id="amap-group-weekday" name="weekday" required>
+                            <?php foreach ( amap_get_weekday_labels() as $weekday => $weekday_label ) : ?>
+                                <option value="<?php echo esc_attr( $weekday ); ?>" <?php selected( (string) $weekday, $form_data['weekday'] ?? '' ); ?>>
+                                    <?php echo esc_html( $weekday_label ); ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </td>
+                </tr>
+                <tr>
+                    <th><label for="amap-group-start-time"><?php esc_html_e( 'Heure de début', 'association-manager' ); ?></label></th>
+                    <td><input type="time" id="amap-group-start-time" name="start_time" value="<?php echo esc_attr( $form_data['start_time'] ?? '' ); ?>" required></td>
+                </tr>
+                <tr>
+                    <th><label for="amap-group-end-time"><?php esc_html_e( 'Heure de fin', 'association-manager' ); ?></label></th>
+                    <td><input type="time" id="amap-group-end-time" name="end_time" value="<?php echo esc_attr( $form_data['end_time'] ?? '' ); ?>" required></td>
+                </tr>
+            </table>
             <p>
                 <?php submit_button( $editing_id ? __( 'Enregistrer', 'association-manager' ) : __( 'Ajouter', 'association-manager' ), 'primary', 'submit', false ); ?>
                 <?php if ( $editing_id ) : ?>
@@ -2408,62 +2400,61 @@ function amap_render_contracts_page() {
                     <?php wp_nonce_field( 'amap_add_contract' ); ?>
                     <input type="hidden" name="action" value="amap_add_contract">
                 <?php endif; ?>
-                <p>
-                    <label>
-                        <?php esc_html_e( 'Libellé', 'association-manager' ); ?>
-                        <input type="text" name="label" value="<?php echo esc_attr( $form_data['label'] ?? '' ); ?>" required>
-                    </label>
-                </p>
-                <p>
-                    <label>
-                        <?php esc_html_e( 'Producteur', 'association-manager' ); ?>
-                        <select name="producer_user_id" required>
-                            <option value=""></option>
-                            <?php foreach ( $producers as $producer ) : ?>
-                                <option value="<?php echo esc_attr( $producer->ID ); ?>" <?php selected( (string) $producer->ID, $form_data['producer_user_id'] ?? '' ); ?>>
-                                    <?php echo esc_html( $producer->display_name ); ?>
-                                </option>
-                            <?php endforeach; ?>
-                        </select>
-                    </label>
-                </p>
-                <p>
-                    <label>
-                        <?php esc_html_e( 'Type de contrat', 'association-manager' ); ?>
-                        <select name="contract_type" id="amap-contract-type" required>
-                            <?php foreach ( $contract_types as $type_slug => $type_label ) : ?>
-                                <option value="<?php echo esc_attr( $type_slug ); ?>" <?php selected( $type_slug, $form_data['contract_type'] ?? '' ); ?>>
-                                    <?php echo esc_html( $type_label ); ?>
-                                </option>
-                            <?php endforeach; ?>
-                        </select>
-                    </label>
-                </p>
-                <p>
-                    <label>
-                        <?php esc_html_e( 'Date de début', 'association-manager' ); ?>
-                        <input type="date" name="start_date" value="<?php echo esc_attr( $form_data['start_date'] ?? '' ); ?>" required>
-                    </label>
-                </p>
-                <p>
-                    <label>
-                        <?php esc_html_e( 'Date de fin', 'association-manager' ); ?>
-                        <input type="date" name="end_date" value="<?php echo esc_attr( $form_data['end_date'] ?? '' ); ?>" required>
-                    </label>
-                </p>
-                <p id="amap-contract-frequency-row">
-                    <label>
-                        <?php esc_html_e( 'Fréquence (en semaines)', 'association-manager' ); ?>
-                        <input type="number" name="frequency_weeks" min="1" max="52" value="<?php echo esc_attr( $form_data['frequency_weeks'] ?? '' ); ?>">
-                    </label>
-                    <br><span class="description"><?php esc_html_e( '1 = livraison chaque semaine, 2 = toutes les deux semaines, etc. Uniquement pour un panier récurrent.', 'association-manager' ); ?></span>
-                </p>
-                <p>
-                    <label>
-                        <input type="checkbox" name="is_active" value="1" <?php checked( $form_data['is_active'] ?? false ); ?>>
-                        <?php esc_html_e( 'Contrat actif (ouvert à la souscription)', 'association-manager' ); ?>
-                    </label>
-                </p>
+                <table class="form-table">
+                    <tr>
+                        <th><label for="amap-contract-label"><?php esc_html_e( 'Libellé', 'association-manager' ); ?></label></th>
+                        <td><input type="text" id="amap-contract-label" name="label" value="<?php echo esc_attr( $form_data['label'] ?? '' ); ?>" required></td>
+                    </tr>
+                    <tr>
+                        <th><label for="amap-contract-producer"><?php esc_html_e( 'Producteur', 'association-manager' ); ?></label></th>
+                        <td>
+                            <select id="amap-contract-producer" name="producer_user_id" required>
+                                <option value=""></option>
+                                <?php foreach ( $producers as $producer ) : ?>
+                                    <option value="<?php echo esc_attr( $producer->ID ); ?>" <?php selected( (string) $producer->ID, $form_data['producer_user_id'] ?? '' ); ?>>
+                                        <?php echo esc_html( $producer->display_name ); ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th><label for="amap-contract-type"><?php esc_html_e( 'Type de contrat', 'association-manager' ); ?></label></th>
+                        <td>
+                            <select name="contract_type" id="amap-contract-type" required>
+                                <?php foreach ( $contract_types as $type_slug => $type_label ) : ?>
+                                    <option value="<?php echo esc_attr( $type_slug ); ?>" <?php selected( $type_slug, $form_data['contract_type'] ?? '' ); ?>>
+                                        <?php echo esc_html( $type_label ); ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th><label for="amap-contract-start-date"><?php esc_html_e( 'Date de début', 'association-manager' ); ?></label></th>
+                        <td><input type="date" id="amap-contract-start-date" name="start_date" value="<?php echo esc_attr( $form_data['start_date'] ?? '' ); ?>" required></td>
+                    </tr>
+                    <tr>
+                        <th><label for="amap-contract-end-date"><?php esc_html_e( 'Date de fin', 'association-manager' ); ?></label></th>
+                        <td><input type="date" id="amap-contract-end-date" name="end_date" value="<?php echo esc_attr( $form_data['end_date'] ?? '' ); ?>" required></td>
+                    </tr>
+                    <tr id="amap-contract-frequency-row">
+                        <th><label for="amap-contract-frequency"><?php esc_html_e( 'Fréquence (en semaines)', 'association-manager' ); ?></label></th>
+                        <td>
+                            <input type="number" id="amap-contract-frequency" name="frequency_weeks" min="1" max="52" value="<?php echo esc_attr( $form_data['frequency_weeks'] ?? '' ); ?>">
+                            <p class="description"><?php esc_html_e( '1 = livraison chaque semaine, 2 = toutes les deux semaines, etc. Uniquement pour un panier récurrent.', 'association-manager' ); ?></p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th><?php esc_html_e( 'Statut', 'association-manager' ); ?></th>
+                        <td>
+                            <label>
+                                <input type="checkbox" name="is_active" value="1" <?php checked( $form_data['is_active'] ?? false ); ?>>
+                                <?php esc_html_e( 'Contrat actif (ouvert à la souscription)', 'association-manager' ); ?>
+                            </label>
+                        </td>
+                    </tr>
+                </table>
                 <p>
                     <?php submit_button( $editing_id ? __( 'Enregistrer', 'association-manager' ) : __( 'Ajouter', 'association-manager' ), 'primary', 'submit', false ); ?>
                     <?php if ( $editing_id ) : ?>
@@ -2490,7 +2481,9 @@ function amap_render_contracts_page() {
 
         <?php if ( $editing_id && $editing_contract && 'basket_recurring' === $editing_contract->contract_type ) : ?>
             <?php $basket_sizes = amap_get_contract_basket_sizes( $editing_id ); ?>
-            <h2><?php esc_html_e( 'Tailles de panier', 'association-manager' ); ?></h2>
+            <div class="postbox">
+            <h2 class="hndle"><span><?php esc_html_e( 'Tailles de panier', 'association-manager' ); ?></span></h2>
+            <div class="inside">
             <?php if ( 'basket_size_invalid' === $notice ) : ?>
                 <div class="notice notice-error"><p><?php esc_html_e( 'Libellé ou prix invalide.', 'association-manager' ); ?></p></div>
             <?php elseif ( 'basket_size_saved' === $notice ) : ?>
@@ -2553,18 +2546,16 @@ function amap_render_contracts_page() {
                     <input type="hidden" name="action" value="amap_add_contract_basket_size">
                     <input type="hidden" name="contract_id" value="<?php echo esc_attr( $editing_id ); ?>">
                 <?php endif; ?>
-                <p>
-                    <label>
-                        <?php esc_html_e( 'Libellé', 'association-manager' ); ?>
-                        <input type="text" name="label" value="<?php echo esc_attr( $basket_size_form_data['label'] ?? '' ); ?>" required>
-                    </label>
-                </p>
-                <p>
-                    <label>
-                        <?php esc_html_e( 'Prix (€)', 'association-manager' ); ?>
-                        <input type="number" name="price" min="0.01" step="0.01" value="<?php echo esc_attr( $basket_size_form_data['price'] ?? '' ); ?>" required>
-                    </label>
-                </p>
+                <table class="form-table">
+                    <tr>
+                        <th><label for="amap-basket-size-label"><?php esc_html_e( 'Libellé', 'association-manager' ); ?></label></th>
+                        <td><input type="text" id="amap-basket-size-label" name="label" value="<?php echo esc_attr( $basket_size_form_data['label'] ?? '' ); ?>" required></td>
+                    </tr>
+                    <tr>
+                        <th><label for="amap-basket-size-price"><?php esc_html_e( 'Prix (€)', 'association-manager' ); ?></label></th>
+                        <td><input type="number" id="amap-basket-size-price" name="price" min="0.01" step="0.01" value="<?php echo esc_attr( $basket_size_form_data['price'] ?? '' ); ?>" required></td>
+                    </tr>
+                </table>
                 <p>
                     <?php submit_button( $size_editing_id ? __( 'Enregistrer', 'association-manager' ) : __( 'Ajouter', 'association-manager' ), 'primary', 'submit', false ); ?>
                     <?php if ( $size_editing_id ) : ?>
@@ -2574,11 +2565,15 @@ function amap_render_contracts_page() {
                     <?php endif; ?>
                 </p>
             </form>
+            </div>
+            </div>
         <?php endif; ?>
 
         <?php if ( $editing_id && $editing_contract && 'product_grid' === $editing_contract->contract_type ) : ?>
             <?php $contract_products = amap_get_contract_products( $editing_id ); ?>
-            <h2><?php esc_html_e( 'Produits', 'association-manager' ); ?></h2>
+            <div class="postbox">
+            <h2 class="hndle"><span><?php esc_html_e( 'Produits', 'association-manager' ); ?></span></h2>
+            <div class="inside">
             <?php if ( 'contract_product_invalid' === $notice ) : ?>
                 <div class="notice notice-error"><p><?php esc_html_e( 'Libellé ou prix invalide.', 'association-manager' ); ?></p></div>
             <?php elseif ( 'contract_product_saved' === $notice ) : ?>
@@ -2641,18 +2636,16 @@ function amap_render_contracts_page() {
                     <input type="hidden" name="action" value="amap_add_contract_product">
                     <input type="hidden" name="contract_id" value="<?php echo esc_attr( $editing_id ); ?>">
                 <?php endif; ?>
-                <p>
-                    <label>
-                        <?php esc_html_e( 'Libellé', 'association-manager' ); ?>
-                        <input type="text" name="label" value="<?php echo esc_attr( $contract_product_form_data['label'] ?? '' ); ?>" required>
-                    </label>
-                </p>
-                <p>
-                    <label>
-                        <?php esc_html_e( 'Prix (€)', 'association-manager' ); ?>
-                        <input type="number" name="price" min="0.01" step="0.01" value="<?php echo esc_attr( $contract_product_form_data['price'] ?? '' ); ?>" required>
-                    </label>
-                </p>
+                <table class="form-table">
+                    <tr>
+                        <th><label for="amap-contract-product-label"><?php esc_html_e( 'Libellé', 'association-manager' ); ?></label></th>
+                        <td><input type="text" id="amap-contract-product-label" name="label" value="<?php echo esc_attr( $contract_product_form_data['label'] ?? '' ); ?>" required></td>
+                    </tr>
+                    <tr>
+                        <th><label for="amap-contract-product-price"><?php esc_html_e( 'Prix (€)', 'association-manager' ); ?></label></th>
+                        <td><input type="number" id="amap-contract-product-price" name="price" min="0.01" step="0.01" value="<?php echo esc_attr( $contract_product_form_data['price'] ?? '' ); ?>" required></td>
+                    </tr>
+                </table>
                 <p>
                     <?php submit_button( $product_editing_id ? __( 'Enregistrer', 'association-manager' ) : __( 'Ajouter', 'association-manager' ), 'primary', 'submit', false ); ?>
                     <?php if ( $product_editing_id ) : ?>
@@ -2662,6 +2655,8 @@ function amap_render_contracts_page() {
                     <?php endif; ?>
                 </p>
             </form>
+            </div>
+            </div>
 
             <?php
             $delivery_dates     = amap_get_contract_delivery_dates( $editing_id );
@@ -2680,7 +2675,9 @@ function amap_render_contracts_page() {
                 $generate_candidate_dates = array_values( array_diff( $all_weekday_dates, $existing_group_dates ) );
             }
             ?>
-            <h2><?php esc_html_e( 'Dates de livraison', 'association-manager' ); ?></h2>
+            <div class="postbox">
+            <h2 class="hndle"><span><?php esc_html_e( 'Dates de livraison', 'association-manager' ); ?></span></h2>
+            <div class="inside">
 
             <?php if ( empty( $producer_groups ) ) : ?>
                 <p><?php esc_html_e( "Ce producteur n'est rattaché à aucun groupe de distribution. Rattachez-le d'abord à un groupe depuis la page Groupes avant d'ajouter des dates de livraison.", 'association-manager' ); ?></p>
@@ -2825,35 +2822,37 @@ function amap_render_contracts_page() {
                         <input type="hidden" name="action" value="amap_add_contract_delivery_date">
                         <input type="hidden" name="contract_id" value="<?php echo esc_attr( $editing_id ); ?>">
                     <?php endif; ?>
-                    <p>
-                        <label>
-                            <?php esc_html_e( 'Groupe', 'association-manager' ); ?>
-                            <select name="group_id" required>
-                                <option value=""></option>
-                                <?php foreach ( $producer_groups as $group_option ) : ?>
-                                    <option value="<?php echo esc_attr( $group_option->id ); ?>" <?php selected( (string) $group_option->id, $contract_delivery_date_form_data['group_id'] ?? '' ); ?>>
-                                        <?php echo esc_html( $group_option->name . ' — ' . $weekday_labels[ (int) $group_option->weekday ] ); ?>
-                                    </option>
-                                <?php endforeach; ?>
-                            </select>
-                        </label>
-                    </p>
-                    <p>
-                        <label>
-                            <?php esc_html_e( 'Date de livraison', 'association-manager' ); ?>
-                            <input type="date" name="delivery_date" min="<?php echo esc_attr( $editing_contract->start_date ); ?>" max="<?php echo esc_attr( $editing_contract->end_date ); ?>" value="<?php echo esc_attr( $contract_delivery_date_form_data['delivery_date'] ?? '' ); ?>" required>
-                        </label>
-                        <br><span class="description">
-                            <?php
-                            printf(
-                                /* translators: 1: date de début du contrat, 2: date de fin du contrat. */
-                                esc_html__( 'Doit être comprise entre le %1$s et le %2$s (période du contrat). Utile pour une date exceptionnelle qui ne correspond pas au jour habituel du groupe.', 'association-manager' ),
-                                esc_html( $editing_contract->start_date ),
-                                esc_html( $editing_contract->end_date )
-                            );
-                            ?>
-                        </span>
-                    </p>
+                    <table class="form-table">
+                        <tr>
+                            <th><label for="amap-delivery-date-group"><?php esc_html_e( 'Groupe', 'association-manager' ); ?></label></th>
+                            <td>
+                                <select id="amap-delivery-date-group" name="group_id" required>
+                                    <option value=""></option>
+                                    <?php foreach ( $producer_groups as $group_option ) : ?>
+                                        <option value="<?php echo esc_attr( $group_option->id ); ?>" <?php selected( (string) $group_option->id, $contract_delivery_date_form_data['group_id'] ?? '' ); ?>>
+                                            <?php echo esc_html( $group_option->name . ' — ' . $weekday_labels[ (int) $group_option->weekday ] ); ?>
+                                        </option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th><label for="amap-delivery-date-date"><?php esc_html_e( 'Date de livraison', 'association-manager' ); ?></label></th>
+                            <td>
+                                <input type="date" id="amap-delivery-date-date" name="delivery_date" min="<?php echo esc_attr( $editing_contract->start_date ); ?>" max="<?php echo esc_attr( $editing_contract->end_date ); ?>" value="<?php echo esc_attr( $contract_delivery_date_form_data['delivery_date'] ?? '' ); ?>" required>
+                                <p class="description">
+                                    <?php
+                                    printf(
+                                        /* translators: 1: date de début du contrat, 2: date de fin du contrat. */
+                                        esc_html__( 'Doit être comprise entre le %1$s et le %2$s (période du contrat). Utile pour une date exceptionnelle qui ne correspond pas au jour habituel du groupe.', 'association-manager' ),
+                                        esc_html( $editing_contract->start_date ),
+                                        esc_html( $editing_contract->end_date )
+                                    );
+                                    ?>
+                                </p>
+                            </td>
+                        </tr>
+                    </table>
                     <p>
                         <?php submit_button( $delivery_date_editing_id ? __( 'Enregistrer', 'association-manager' ) : __( 'Ajouter', 'association-manager' ), 'primary', 'submit', false ); ?>
                         <?php if ( $delivery_date_editing_id ) : ?>
@@ -2864,6 +2863,8 @@ function amap_render_contracts_page() {
                     </p>
                 </form>
             <?php endif; ?>
+            </div>
+            </div>
         <?php endif; ?>
 
         <?php if ( empty( $contracts ) ) : ?>

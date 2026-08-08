@@ -26,8 +26,33 @@ Décisions actées :
 A. Fondations du design system (variables + composants de base)   ✅ fait
 B. Parcours de connexion + espace membre + profil adhérent        ✅ fait
 C. Vitrine publique (accueil, articles, pages, menu, footer)       ✅ fait
-D. Page admin "Contrats" : séparation visuelle des sous-sections
+D. Page admin "Contrats" : séparation visuelle des sous-sections   ✅ fait
 ```
+
+Suite au retour utilisateur sur le rendu de D, trois points supplémentaires ont été identifiés et
+sont traités en sous-étapes courtes séparées (même principe que A-D) :
+
+```
+E1. Formulaires admin en tableau natif (.form-table)               ✅ fait
+E2. Masquer les formulaires de création derrière un bouton
+E3. Onglets sur la page admin "Contrats"
+```
+
+## Sous-étape E1 (fait) — Formulaires admin en `.form-table`
+
+Constat : les formulaires des 3 pages admin (`amap_render_users_page()`,
+`amap_render_groups_page()`, `amap_render_contracts_page()`) utilisaient des `<p><label>Texte
+<input></label></p>` empilés au lieu du tableau natif WordPress à deux colonnes (`.form-table`,
+utilisé nativement par les écrans de réglages WordPress), d'où un rendu perçu comme "brut".
+
+Fichiers modifiés : les 3 fonctions ci-dessus. Formulaires convertis en `.form-table`
+(`<label for="id">`/`<input id="id">` associés) : formulaire principal Utilisateurs AMAP,
+formulaire principal Groupes, et les 4 formulaires de la page Contrats (contrat, taille de
+panier, produit, date de livraison). Volontairement **non convertis** : les sections qui sont de
+simples listes de cases à cocher de longueur variable (rôles dans Utilisateurs — celui-là est
+resté en une seule ligne de `.form-table` avec les cases à cocher en `<td>` —, "Producteurs
+rattachés" sur Groupes, "Générer des dates" sur Contrats), `.form-table` étant pensé pour des
+paires label/champ fixes, pas pour des checklists répétées.
 
 ## Sous-étape A (fait) — Fondations du design system
 
@@ -106,11 +131,19 @@ l'élément actif (`current-menu-item`/`current_page_item`, classes posées auto
 `wp_nav_menu()`) est maintenant visuellement distingué. La réponsivité du header (empilement en
 mobile) était déjà couverte par la sous-étape A.
 
-## Sous-étape D — Page admin "Contrats" : séparation visuelle
+## Sous-étape D (fait) — Page admin "Contrats" : séparation visuelle
 
-Fichier : `amap_render_contracts_page()` dans `association-manager.php`.
+Fichier modifié : `amap_render_contracts_page()` dans `association-manager.php`.
 
-À faire : regrouper "Tailles de panier" / "Produits" / "Dates de livraison" chacun dans un bloc
-`.postbox` natif WordPress (`<div class="postbox"><h2 class="hndle">...</h2><div
-class="inside">...</div></div>`) pour une séparation visuelle claire, sans JS de collapse/drag
-(juste la classe visuelle).
+Les trois sous-sections conditionnelles (visibles seulement en mode édition d'un contrat, selon
+son `contract_type`) sont chacune enveloppées dans un bloc `.postbox` natif WordPress
+(`<div class="postbox"><h2 class="hndle"><span>...</span></h2><div class="inside">...</div>
+</div>`) : "Tailles de panier" (`basket_recurring`), "Produits" et "Dates de livraison"
+(`product_grid`, auparavant dans le même bloc conditionnel PHP — désormais deux `.postbox`
+distincts au sein de la même condition). Le CSS `.postbox` fait partie du CSS core de wp-admin
+déjà chargé sur toutes les pages d'admin : aucun enqueue supplémentaire n'a été nécessaire.
+Volontairement pas de JS de collapse/drag (pas d'`add_meta_box()`/`postboxes.add_postbox_toggles()`)
+: juste la classe visuelle, pour rester cohérent avec le principe "pas d'abstraction non
+demandée". Le formulaire principal d'ajout/modification de contrat et le tableau final listant
+tous les contrats restent inchangés (déjà des sections autonomes, pas concernées par
+l'empilement).
