@@ -99,7 +99,7 @@ préfixées `amap_`, réutilisant le pattern CRUD déjà en place pour "Utilisat
 4. wp_amap_contract_basket_sizes (4a) / contract_products (4b) /
    contract_delivery_dates (4c) — tables filles selon         ✅ fait (commits df12d2e,
    contract_type                                                 b680604, 4412500)
-5. wp_amap_subscriptions (dépend de 2 + 3/4a)
+5. wp_amap_subscriptions (dépend de 2 + 3/4a)                 ✅ fait (commit 081a008)
 6. wp_amap_subscription_items (dépend de 4b/4c + 5)
 7. wp_amap_leaves (dépend de 5) — CRUD admin d'abord, self-service adhérent plus tard
 8. wp_amap_distribution_exceptions (dépend de 1 seulement)
@@ -187,3 +187,37 @@ distribution, chacun avec son propre jour fixe — les dates de livraison d'un m
 - Migration destructive nécessaire pour ce changement de schéma (`DROP TABLE` puis
   réactivation du plugin) : `dbDelta()` ne modifie pas fiablement un index existant qui change
   de composition de colonnes. Sans impact réel : uniquement des données de test à ce stade.
+
+## Étape 5 (fait) — `wp_amap_subscriptions`
+
+Table de souscription adhérent↔contrat (voir modèle de données ci-dessus). Nouvelle capability
+`amap_manage_subscriptions` (distincte de `amap_manage_contracts`, même logique que la
+séparation `amap_manage_groups`/`amap_manage_contracts`) et nouvelle sous-page admin
+"Souscriptions" (menu AMAP), CRUD complet sur le même squelette que "Groupes" — pas nichée en
+onglet dans la page Contrats, une souscription étant une relation adhérent↔contrat listée à
+plat plutôt qu'un élément appartenant à un seul contrat comme les tables filles de l'étape 4.
+
+- Le menu déroulant "Contrat" du formulaire ne propose que les contrats `is_active = 1`
+  ("ouverts à la souscription", au sens déjà défini par la case à cocher de la page Contrats) ;
+  en édition, le contrat déjà choisi reste affiché même s'il a été désactivé depuis, pour ne pas
+  casser une souscription existante.
+- Le menu déroulant "Adhérent" est limité aux comptes `amap_member` (nouvel helper
+  `amap_get_member_users()`, même principe que `amap_get_producer_users()`).
+- Les menus déroulants "Groupe" et "Taille de panier" se repeuplent en JS selon le contrat
+  choisi : "Groupe" est limité aux groupes réellement rattachés au producteur du contrat
+  (réutilise `amap_get_producer_groups()`, déjà en place depuis le complément à 4c) ; "Taille de
+  panier" n'apparaît que pour un contrat `basket_recurring` et liste les tailles propres à ce
+  contrat. Les données nécessaires (groupes/tailles par contrat) sont précalculées côté PHP et
+  injectées en JSON dans la page — pas d'appel Ajax, le volume de contrats actifs restant faible.
+- Validations serveur : groupe revérifié comme rattaché au producteur du contrat, taille de
+  panier revérifiée comme appartenant au contrat si `basket_recurring` (forcée à `NULL` sinon,
+  même principe que `frequency_weeks` sur `wp_amap_contracts`), unicité `(contract_id,
+  member_user_id)` revérifiée côté PHP (`amap_member_has_subscription()`, même principe que
+  `amap_contract_has_delivery_date()`).
+- `signed_at` est saisi manuellement par le bureau (pré-rempli à aujourd'hui, modifiable) : la
+  signature papier peut avoir eu lieu avant la saisie informatique, contrairement à `created_at`
+  qui reste l'horodatage technique automatique.
+- Suppression d'une souscription : simple delete, aucune table fille à nettoyer pour l'instant
+  (`wp_amap_subscription_items` et `wp_amap_leaves` n'existent pas encore, voir étapes 6/7).
+
+Commit `081a008`.
