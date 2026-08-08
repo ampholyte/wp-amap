@@ -21,15 +21,32 @@ function amap_maybe_render_member_area() {
         return;
     }
 
-    $user        = wp_get_current_user();
-    $is_member   = in_array( 'amap_member', $user->roles, true );
-    $is_producer = in_array( 'amap_producer', $user->roles, true );
-    $is_board    = in_array( 'amap_board', $user->roles, true );
+    $user             = wp_get_current_user();
+    $is_member        = in_array( 'amap_member', $user->roles, true );
+    $is_producer      = in_array( 'amap_producer', $user->roles, true );
+    $is_board         = in_array( 'amap_board', $user->roles, true );
     // Nom/prénom/email/téléphone/adresse sont liés au compte (user_id), pas à une casquette
     // particulière : accessibles dès qu'au moins une casquette AMAP est portée.
-    $is_amap_user = $is_member || $is_producer || $is_board;
-    $action       = isset( $_GET['amap_member_action'] ) ? sanitize_key( wp_unslash( $_GET['amap_member_action'] ) ) : '';
-    $notice       = isset( $_GET['amap_member_notice'] ) ? sanitize_key( wp_unslash( $_GET['amap_member_notice'] ) ) : '';
+    $is_amap_user     = $is_member || $is_producer || $is_board;
+    $can_manage_users = current_user_can( 'amap_manage_users' );
+    $action           = isset( $_GET['amap_member_action'] ) ? sanitize_key( wp_unslash( $_GET['amap_member_action'] ) ) : '';
+    $notice           = isset( $_GET['amap_member_notice'] ) ? sanitize_key( wp_unslash( $_GET['amap_member_notice'] ) ) : '';
+
+    // Un onglet par casquette portée (dans cet ordre de priorité par défaut), plus "profile"
+    // toujours accessible dès qu'au moins une casquette AMAP est portée. "Espace bureau" n'est
+    // pas un onglet : lien direct vers wp-admin (member-area-nav.php).
+    $available_tabs = array();
+    if ( $is_member ) {
+        $available_tabs[] = 'member';
+    }
+    if ( $is_producer ) {
+        $available_tabs[] = 'producer';
+    }
+    if ( $is_amap_user ) {
+        $available_tabs[] = 'profile';
+    }
+    $requested_tab = isset( $_GET['amap_tab'] ) ? sanitize_key( wp_unslash( $_GET['amap_tab'] ) ) : '';
+    $tab           = in_array( $requested_tab, $available_tabs, true ) ? $requested_tab : reset( $available_tabs );
 
     get_header();
     ?>
@@ -42,11 +59,13 @@ function amap_maybe_render_member_area() {
             'template-parts/login/member-area',
             null,
             array(
-                'is_member'       => $is_member,
-                'is_producer'     => $is_producer,
-                'is_board'        => $is_board,
-                'is_amap_user'    => $is_amap_user,
-                'profile_updated' => ( 'profile_updated' === $notice ),
+                'is_member'        => $is_member,
+                'is_producer'      => $is_producer,
+                'is_board'         => $is_board,
+                'is_amap_user'     => $is_amap_user,
+                'can_manage_users' => $can_manage_users,
+                'tab'              => $tab,
+                'profile_updated'  => ( 'profile_updated' === $notice ),
             )
         );
     }

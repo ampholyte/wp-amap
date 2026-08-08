@@ -68,6 +68,42 @@ function amap_get_subscription_items( $subscription_id ) {
     );
 }
 
+/**
+ * Souscriptions de l'adhérent connecté, enrichies pour l'affichage front (onglet "Espace
+ * adhérent" de member-area.php) — même principe de jointure en PHP que
+ * amap_get_producer_groups(). Un contrat supprimé entre-temps (pas de contrainte FOREIGN KEY
+ * SQL dans ce plugin, voir amap_handle_delete_contract()) est simplement ignoré.
+ */
+function amap_get_member_subscriptions( $member_user_id ) {
+    global $wpdb;
+
+    $subscriptions = $wpdb->get_results(
+        $wpdb->prepare(
+            "SELECT * FROM {$wpdb->prefix}amap_subscriptions WHERE member_user_id = %d ORDER BY signed_at DESC",
+            $member_user_id
+        )
+    );
+
+    $result = array();
+    foreach ( $subscriptions as $subscription ) {
+        $contract = amap_get_contract( $subscription->contract_id );
+        if ( ! $contract ) {
+            continue;
+        }
+
+        $result[] = array(
+            'subscription' => $subscription,
+            'contract'     => $contract,
+            'producer'     => get_user_by( 'id', $contract->producer_user_id ),
+            'group'        => amap_get_group( $subscription->group_id ),
+            'basket_size'  => $subscription->basket_size_id ? amap_get_contract_basket_size( $subscription->basket_size_id ) : null,
+            'status'       => amap_get_contract_period_status( $contract ),
+        );
+    }
+
+    return $result;
+}
+
 function amap_render_subscriptions_page() {
     if ( ! current_user_can( 'amap_manage_subscriptions' ) ) {
         return;

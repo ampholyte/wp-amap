@@ -14,6 +14,33 @@ function amap_get_contract_types() {
     );
 }
 
+/**
+ * Statut d'un contrat par rapport à aujourd'hui, dérivé de ses dates — distinct de
+ * `is_active` (qui ne dit qu'"ouvert à la souscription", indépendamment des dates). Utilisé
+ * pour l'affichage de "Mes contrats" côté adhérent.
+ */
+function amap_get_contract_period_status( $contract ) {
+    $today = current_time( 'Y-m-d' );
+
+    if ( $contract->start_date > $today ) {
+        return 'upcoming';
+    }
+
+    if ( $contract->end_date < $today ) {
+        return 'ended';
+    }
+
+    return 'active';
+}
+
+function amap_get_contract_period_status_labels() {
+    return array(
+        'upcoming' => __( 'À venir', 'association-manager' ),
+        'active'   => __( 'En cours', 'association-manager' ),
+        'ended'    => __( 'Terminé', 'association-manager' ),
+    );
+}
+
 function amap_get_contracts() {
     global $wpdb;
 

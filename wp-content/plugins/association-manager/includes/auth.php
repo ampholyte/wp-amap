@@ -86,6 +86,15 @@ function amap_get_member_profile_edit_url() {
     return add_query_arg( 'amap_member_action', 'edit_profile', amap_get_member_area_url() );
 }
 
+/**
+ * URL d'un onglet de l'espace membre (member-area-nav.php). $tab n'est jamais affiché tel quel :
+ * amap_maybe_render_member_area() le revalide contre la liste des onglets accessibles à
+ * l'utilisateur avant de choisir le template-part à charger.
+ */
+function amap_get_member_area_tab_url( $tab ) {
+    return add_query_arg( 'amap_tab', $tab, amap_get_member_area_url() );
+}
+
 function amap_get_magic_link_url( $token ) {
     return add_query_arg(
         array(
