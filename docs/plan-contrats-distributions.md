@@ -290,8 +290,8 @@ le vrai parcours front, en plusieurs sous-étapes validées séparément :
 
 ```
 7.1 Mes contrats (lecture seule)                    ✅ fait (commit 7ab1911)
-7.2 Liste des contrats proposables à la souscription
-7.3 Formulaire de souscription (front)
+7.2 Liste des contrats proposables à la souscription ✅ fait, fusionnée avec 7.3
+7.3 Formulaire de souscription (front)               ✅ fait
 7.4 Email de confirmation de souscription
 ```
 
@@ -329,3 +329,56 @@ géré en admin, jamais côté front (voir `CLAUDE.md`).
   `--color-*`, `--radius`) que `.amap-badge`/`.amap-card` déjà en place.
 
 Commit `7ab1911`.
+
+### Étape 7.2/7.3 (fait) — Contrats proposables + formulaire de souscription (front)
+
+Fusionnées à la demande de l'utilisateur (2026-08-08) : un écran de liste sans action n'aurait
+mené nulle part tant que 7.3 n'existait pas, les deux ont donc été construites ensemble. Deux
+points corrigés en cours de route, tous deux nés de tests réels de l'utilisateur :
+
+**Rattachement adhérent↔groupe** (point de retrait fixe, pas un choix par contrat) :
+- Nouvelle table `wp_amap_group_members` (`group_id`, `member_user_id`,
+  `UNIQUE KEY member_user_id`) — au plus **un seul groupe par adhérent** pour l'instant,
+  contrairement à `wp_amap_group_producers` qui autorise un producteur dans plusieurs groupes.
+  Décision explicite de l'utilisateur : simplification assumée, à desserrer plus tard si besoin
+  (cf. commentaire dans `schema.php`).
+- Fixé par le bureau sur la page "Utilisateurs AMAP" (pas sur "Groupes", pour éviter le problème
+  d'exclusivité entre groupes qu'aurait posé une section "Adhérents rattachés" par groupe) : champ
+  "Groupe" ajouté au formulaire, affiché seulement si la casquette "Adhérent" est cochée (JS de
+  bascule, même principe que les champs conditionnels de la page "Contrats"). Sauvegardé/retiré
+  selon les mêmes règles que les rôles : cumulatif à l'ajout (`amap_handle_add_user()` ne touche
+  au groupe que si "Adhérent" est cochée dans CETTE soumission), synchronisé à la modification
+  (`amap_handle_update_user()` retire le groupe si "Adhérent" est décochée). Nettoyage à la
+  suppression d'un utilisateur ou d'un groupe. Nouveaux helpers `amap_get_member_group()` /
+  `amap_set_member_group()` (`groups.php`).
+- Impact en cascade sur la souscription front : `amap_get_available_contracts_for_member()` ne
+  propose que les contrats des producteurs livrant le groupe de l'adhérent (même logique que
+  `amap_get_producer_groups()` côté producteur) ; le formulaire de souscription
+  (`member-area-subscribe.php`) n'a donc plus de champ "Groupe" à choisir, seulement un affichage
+  — `amap_handle_add_member_subscription()` le redérive systématiquement côté serveur, jamais lu
+  du POST, même principe que `member_user_id`.
+
+**Souscription multiple au même contrat autorisée** : un compte adhérent représente parfois un
+foyer entier (ex. 2 grands paniers + 1 petit sous 3 lignes séparées). La contrainte
+`UNIQUE(contract_id, member_user_id)` posée à l'étape 5 est retirée de `wp_amap_subscriptions`
+(désormais simple `KEY`, gardé pour la performance des lectures). Migration non destructive
+(contrairement à celle du complément à 4c) : `dbDelta()` ne modifiant pas fiablement le type d'un
+index existant, un `ALTER TABLE ... DROP INDEX` explicite (guardé par une vérification
+`SHOW INDEX`) retire la contrainte sans recréer la table ni perdre les souscriptions déjà
+enregistrées. `amap_member_has_subscription()` et toutes ses vérifications anti-doublon
+(front et admin) sont supprimées en conséquence — y compris côté admin, par cohérence : le bureau
+peut lui aussi créer plusieurs lignes pour le même couple adhérent/contrat.
+
+**Formulaire de souscription** (`member-area-subscribe.php`) : contrat + groupe (affiché, pas
+choisi) + taille de panier (`basket_recurring`) ou grille produits×dates (`product_grid`). La
+grille reprend le principe JS de l'admin (`amap_render_subscriptions_page()`) mais simplifié :
+le contrat et le groupe étant déjà fixés en arrivant sur le formulaire (pas de dropdown à
+écouter), les dates de livraison sont calculées une seule fois côté PHP
+(`amap_get_member_subscribe_form_data()`) plutôt qu'organisées par groupe en JSON. `signed_at` est
+automatique (`current_time( 'Y-m-d' )`) : contrairement à l'admin, l'action front EST la
+signature, pas une saisie a posteriori. Validations bloquantes par `wp_die()` (contrat
+inactif/inexistant, groupe du producteur ne correspondant pas à celui de l'adhérent, taille de
+panier ou produits manquants côté configuration) : ne peuvent survenir que par lien périmé,
+requête trafiquée, ou configuration incomplète du bureau — jamais par un parcours normal.
+
+Commit à venir.

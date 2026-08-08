@@ -35,6 +35,10 @@ wp-config.php
 # Uploads
 /wp-content/uploads/
 
+# Dossier de staging temporaire créé par les mises à jour WordPress (cœur/plugins/thèmes) depuis
+# wp-admin : contient une copie complète du nouveau cœur, jamais versionné (cf. CLAUDE.md).
+/wp-content/upgrade/
+
 # Log files
 *.log
 
