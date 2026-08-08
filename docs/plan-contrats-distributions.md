@@ -5,7 +5,7 @@ Récapitulatif du chantier de fond conçu en conversation (2026-08-01), à tenir
 
 ## Contexte
 
-Le bloc "casquette producteur" de l'espace membre (`member-area.php:48-50`) n'affiche
+Le bloc "casquette producteur" de l'espace membre (badge "Producteur" dans `member-area.php`) n'affiche
 aujourd'hui qu'un texte statique ("Vous êtes producteur."). Il doit à terme afficher les
 contrats du producteur, ses groupes, la liste des produits à livrer pour la prochaine
 distribution, et les infos des adhérents disponibles par groupe. Aucune de ces notions (groupe,

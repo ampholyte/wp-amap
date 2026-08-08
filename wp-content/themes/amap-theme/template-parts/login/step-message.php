@@ -9,8 +9,8 @@
 
 <h1><?php esc_html_e( 'Connexion', 'association-manager' ); ?></h1>
 
-<p><?php echo esc_html( $args['message'] ); ?></p>
+<div class="amap-notice amap-notice--success"><?php echo esc_html( $args['message'] ); ?></div>
 
 <?php if ( $args['show_login_link'] ) : ?>
-    <p><a href="<?php echo esc_url( amap_get_member_area_url() ); ?>"><?php esc_html_e( 'Se connecter', 'association-manager' ); ?></a></p>
+    <p><a class="button-primary" href="<?php echo esc_url( amap_get_member_area_url() ); ?>"><?php esc_html_e( 'Se connecter', 'association-manager' ); ?></a></p>
 <?php endif; ?>

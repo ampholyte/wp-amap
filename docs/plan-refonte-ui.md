@@ -24,7 +24,7 @@ Décisions actées :
 
 ```
 A. Fondations du design system (variables + composants de base)   ✅ fait
-B. Parcours de connexion + espace membre + profil adhérent
+B. Parcours de connexion + espace membre + profil adhérent        ✅ fait
 C. Vitrine publique (accueil, articles, pages, menu, footer)
 D. Page admin "Contrats" : séparation visuelle des sous-sections
 ```
@@ -65,15 +65,30 @@ Corrigé en passant `body` en `display: flex; flex-direction: column; min-height
 place sur `main`, qui continue de fonctionner comme marge automatique sur l'axe transversal du
 flex).
 
-## Sous-étape B — Parcours de connexion + espace membre + profil
+## Sous-étape B (fait) — Parcours de connexion + espace membre + profil
 
-Fichiers : les 7 templates de `wp-content/themes/amap-theme/template-parts/login/*`.
+Fichiers modifiés : les 7 templates de `wp-content/themes/amap-theme/template-parts/login/*`.
 
-À faire : remplacer les `<p>`/`style="color:..."` inline (message d'erreur téléphone dupliqué
-dans `member-profile-edit.php`, messages d'erreur des étapes de connexion) par les classes
-`.amap-notice` définies en A, différencier visuellement les boutons primaire/secondaire (ex.
-"Enregistrer" vs "Annuler"), mettre en forme l'espace membre (`member-area.php` : badges de rôle,
-carte d'info) et le formulaire de profil.
+Contenu : messages d'erreur/succès (email invalide, mot de passe incorrect, lien envoyé, mot de
+passe mis à jour, erreurs du formulaire de profil) passés en `.amap-notice` (`--error` ou
+`--success` selon le cas), boutons secondaires différenciés visuellement des actions principales
+(`.button-secondary` sur "Mot de passe oublié ?" et "Annuler"), liens de confirmation (lien
+magique, écran de message) stylés en `.button-primary` pour bien marquer l'action attendue.
+Espace membre (`member-area.php`) : les trois phrases "Vous êtes adhérent/producteur/membre du
+bureau" remplacées par des badges de rôle (`.amap-badge`), section "Mes informations" mise dans
+une carte (`.amap-card`). Formulaire de profil (`member-profile-edit.php`) : labels associés à
+leur champ via `for`/`id` (au lieu du `<label>` englobant le champ, qui héritait à tort du
+`font-weight: 600` du label) et remplacement de l'inline `style="color:#d63638;"` (dupliqué avec
+la page admin "Utilisateurs AMAP") par la classe `.field-error`.
+
+CSS ajouté dans `style.css` pour ces nouveaux éléments : `--color-primary-bg` (teinte des badges),
+`.amap-badges`/`.amap-badge`, `.amap-card`, `.field-error`.
+
+**Correctif découvert pendant la validation** : `.field-error { display: block; }` s'appliquait
+même quand l'attribut HTML `hidden` était présent sur le `<span>` (affichage du message d'erreur
+téléphone dès l'ouverture du formulaire, avant toute saisie) — une règle CSS d'auteur l'emporte
+sur la règle par défaut du navigateur `[hidden] { display: none; }` même à spécificité égale.
+Corrigé en ajoutant `.field-error[hidden] { display: none; }`.
 
 ## Sous-étape C — Vitrine publique
 

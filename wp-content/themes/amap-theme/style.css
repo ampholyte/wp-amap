@@ -18,6 +18,7 @@ Text Domain: amap-theme
     --color-border: #e2ddd0;
     --color-text: #2b2a26;
     --color-text-muted: #6b675c;
+    --color-primary-bg: #eaf1ec;
 
     --color-success: #3f7d4a;
     --color-success-bg: #eaf3ec;
@@ -260,6 +261,49 @@ input[type="submit"]:hover,
     background: var(--color-info-bg);
     border-color: var(--color-info);
     color: var(--color-info);
+}
+
+/* Espace membre : badges de rôle et carte d'info */
+.amap-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    margin-bottom: var(--space-4);
+}
+
+.amap-badge {
+    display: inline-block;
+    padding: var(--space-1) var(--space-3);
+    border-radius: 999px;
+    background: var(--color-primary-bg);
+    color: var(--color-primary-dark);
+    font-size: 0.875rem;
+    font-weight: 600;
+}
+
+.amap-card {
+    padding: var(--space-4);
+    margin-bottom: var(--space-4);
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+}
+
+.amap-card ul {
+    padding-left: 0;
+    list-style: none;
+}
+
+/* Erreur de validation propre à un champ (ex. téléphone) */
+.field-error {
+    display: block;
+    margin-top: var(--space-1);
+    color: var(--color-error);
+    font-size: 0.875rem;
+}
+
+.field-error[hidden] {
+    display: none;
 }
 
 /* Tableaux */
