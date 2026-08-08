@@ -496,6 +496,9 @@ function amap_maybe_render_magic_link_confirmation() {
     $is_password_reset = ( 'password_reset' === $link->purpose );
 
     get_header();
+    ?>
+    <main>
+    <?php
     get_template_part(
         'template-parts/login/step',
         'magic-link-confirm',
@@ -504,6 +507,9 @@ function amap_maybe_render_magic_link_confirmation() {
             'is_password_reset' => $is_password_reset,
         )
     );
+    ?>
+    </main>
+    <?php
     get_footer();
     exit;
 }
@@ -580,6 +586,9 @@ function amap_maybe_render_new_password_form() {
     $has_error = isset( $_GET['amap_login_error'] );
 
     get_header();
+    ?>
+    <main>
+    <?php
     get_template_part(
         'template-parts/login/step',
         'new-password',
@@ -588,6 +597,9 @@ function amap_maybe_render_new_password_form() {
             'has_error' => $has_error,
         )
     );
+    ?>
+    </main>
+    <?php
     get_footer();
     exit;
 }
@@ -677,7 +689,13 @@ function amap_maybe_render_login_email_step() {
     }
 
     get_header();
+    ?>
+    <main>
+    <?php
     get_template_part( 'template-parts/login/step', 'email', array( 'has_error' => ( 'invalid_email' === $step ) ) );
+    ?>
+    </main>
+    <?php
     get_footer();
     exit;
 }
@@ -734,6 +752,9 @@ function amap_maybe_render_login_password_step() {
     $email = isset( $_GET['email'] ) ? sanitize_email( wp_unslash( $_GET['email'] ) ) : '';
 
     get_header();
+    ?>
+    <main>
+    <?php
     get_template_part(
         'template-parts/login/step',
         'password',
@@ -742,6 +763,9 @@ function amap_maybe_render_login_password_step() {
             'has_error' => isset( $_GET['amap_login_error'] ),
         )
     );
+    ?>
+    </main>
+    <?php
     get_footer();
     exit;
 }
@@ -772,6 +796,9 @@ function amap_maybe_render_login_message_step() {
     }
 
     get_header();
+    ?>
+    <main>
+    <?php
     get_template_part(
         'template-parts/login/step',
         'message',
@@ -780,6 +807,9 @@ function amap_maybe_render_login_message_step() {
             'show_login_link'  => ( 'password_reset_done' === $step ),
         )
     );
+    ?>
+    </main>
+    <?php
     get_footer();
     exit;
 }
@@ -869,7 +899,9 @@ function amap_maybe_render_member_area() {
     $notice       = isset( $_GET['amap_member_notice'] ) ? sanitize_key( wp_unslash( $_GET['amap_member_notice'] ) ) : '';
 
     get_header();
-
+    ?>
+    <main>
+    <?php
     if ( $is_amap_user && 'edit_profile' === $action ) {
         amap_render_member_profile_edit_form( $user );
     } else {
@@ -885,7 +917,9 @@ function amap_maybe_render_member_area() {
             )
         );
     }
-
+    ?>
+    </main>
+    <?php
     get_footer();
     exit;
 }
