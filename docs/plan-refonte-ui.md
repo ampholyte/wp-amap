@@ -37,9 +37,11 @@ E1. Formulaires admin en tableau natif (.form-table)               ✅ fait
 E2. Masquer les formulaires de création derrière un bouton         ✅ fait
 E3. Onglets sur la page admin "Contrats"                           ✅ fait
 E4. Vue/Édition séparées + masquage du tableau en mode Voir        ✅ fait
+E5. Accordéon + suppression en masse des dates de livraison        ✅ fait
+E6. Création de dates intégrée à chaque accordéon                  ✅ fait
 ```
 
-Le rattrapage UX/UI est maintenant terminé sur l'ensemble des sous-étapes (A-D, E1-E4).
+Le rattrapage UX/UI est maintenant terminé sur l'ensemble des sous-étapes (A-D, E1-E6).
 
 ## Sous-étape E1 (fait) — Formulaires admin en `.form-table`
 
@@ -151,18 +153,77 @@ toutes leurs redirections, succès comme erreurs de validation, sans dupliquer l
 chaque `wp_safe_redirect()`). `$active_contract_tab` lit désormais ce paramètre en plus des
 `*_editing_id`.
 
-**Essai visuel demandé par l'utilisateur** : bordures des tableaux `.widefat` (liste des contrats,
-tailles de panier, produits, dates de livraison, résumé "Voir") retirées via un petit `<style>`
-scopé à cette page (pas de fichier CSS pour le plugin à ce stade, cohérent avec l'absence
-d'assets déjà constatée — même logique que les `<script>` inline déjà utilisés partout ailleurs
-dans ce fichier). À valider/ajuster selon le rendu réel.
+**Essai visuel demandé par l'utilisateur** (fait, validé) : bordures des tableaux `.widefat`
+(liste des contrats, tailles de panier, produits, dates de livraison, résumé "Voir") retirées via
+un petit `<style>` scopé à cette page (pas de fichier CSS pour le plugin à ce stade, cohérent
+avec l'absence d'assets déjà constatée — même logique que les `<script>` inline déjà utilisés
+partout ailleurs dans ce fichier). Ajustement final retenu : pas de bordure de tableau ni d'ombre,
+mais une fine séparation `border-bottom: 1px solid #e0e0e0` entre les lignes.
 
-**Point ouvert, reporté à une session dédiée** (5e remontée du même retour, volontairement pas
-traitée ici — vraie fonctionnalité, pas une correction de présentation) : dans l'onglet "Dates de
-livraison", regrouper l'affichage par groupe de distribution sous forme d'accordéon, avec un
-bouton "Modifier" par groupe permettant de cocher/décocher les dates existantes pour en supprimer
-plusieurs en une seule fois (sur le même principe que l'outil "Générer des dates" existant, mais
-pour une suppression en masse plutôt qu'un ajout).
+## Sous-étape E5 (fait) — Accordéon par groupe + suppression en masse des dates de livraison
+
+Fichier modifié : `amap_render_contracts_page()` + nouveau handler `admin-post.php`.
+
+Le tableau plat "Date / Groupe / Actions" (mélangeant toutes les dates de tous les groupes du
+contrat) est remplacé par un accordéon natif HTML (`<details>`/`<summary>`, aucune librairie JS)
+avec une section par groupe de distribution ayant des dates enregistrées (`$dates_by_group`,
+construit en PHP à partir de `amap_get_contract_delivery_dates()`, déjà triée par `group_id`).
+Chaque section affiche :
+- Le tableau habituel de ce groupe (Date / Actions Modifier·Supprimer individuelles, inchangé) ;
+- Un bouton "Modifier la liste" qui bascule (JS par délégation, un seul script pour tous les
+  groupes via `data-group-id`) vers un mode "suppression en masse" : une case à cocher par date
+  existante, **cochée par défaut = conservée**, décocher une date la marque pour suppression ;
+  bouton "Enregistrer" (soumet `keep_ids[]`) ou "Annuler" (retour à la vue tableau, sans rien
+  soumettre).
+
+Nouveau handler `amap_handle_bulk_delete_contract_delivery_dates()` : supprime, pour un couple
+(contrat, groupe) donné, toutes les dates dont l'ID n'apparaît pas dans `keep_ids[]` — défense en
+profondeur identique à `amap_handle_generate_contract_delivery_dates()` (les ID reçus ne sont
+utilisés que pour filtrer des lignes réellement rattachées à ce contrat et à ce groupe, jamais
+appliqués tels quels). Redirection avec `&active_tab=dates` (cf. E4) pour rester sur le bon onglet,
+et nouveau notice `contract_delivery_dates_bulk_deleted` (compteur de dates supprimées).
+
+CSS ajouté au `<style>` de la page : bordure/padding léger sur `details.amap-dates-group` et
+curseur/graisse sur son `summary`, pour un rendu plus soigné que le style natif du navigateur.
+
+Non traité volontairement : pas d'auto-ouverture du groupe concerné après une action (ajout/
+modification/génération/suppression) — tous les groupes restent repliés par défaut à chaque
+chargement de page. Amélioration possible plus tard si besoin, pas demandée pour l'instant.
+
+## Sous-étape E6 (fait) — Création de dates intégrée à chaque accordéon
+
+Retour utilisateur après E5 : la création de dates (génération en masse + ajout manuel) restait
+dans des sections globales séparées, en dessous des accordéons, ce qui rendait peu clair ce qui
+se passait pour la création. Les deux outils sont désormais **intégrés dans chaque accordéon de
+groupe**, à la place des anciennes sections globales "Générer des dates" (sélecteur de groupe par
+lien) et "+ Ajouter une date de livraison" (formulaire avec liste déroulante Groupe) :
+
+- Chaque groupe du producteur a désormais son propre accordéon (et plus seulement les groupes
+  ayant déjà des dates) : "Aucune date enregistrée pour ce groupe." s'affiche pour un groupe vide,
+  avec ses propres outils de création juste en dessous.
+- Dans chaque accordéon : le tableau des dates existantes + "Modifier la liste" (inchangé, cf.
+  E5), un bouton "Générer des dates pour ce groupe" (repli/dépli en JS, plus besoin de naviguer
+  vers `?generate_group_id=X` pour "sélectionner" un groupe — chaque groupe a déjà ses dates
+  candidates précalculées), et un bouton "+ Ajouter une date pour ce groupe" (formulaire simplifié
+  : plus de liste déroulante Groupe, le groupe est fixé par un champ caché puisqu'on est déjà dans
+  son accordéon).
+- Édition d'une date existante (`?date_action=edit&date_id=Y`) : reste un formulaire autonome
+  affiché sous les accordéons (inchangé structurellement, liste déroulante Groupe conservée — on
+  peut toujours réaffecter une date à un autre groupe en modification, seule la création est
+  désormais scopée par accordéon).
+- Auto-ouverture ciblée de l'accordéon concerné : après une génération réussie
+  (`generate_group_id` posé par le handler) ou après l'échec de validation d'un ajout
+  (`$contract_delivery_date_form_data['group_id']` rechargé depuis le transient), pour ne pas
+  perdre le fil après une redirection.
+- JS mutualisé : les nombreux boutons afficher/masquer (bulk-edit, générer, ajouter — jusqu'à 3
+  par groupe) utilisent désormais un seul script générique par attributs `data-amap-show`/
+  `data-amap-hide` plutôt qu'un script dédié par bouton, pour éviter la duplication qui serait
+  devenue excessive avec un nombre de groupes variable. Le calcul "cocher une date sur…" est scopé
+  par groupe via `data-group-id` (les ID `amap-generate-frequency`/`amap-generate-apply-frequency`
+  n'auraient pas pu être dupliqués tels quels sur plusieurs groupes sans collision d'ID HTML).
+- Handler `amap_handle_generate_contract_delivery_dates()` : redirection complétée avec
+  `&active_tab=dates` explicite (auparavant elle ne comptait implicitement que sur
+  `generate_group_id` pour garder cet onglet actif).
 
 ## Sous-étape A (fait) — Fondations du design system
 

@@ -2454,6 +2454,21 @@ function amap_render_contracts_page() {
             border: none;
             border-bottom: 1px solid #e0e0e0;
         }
+        details.amap-dates-group {
+            border: 1px solid #dcdcde;
+            border-radius: 4px;
+            padding: 8px 12px;
+            margin-bottom: 12px;
+            background: #fff;
+        }
+        details.amap-dates-group summary {
+            cursor: pointer;
+            font-weight: 600;
+            padding: 4px 0;
+        }
+        details.amap-dates-group[open] summary {
+            margin-bottom: 8px;
+        }
     </style>
     <div class="wrap">
         <h1><?php esc_html_e( 'Contrats', 'association-manager' ); ?></h1>
@@ -2894,21 +2909,25 @@ function amap_render_contracts_page() {
             </script>
 
             <?php
-            $delivery_dates     = amap_get_contract_delivery_dates( $editing_id );
-            $weekday_labels     = amap_get_weekday_labels();
-            $producer_groups    = amap_get_producer_groups( $editing_contract->producer_user_id );
-            $producer_group_ids = array_map( 'absint', wp_list_pluck( $producer_groups, 'id' ) );
+            $delivery_dates  = amap_get_contract_delivery_dates( $editing_id );
+            $weekday_labels  = amap_get_weekday_labels();
+            $producer_groups = amap_get_producer_groups( $editing_contract->producer_user_id );
 
-            if ( $generate_group_id && ! in_array( $generate_group_id, $producer_group_ids, true ) ) {
-                $generate_group_id = 0;
+            $dates_by_group = array();
+            foreach ( $delivery_dates as $delivery_date_row ) {
+                $dates_by_group[ (int) $delivery_date_row->group_id ][] = $delivery_date_row;
             }
-            $generate_group           = $generate_group_id ? amap_get_group( $generate_group_id ) : null;
-            $generate_candidate_dates = array();
-            if ( $generate_group ) {
-                $all_weekday_dates        = amap_get_weekday_dates_in_range( $editing_contract->start_date, $editing_contract->end_date, (int) $generate_group->weekday );
-                $existing_group_dates     = amap_get_contract_delivery_dates_for_group( $editing_id, $generate_group_id );
-                $generate_candidate_dates = array_values( array_diff( $all_weekday_dates, $existing_group_dates ) );
-            }
+
+            // Accordéon à ouvrir automatiquement à l'affichage : celui qu'on vient d'utiliser
+            // pour générer des dates en masse (generate_group_id, posé par
+            // amap_handle_generate_contract_delivery_dates()), ou celui dont la soumission
+            // "+ Ajouter une date" vient d'échouer (le groupe soumis est alors dans
+            // $contract_delivery_date_form_data, rechargé depuis le transient plus haut).
+            $add_error_notices   = array( 'contract_delivery_date_invalid', 'contract_delivery_date_out_of_range', 'contract_delivery_date_duplicate' );
+            $reopen_add_group_id = ( ! $delivery_date_editing_id && in_array( $notice, $add_error_notices, true ) )
+                ? (int) ( $contract_delivery_date_form_data['group_id'] ?? 0 )
+                : 0;
+            $open_group_id = $reopen_add_group_id ?: $generate_group_id;
             ?>
             <div class="postbox amap-tab-panel" id="amap-tab-dates"<?php echo ( 'amap-tab-dates' === $active_contract_tab ) ? '' : ' hidden'; ?>>
             <div class="inside">
@@ -2939,191 +2958,254 @@ function amap_render_contracts_page() {
                         );
                         ?>
                     </p></div>
+                <?php elseif ( 'contract_delivery_dates_bulk_deleted' === $notice ) : ?>
+                    <?php $bulk_deleted_count = isset( $_GET['deleted_count'] ) ? absint( $_GET['deleted_count'] ) : 0; ?>
+                    <div class="notice notice-success"><p>
+                        <?php
+                        printf(
+                            esc_html(
+                                /* translators: %d: nombre de dates supprimées. */
+                                _n( '%d date de livraison supprimée.', '%d dates de livraison supprimées.', $bulk_deleted_count, 'association-manager' )
+                            ),
+                            $bulk_deleted_count
+                        );
+                        ?>
+                    </p></div>
                 <?php endif; ?>
 
-                <?php if ( empty( $delivery_dates ) ) : ?>
-                    <p><?php esc_html_e( 'Aucune date de livraison pour le moment.', 'association-manager' ); ?></p>
-                <?php else : ?>
-                    <table class="widefat">
-                        <thead>
-                            <tr>
-                                <th><?php esc_html_e( 'Date', 'association-manager' ); ?></th>
-                                <th><?php esc_html_e( 'Groupe', 'association-manager' ); ?></th>
-                                <th><?php esc_html_e( 'Actions', 'association-manager' ); ?></th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php foreach ( $delivery_dates as $delivery_date_row ) : ?>
-                                <?php $delivery_date_group = amap_get_group( $delivery_date_row->group_id ); ?>
-                                <tr>
-                                    <td><?php echo esc_html( $delivery_date_row->delivery_date ); ?></td>
-                                    <td><?php echo esc_html( $delivery_date_group ? $delivery_date_group->name : '—' ); ?></td>
-                                    <td>
-                                        <a href="<?php echo esc_url( admin_url( 'admin.php?page=amap-contracts&action=edit&id=' . $editing_id . '&date_action=edit&date_id=' . $delivery_date_row->id ) ); ?>">
-                                            <?php esc_html_e( 'Modifier', 'association-manager' ); ?>
-                                        </a>
-                                        |
-                                        <?php
-                                        $delete_date_url = wp_nonce_url(
-                                            admin_url( 'admin-post.php?action=amap_delete_contract_delivery_date&id=' . $delivery_date_row->id ),
-                                            'amap_delete_contract_delivery_date_' . $delivery_date_row->id
-                                        );
-                                        // translators: %s: date de livraison.
-                                        $confirm_date_message = sprintf( __( 'Supprimer définitivement la date %s ?', 'association-manager' ), $delivery_date_row->delivery_date );
-                                        ?>
-                                        <a href="<?php echo esc_url( $delete_date_url ); ?>" onclick="return confirm( '<?php echo esc_js( $confirm_date_message ); ?>' );">
-                                            <?php esc_html_e( 'Supprimer', 'association-manager' ); ?>
-                                        </a>
-                                    </td>
-                                </tr>
-                            <?php endforeach; ?>
-                        </tbody>
-                    </table>
-                <?php endif; ?>
+                <?php foreach ( $producer_groups as $group_option ) : ?>
+                    <?php
+                    $group_id_key         = (int) $group_option->id;
+                    $group_dates          = $dates_by_group[ $group_id_key ] ?? array();
+                    $all_weekday_dates    = amap_get_weekday_dates_in_range( $editing_contract->start_date, $editing_contract->end_date, (int) $group_option->weekday );
+                    $existing_group_dates = amap_get_contract_delivery_dates_for_group( $editing_id, $group_id_key );
+                    $candidate_dates      = array_values( array_diff( $all_weekday_dates, $existing_group_dates ) );
+                    $show_add_form        = ( $reopen_add_group_id === $group_id_key );
+                    ?>
+                    <details class="amap-dates-group"<?php echo ( $open_group_id === $group_id_key ) ? ' open' : ''; ?>>
+                        <summary>
+                            <?php
+                            printf(
+                                esc_html(
+                                    /* translators: 1: nom du groupe, 2: jour de la semaine, 3: nombre de dates. */
+                                    _n( '%1$s — %2$s (%3$d date)', '%1$s — %2$s (%3$d dates)', count( $group_dates ), 'association-manager' )
+                                ),
+                                esc_html( $group_option->name ),
+                                esc_html( $weekday_labels[ (int) $group_option->weekday ] ),
+                                count( $group_dates )
+                            );
+                            ?>
+                        </summary>
 
-                <h3><?php esc_html_e( 'Générer des dates', 'association-manager' ); ?></h3>
-                <p><?php esc_html_e( 'Choisissez un groupe pour générer automatiquement toutes ses dates hebdomadaires sur la période du contrat :', 'association-manager' ); ?></p>
-                <p>
-                    <?php foreach ( $producer_groups as $group_option ) : ?>
-                        <a class="button<?php echo ( (int) $group_option->id === $generate_group_id ) ? ' button-primary' : ''; ?>"
-                           href="<?php echo esc_url( admin_url( 'admin.php?page=amap-contracts&action=edit&id=' . $editing_id . '&generate_group_id=' . $group_option->id ) ); ?>">
-                            <?php echo esc_html( $group_option->name . ' — ' . $weekday_labels[ (int) $group_option->weekday ] ); ?>
-                        </a>
-                    <?php endforeach; ?>
-                </p>
-
-                <?php if ( $generate_group ) : ?>
-                    <?php if ( empty( $generate_candidate_dates ) ) : ?>
-                        <p><?php esc_html_e( 'Toutes les dates hebdomadaires de ce groupe sur la période du contrat sont déjà enregistrées.', 'association-manager' ); ?></p>
-                    <?php else : ?>
-                        <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
-                            <?php wp_nonce_field( 'amap_generate_contract_delivery_dates_' . $editing_id . '_' . $generate_group_id ); ?>
-                            <input type="hidden" name="action" value="amap_generate_contract_delivery_dates">
-                            <input type="hidden" name="contract_id" value="<?php echo esc_attr( $editing_id ); ?>">
-                            <input type="hidden" name="group_id" value="<?php echo esc_attr( $generate_group_id ); ?>">
-
-                            <p>
-                                <label>
-                                    <?php esc_html_e( 'Cocher une date sur…', 'association-manager' ); ?>
-                                    <input type="number" id="amap-generate-frequency" min="1" max="52" value="1">
-                                </label>
-                                <button type="button" class="button" id="amap-generate-apply-frequency"><?php esc_html_e( 'Appliquer', 'association-manager' ); ?></button>
-                                <br><span class="description"><?php esc_html_e( '1 = toutes les dates (défaut), 2 = une sur deux, etc. Purement indicatif : décochez/recochez librement avant de valider.', 'association-manager' ); ?></span>
-                            </p>
-
-                            <?php foreach ( $generate_candidate_dates as $candidate_index => $candidate_date ) : ?>
+                        <?php if ( empty( $group_dates ) ) : ?>
+                            <p><?php esc_html_e( 'Aucune date enregistrée pour ce groupe.', 'association-manager' ); ?></p>
+                        <?php else : ?>
+                            <div id="amap-dates-group-<?php echo esc_attr( $group_id_key ); ?>-view">
+                                <table class="widefat">
+                                    <thead>
+                                        <tr>
+                                            <th><?php esc_html_e( 'Date', 'association-manager' ); ?></th>
+                                            <th><?php esc_html_e( 'Actions', 'association-manager' ); ?></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <?php foreach ( $group_dates as $delivery_date_row ) : ?>
+                                            <tr>
+                                                <td><?php echo esc_html( $delivery_date_row->delivery_date ); ?></td>
+                                                <td>
+                                                    <a href="<?php echo esc_url( admin_url( 'admin.php?page=amap-contracts&action=edit&id=' . $editing_id . '&date_action=edit&date_id=' . $delivery_date_row->id ) ); ?>">
+                                                        <?php esc_html_e( 'Modifier', 'association-manager' ); ?>
+                                                    </a>
+                                                    |
+                                                    <?php
+                                                    $delete_date_url = wp_nonce_url(
+                                                        admin_url( 'admin-post.php?action=amap_delete_contract_delivery_date&id=' . $delivery_date_row->id ),
+                                                        'amap_delete_contract_delivery_date_' . $delivery_date_row->id
+                                                    );
+                                                    // translators: %s: date de livraison.
+                                                    $confirm_date_message = sprintf( __( 'Supprimer définitivement la date %s ?', 'association-manager' ), $delivery_date_row->delivery_date );
+                                                    ?>
+                                                    <a href="<?php echo esc_url( $delete_date_url ); ?>" onclick="return confirm( '<?php echo esc_js( $confirm_date_message ); ?>' );">
+                                                        <?php esc_html_e( 'Supprimer', 'association-manager' ); ?>
+                                                    </a>
+                                                </td>
+                                            </tr>
+                                        <?php endforeach; ?>
+                                    </tbody>
+                                </table>
                                 <p>
-                                    <label>
-                                        <input type="checkbox" class="amap-generate-date-checkbox" data-index="<?php echo esc_attr( $candidate_index ); ?>" name="delivery_dates[]" value="<?php echo esc_attr( $candidate_date ); ?>" checked>
-                                        <?php echo esc_html( date_i18n( 'l j F Y', strtotime( $candidate_date ) ) ); ?>
-                                    </label>
+                                    <button type="button" class="button" data-amap-show="amap-dates-group-<?php echo esc_attr( $group_id_key ); ?>-bulk" data-amap-hide="amap-dates-group-<?php echo esc_attr( $group_id_key ); ?>-view"><?php esc_html_e( 'Modifier la liste', 'association-manager' ); ?></button>
                                 </p>
-                            <?php endforeach; ?>
+                            </div>
+                            <div id="amap-dates-group-<?php echo esc_attr( $group_id_key ); ?>-bulk" hidden>
+                                <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+                                    <?php wp_nonce_field( 'amap_bulk_delete_contract_delivery_dates_' . $editing_id . '_' . $group_id_key ); ?>
+                                    <input type="hidden" name="action" value="amap_bulk_delete_contract_delivery_dates">
+                                    <input type="hidden" name="contract_id" value="<?php echo esc_attr( $editing_id ); ?>">
+                                    <input type="hidden" name="group_id" value="<?php echo esc_attr( $group_id_key ); ?>">
+                                    <p class="description"><?php esc_html_e( 'Décochez les dates à supprimer, puis enregistrez.', 'association-manager' ); ?></p>
+                                    <?php foreach ( $group_dates as $delivery_date_row ) : ?>
+                                        <p>
+                                            <label>
+                                                <input type="checkbox" name="keep_ids[]" value="<?php echo esc_attr( $delivery_date_row->id ); ?>" checked>
+                                                <?php echo esc_html( $delivery_date_row->delivery_date ); ?>
+                                            </label>
+                                        </p>
+                                    <?php endforeach; ?>
+                                    <p>
+                                        <?php submit_button( __( 'Enregistrer', 'association-manager' ), 'primary', 'submit', false ); ?>
+                                        <button type="button" class="button" data-amap-show="amap-dates-group-<?php echo esc_attr( $group_id_key ); ?>-view" data-amap-hide="amap-dates-group-<?php echo esc_attr( $group_id_key ); ?>-bulk"><?php esc_html_e( 'Annuler', 'association-manager' ); ?></button>
+                                    </p>
+                                </form>
+                            </div>
+                        <?php endif; ?>
 
-                            <p><?php submit_button( __( 'Générer les dates cochées', 'association-manager' ), 'primary', 'submit', false ); ?></p>
-                        </form>
-                        <script>
-                        ( function () {
-                            var freqInput = document.getElementById( 'amap-generate-frequency' );
-                            var applyBtn  = document.getElementById( 'amap-generate-apply-frequency' );
-                            if ( ! freqInput || ! applyBtn ) {
-                                return;
+                        <?php if ( ! empty( $candidate_dates ) ) : ?>
+                            <p>
+                                <button type="button" class="button" data-amap-show="amap-dates-group-<?php echo esc_attr( $group_id_key ); ?>-generate"><?php esc_html_e( 'Générer des dates pour ce groupe', 'association-manager' ); ?></button>
+                            </p>
+                            <div id="amap-dates-group-<?php echo esc_attr( $group_id_key ); ?>-generate" hidden>
+                                <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+                                    <?php wp_nonce_field( 'amap_generate_contract_delivery_dates_' . $editing_id . '_' . $group_id_key ); ?>
+                                    <input type="hidden" name="action" value="amap_generate_contract_delivery_dates">
+                                    <input type="hidden" name="contract_id" value="<?php echo esc_attr( $editing_id ); ?>">
+                                    <input type="hidden" name="group_id" value="<?php echo esc_attr( $group_id_key ); ?>">
+                                    <p>
+                                        <label>
+                                            <?php esc_html_e( 'Cocher une date sur…', 'association-manager' ); ?>
+                                            <input type="number" class="amap-generate-frequency" data-group-id="<?php echo esc_attr( $group_id_key ); ?>" min="1" max="52" value="1">
+                                        </label>
+                                        <button type="button" class="button amap-generate-apply-frequency" data-group-id="<?php echo esc_attr( $group_id_key ); ?>"><?php esc_html_e( 'Appliquer', 'association-manager' ); ?></button>
+                                        <br><span class="description"><?php esc_html_e( '1 = toutes les dates (défaut), 2 = une sur deux, etc. Purement indicatif : décochez/recochez librement avant de valider.', 'association-manager' ); ?></span>
+                                    </p>
+                                    <?php foreach ( $candidate_dates as $candidate_index => $candidate_date ) : ?>
+                                        <p>
+                                            <label>
+                                                <input type="checkbox" class="amap-generate-date-checkbox" data-group-id="<?php echo esc_attr( $group_id_key ); ?>" data-index="<?php echo esc_attr( $candidate_index ); ?>" name="delivery_dates[]" value="<?php echo esc_attr( $candidate_date ); ?>" checked>
+                                                <?php echo esc_html( date_i18n( 'l j F Y', strtotime( $candidate_date ) ) ); ?>
+                                            </label>
+                                        </p>
+                                    <?php endforeach; ?>
+                                    <p>
+                                        <?php submit_button( __( 'Générer les dates cochées', 'association-manager' ), 'primary', 'submit', false ); ?>
+                                        <button type="button" class="button" data-amap-hide="amap-dates-group-<?php echo esc_attr( $group_id_key ); ?>-generate"><?php esc_html_e( 'Annuler', 'association-manager' ); ?></button>
+                                    </p>
+                                </form>
+                            </div>
+                        <?php endif; ?>
+
+                        <p>
+                            <button type="button" class="button button-primary" data-amap-show="amap-dates-group-<?php echo esc_attr( $group_id_key ); ?>-add"><?php esc_html_e( '+ Ajouter une date pour ce groupe', 'association-manager' ); ?></button>
+                        </p>
+                        <div id="amap-dates-group-<?php echo esc_attr( $group_id_key ); ?>-add"<?php echo $show_add_form ? '' : ' hidden'; ?>>
+                            <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+                                <?php wp_nonce_field( 'amap_add_contract_delivery_date_' . $editing_id ); ?>
+                                <input type="hidden" name="action" value="amap_add_contract_delivery_date">
+                                <input type="hidden" name="contract_id" value="<?php echo esc_attr( $editing_id ); ?>">
+                                <input type="hidden" name="group_id" value="<?php echo esc_attr( $group_id_key ); ?>">
+                                <table class="form-table">
+                                    <tr>
+                                        <th><label for="amap-delivery-date-date-<?php echo esc_attr( $group_id_key ); ?>"><?php esc_html_e( 'Date de livraison', 'association-manager' ); ?></label></th>
+                                        <td>
+                                            <input type="date" id="amap-delivery-date-date-<?php echo esc_attr( $group_id_key ); ?>" name="delivery_date" min="<?php echo esc_attr( $editing_contract->start_date ); ?>" max="<?php echo esc_attr( $editing_contract->end_date ); ?>" value="<?php echo esc_attr( $show_add_form ? ( $contract_delivery_date_form_data['delivery_date'] ?? '' ) : '' ); ?>" required>
+                                            <p class="description">
+                                                <?php
+                                                printf(
+                                                    /* translators: 1: date de début du contrat, 2: date de fin du contrat. */
+                                                    esc_html__( 'Doit être comprise entre le %1$s et le %2$s (période du contrat). Utile pour une date exceptionnelle qui ne correspond pas au jour habituel du groupe.', 'association-manager' ),
+                                                    esc_html( $editing_contract->start_date ),
+                                                    esc_html( $editing_contract->end_date )
+                                                );
+                                                ?>
+                                            </p>
+                                        </td>
+                                    </tr>
+                                </table>
+                                <p>
+                                    <?php submit_button( __( 'Ajouter', 'association-manager' ), 'primary', 'submit', false ); ?>
+                                    <button type="button" class="button" data-amap-hide="amap-dates-group-<?php echo esc_attr( $group_id_key ); ?>-add"><?php esc_html_e( 'Annuler', 'association-manager' ); ?></button>
+                                </p>
+                            </form>
+                        </div>
+                    </details>
+                <?php endforeach; ?>
+                <script>
+                ( function () {
+                    document.querySelectorAll( '[data-amap-show], [data-amap-hide]' ).forEach( function ( btn ) {
+                        btn.addEventListener( 'click', function () {
+                            if ( btn.dataset.amapShow ) {
+                                var showEl = document.getElementById( btn.dataset.amapShow );
+                                if ( showEl ) {
+                                    showEl.hidden = false;
+                                }
                             }
-                            applyBtn.addEventListener( 'click', function () {
-                                var frequency  = parseInt( freqInput.value, 10 ) || 1;
-                                var checkboxes = document.querySelectorAll( '.amap-generate-date-checkbox' );
-                                checkboxes.forEach( function ( checkbox ) {
-                                    checkbox.checked = ( parseInt( checkbox.dataset.index, 10 ) % frequency === 0 );
-                                } );
+                            if ( btn.dataset.amapHide ) {
+                                var hideEl = document.getElementById( btn.dataset.amapHide );
+                                if ( hideEl ) {
+                                    hideEl.hidden = true;
+                                }
+                            }
+                        } );
+                    } );
+                    document.querySelectorAll( '.amap-generate-apply-frequency' ).forEach( function ( btn ) {
+                        btn.addEventListener( 'click', function () {
+                            var groupId    = btn.dataset.groupId;
+                            var freqInput  = document.querySelector( '.amap-generate-frequency[data-group-id="' + groupId + '"]' );
+                            var frequency  = freqInput ? ( parseInt( freqInput.value, 10 ) || 1 ) : 1;
+                            var checkboxes = document.querySelectorAll( '.amap-generate-date-checkbox[data-group-id="' + groupId + '"]' );
+                            checkboxes.forEach( function ( checkbox ) {
+                                checkbox.checked = ( parseInt( checkbox.dataset.index, 10 ) % frequency === 0 );
                             } );
-                        } )();
-                        </script>
-                    <?php endif; ?>
-                <?php endif; ?>
+                        } );
+                    } );
+                } )();
+                </script>
 
-                <?php if ( ! $delivery_date_editing_id ) : ?>
-                    <p>
-                        <button type="button" class="button button-primary" id="amap-delivery-date-add-toggle"><?php esc_html_e( '+ Ajouter une date de livraison', 'association-manager' ); ?></button>
-                    </p>
-                <?php endif; ?>
-                <div id="amap-delivery-date-form-wrapper"<?php echo $delivery_date_editing_id ? '' : ' hidden'; ?>>
-                <h3>
-                    <?php echo $delivery_date_editing_id
-                        ? esc_html__( 'Modifier une date de livraison', 'association-manager' )
-                        : esc_html__( 'Ajouter une date de livraison', 'association-manager' ); ?>
-                </h3>
-                <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
-                    <?php if ( $delivery_date_editing_id ) : ?>
+                <?php if ( $delivery_date_editing_id ) : ?>
+                    <h3><?php esc_html_e( 'Modifier une date de livraison', 'association-manager' ); ?></h3>
+                    <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
                         <?php wp_nonce_field( 'amap_edit_contract_delivery_date_' . $delivery_date_editing_id ); ?>
                         <input type="hidden" name="action" value="amap_update_contract_delivery_date">
                         <input type="hidden" name="id" value="<?php echo esc_attr( $delivery_date_editing_id ); ?>">
-                    <?php else : ?>
-                        <?php wp_nonce_field( 'amap_add_contract_delivery_date_' . $editing_id ); ?>
-                        <input type="hidden" name="action" value="amap_add_contract_delivery_date">
-                        <input type="hidden" name="contract_id" value="<?php echo esc_attr( $editing_id ); ?>">
-                    <?php endif; ?>
-                    <table class="form-table">
-                        <tr>
-                            <th><label for="amap-delivery-date-group"><?php esc_html_e( 'Groupe', 'association-manager' ); ?></label></th>
-                            <td>
-                                <select id="amap-delivery-date-group" name="group_id" required>
-                                    <option value=""></option>
-                                    <?php foreach ( $producer_groups as $group_option ) : ?>
-                                        <option value="<?php echo esc_attr( $group_option->id ); ?>" <?php selected( (string) $group_option->id, $contract_delivery_date_form_data['group_id'] ?? '' ); ?>>
-                                            <?php echo esc_html( $group_option->name . ' — ' . $weekday_labels[ (int) $group_option->weekday ] ); ?>
-                                        </option>
-                                    <?php endforeach; ?>
-                                </select>
-                            </td>
-                        </tr>
-                        <tr>
-                            <th><label for="amap-delivery-date-date"><?php esc_html_e( 'Date de livraison', 'association-manager' ); ?></label></th>
-                            <td>
-                                <input type="date" id="amap-delivery-date-date" name="delivery_date" min="<?php echo esc_attr( $editing_contract->start_date ); ?>" max="<?php echo esc_attr( $editing_contract->end_date ); ?>" value="<?php echo esc_attr( $contract_delivery_date_form_data['delivery_date'] ?? '' ); ?>" required>
-                                <p class="description">
-                                    <?php
-                                    printf(
-                                        /* translators: 1: date de début du contrat, 2: date de fin du contrat. */
-                                        esc_html__( 'Doit être comprise entre le %1$s et le %2$s (période du contrat). Utile pour une date exceptionnelle qui ne correspond pas au jour habituel du groupe.', 'association-manager' ),
-                                        esc_html( $editing_contract->start_date ),
-                                        esc_html( $editing_contract->end_date )
-                                    );
-                                    ?>
-                                </p>
-                            </td>
-                        </tr>
-                    </table>
-                    <p>
-                        <?php submit_button( $delivery_date_editing_id ? __( 'Enregistrer', 'association-manager' ) : __( 'Ajouter', 'association-manager' ), 'primary', 'submit', false ); ?>
-                        <?php if ( $delivery_date_editing_id ) : ?>
+                        <table class="form-table">
+                            <tr>
+                                <th><label for="amap-delivery-date-group"><?php esc_html_e( 'Groupe', 'association-manager' ); ?></label></th>
+                                <td>
+                                    <select id="amap-delivery-date-group" name="group_id" required>
+                                        <option value=""></option>
+                                        <?php foreach ( $producer_groups as $group_option ) : ?>
+                                            <option value="<?php echo esc_attr( $group_option->id ); ?>" <?php selected( (string) $group_option->id, $contract_delivery_date_form_data['group_id'] ?? '' ); ?>>
+                                                <?php echo esc_html( $group_option->name . ' — ' . $weekday_labels[ (int) $group_option->weekday ] ); ?>
+                                            </option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                </td>
+                            </tr>
+                            <tr>
+                                <th><label for="amap-delivery-date-date"><?php esc_html_e( 'Date de livraison', 'association-manager' ); ?></label></th>
+                                <td>
+                                    <input type="date" id="amap-delivery-date-date" name="delivery_date" min="<?php echo esc_attr( $editing_contract->start_date ); ?>" max="<?php echo esc_attr( $editing_contract->end_date ); ?>" value="<?php echo esc_attr( $contract_delivery_date_form_data['delivery_date'] ?? '' ); ?>" required>
+                                    <p class="description">
+                                        <?php
+                                        printf(
+                                            /* translators: 1: date de début du contrat, 2: date de fin du contrat. */
+                                            esc_html__( 'Doit être comprise entre le %1$s et le %2$s (période du contrat). Utile pour une date exceptionnelle qui ne correspond pas au jour habituel du groupe.', 'association-manager' ),
+                                            esc_html( $editing_contract->start_date ),
+                                            esc_html( $editing_contract->end_date )
+                                        );
+                                        ?>
+                                    </p>
+                                </td>
+                            </tr>
+                        </table>
+                        <p>
+                            <?php submit_button( __( 'Enregistrer', 'association-manager' ), 'primary', 'submit', false ); ?>
                             <a href="<?php echo esc_url( admin_url( 'admin.php?page=amap-contracts&action=edit&id=' . $editing_id . '&active_tab=dates' ) ); ?>" class="button">
                                 <?php esc_html_e( 'Annuler', 'association-manager' ); ?>
                             </a>
-                        <?php else : ?>
-                            <button type="button" class="button" id="amap-delivery-date-add-cancel"><?php esc_html_e( 'Annuler', 'association-manager' ); ?></button>
-                        <?php endif; ?>
-                    </p>
-                </form>
-                </div>
-                <script>
-                ( function () {
-                    var toggle  = document.getElementById( 'amap-delivery-date-add-toggle' );
-                    var wrapper = document.getElementById( 'amap-delivery-date-form-wrapper' );
-                    var cancel  = document.getElementById( 'amap-delivery-date-add-cancel' );
-                    if ( toggle ) {
-                        toggle.addEventListener( 'click', function () {
-                            wrapper.hidden = false;
-                            toggle.hidden  = true;
-                        } );
-                    }
-                    if ( cancel ) {
-                        cancel.addEventListener( 'click', function () {
-                            wrapper.hidden = true;
-                            toggle.hidden  = false;
-                        } );
-                    }
-                } )();
-                </script>
+                        </p>
+                    </form>
+                <?php endif; ?>
             <?php endif; ?>
             </div>
             </div>
@@ -3775,6 +3857,56 @@ function amap_handle_generate_contract_delivery_dates() {
         ++$inserted_count;
     }
 
-    wp_safe_redirect( $edit_url . '&generate_group_id=' . $group_id . '&amap_notice=contract_delivery_dates_generated&generated_count=' . $inserted_count );
+    wp_safe_redirect( $edit_url . '&active_tab=dates&generate_group_id=' . $group_id . '&amap_notice=contract_delivery_dates_generated&generated_count=' . $inserted_count );
+    exit;
+}
+
+add_action( 'admin_post_amap_bulk_delete_contract_delivery_dates', 'amap_handle_bulk_delete_contract_delivery_dates' );
+
+/**
+ * Suppression en masse depuis l'accordéon "Dates de livraison" (amap_render_contracts_page()),
+ * regroupé par groupe de distribution : les dates dont la case est restée cochée (keep_ids[])
+ * sont conservées, toutes les autres dates de ce contrat et de ce groupe sont supprimées.
+ * Défense en profondeur, comme amap_handle_generate_contract_delivery_dates() : la suppression
+ * ne porte que sur les dates qui appartiennent réellement à ce couple (contrat, groupe), jamais
+ * sur les ID reçus tels quels.
+ */
+function amap_handle_bulk_delete_contract_delivery_dates() {
+    if ( ! current_user_can( 'amap_manage_contracts' ) ) {
+        wp_die( esc_html__( 'Action non autorisée.', 'association-manager' ) );
+    }
+
+    $contract_id = isset( $_POST['contract_id'] ) ? absint( $_POST['contract_id'] ) : 0;
+    $group_id    = isset( $_POST['group_id'] ) ? absint( $_POST['group_id'] ) : 0;
+    $contract    = $contract_id ? amap_get_contract( $contract_id ) : null;
+    if ( ! $contract || 'product_grid' !== $contract->contract_type ) {
+        wp_die( esc_html__( 'Contrat introuvable ou non concerné par les dates de livraison.', 'association-manager' ) );
+    }
+
+    check_admin_referer( 'amap_bulk_delete_contract_delivery_dates_' . $contract_id . '_' . $group_id );
+
+    $keep_ids = isset( $_POST['keep_ids'] ) ? array_map( 'absint', (array) $_POST['keep_ids'] ) : array();
+
+    global $wpdb;
+    $existing_rows = $wpdb->get_results(
+        $wpdb->prepare(
+            "SELECT id FROM {$wpdb->prefix}amap_contract_delivery_dates WHERE contract_id = %d AND group_id = %d",
+            $contract_id,
+            $group_id
+        )
+    );
+
+    $deleted_count = 0;
+    foreach ( $existing_rows as $existing_row ) {
+        if ( in_array( (int) $existing_row->id, $keep_ids, true ) ) {
+            continue;
+        }
+        $wpdb->delete( $wpdb->prefix . 'amap_contract_delivery_dates', array( 'id' => $existing_row->id ) );
+        ++$deleted_count;
+    }
+
+    wp_safe_redirect(
+        admin_url( 'admin.php?page=amap-contracts&action=edit&id=' . $contract_id . '&active_tab=dates&amap_notice=contract_delivery_dates_bulk_deleted&deleted_count=' . $deleted_count )
+    );
     exit;
 }
