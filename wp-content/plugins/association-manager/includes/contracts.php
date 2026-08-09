@@ -769,7 +769,6 @@ function amap_render_contracts_page() {
         <?php endif; ?>
 
         <?php if ( $editing_id && $editing_contract && 'basket_recurring' === $editing_contract->contract_type ) : ?>
-            <?php $basket_sizes = amap_get_contract_basket_sizes( $editing_id ); ?>
             <div class="postbox amap-tab-panel" id="amap-tab-sizes"<?php echo ( 'amap-tab-sizes' === $active_contract_tab ) ? '' : ' hidden'; ?>>
             <div class="inside">
             <?php if ( 'basket_size_invalid' === $notice ) : ?>
@@ -780,44 +779,11 @@ function amap_render_contracts_page() {
                 <div class="notice notice-success"><p><?php esc_html_e( 'Taille de panier supprimée.', 'association-manager' ); ?></p></div>
             <?php endif; ?>
 
-            <?php if ( empty( $basket_sizes ) ) : ?>
-                <p><?php esc_html_e( 'Aucune taille de panier pour le moment.', 'association-manager' ); ?></p>
-            <?php else : ?>
-                <table class="widefat">
-                    <thead>
-                        <tr>
-                            <th><?php esc_html_e( 'Libellé', 'association-manager' ); ?></th>
-                            <th><?php esc_html_e( 'Prix', 'association-manager' ); ?></th>
-                            <th><?php esc_html_e( 'Actions', 'association-manager' ); ?></th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php foreach ( $basket_sizes as $basket_size ) : ?>
-                            <tr>
-                                <td><?php echo esc_html( $basket_size->label ); ?></td>
-                                <td><?php echo esc_html( number_format_i18n( (float) $basket_size->price, 2 ) ); ?> €</td>
-                                <td>
-                                    <a href="<?php echo esc_url( admin_url( 'admin.php?page=amap-contracts&action=edit&id=' . $editing_id . '&size_action=edit&size_id=' . $basket_size->id ) ); ?>">
-                                        <?php esc_html_e( 'Modifier', 'association-manager' ); ?>
-                                    </a>
-                                    |
-                                    <?php
-                                    $delete_size_url = wp_nonce_url(
-                                        admin_url( 'admin-post.php?action=amap_delete_contract_basket_size&id=' . $basket_size->id ),
-                                        'amap_delete_contract_basket_size_' . $basket_size->id
-                                    );
-                                    // translators: %s: libellé de la taille de panier.
-                                    $confirm_size_message = sprintf( __( 'Supprimer définitivement la taille %s ?', 'association-manager' ), $basket_size->label );
-                                    ?>
-                                    <a href="<?php echo esc_url( $delete_size_url ); ?>" onclick="return confirm( '<?php echo esc_js( $confirm_size_message ); ?>' );">
-                                        <?php esc_html_e( 'Supprimer', 'association-manager' ); ?>
-                                    </a>
-                                </td>
-                            </tr>
-                        <?php endforeach; ?>
-                    </tbody>
-                </table>
-            <?php endif; ?>
+            <?php
+            $basket_sizes_list_table = new Amap_Contract_Basket_Sizes_List_Table();
+            $basket_sizes_list_table->prepare_items( $editing_id );
+            $basket_sizes_list_table->display();
+            ?>
 
             <?php if ( ! $size_editing_id ) : ?>
                 <p>
