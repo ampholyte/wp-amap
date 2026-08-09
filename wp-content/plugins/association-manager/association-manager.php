@@ -26,6 +26,7 @@ require_once __DIR__ . '/includes/email-template.php';
 require_once __DIR__ . '/includes/email.php';
 require_once __DIR__ . '/includes/auth.php';
 require_once __DIR__ . '/includes/member-area.php';
+require_once __DIR__ . '/includes/class-amap-users-list-table.php';
 require_once __DIR__ . '/includes/users.php';
 require_once __DIR__ . '/includes/groups.php';
 require_once __DIR__ . '/includes/contracts.php';

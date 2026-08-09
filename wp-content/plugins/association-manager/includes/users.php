@@ -7,22 +7,6 @@ if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
-/**
- * Un "utilisateur AMAP" est un compte WordPress portant au moins une des trois casquettes.
- * Les comptes WP sans aucune de ces casquettes (ex. un simple abonné) n'apparaissent pas ici.
- */
-function amap_get_amap_users() {
-    $user_query = new WP_User_Query(
-        array(
-            'role__in' => array( 'amap_member', 'amap_producer', 'amap_board' ),
-            'orderby'  => 'display_name',
-            'order'    => 'ASC',
-        )
-    );
-
-    return $user_query->get_results();
-}
-
 function amap_get_user_contact( $user_id ) {
     global $wpdb;
 
@@ -120,7 +104,8 @@ function amap_render_users_page() {
     $selected_group_id = $form_data['group_id'] ?? '';
     $groups            = amap_get_groups();
 
-    $users = amap_get_amap_users();
+    $users_list_table = new Amap_Users_List_Table();
+    $users_list_table->prepare_items();
     ?>
     <div class="wrap">
         <h1><?php esc_html_e( 'Utilisateurs AMAP', 'association-manager' ); ?></h1>
@@ -313,70 +298,13 @@ function amap_render_users_page() {
         } )();
         </script>
 
-        <?php if ( empty( $users ) ) : ?>
-            <p><?php esc_html_e( 'Aucun utilisateur AMAP enregistré pour le moment.', 'association-manager' ); ?></p>
-        <?php else : ?>
-            <table class="widefat">
-                <thead>
-                    <tr>
-                        <th><?php esc_html_e( 'Nom', 'association-manager' ); ?></th>
-                        <th><?php esc_html_e( 'Prénom', 'association-manager' ); ?></th>
-                        <th><?php esc_html_e( 'Email', 'association-manager' ); ?></th>
-                        <th><?php esc_html_e( 'Téléphone', 'association-manager' ); ?></th>
-                        <th><?php esc_html_e( 'Adresse', 'association-manager' ); ?></th>
-                        <th><?php esc_html_e( 'Rôles', 'association-manager' ); ?></th>
-                        <th><?php esc_html_e( 'Groupe', 'association-manager' ); ?></th>
-                        <th><?php esc_html_e( 'Actions', 'association-manager' ); ?></th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php foreach ( $users as $user ) : ?>
-                        <?php
-                        $contact      = amap_get_user_contact( $user->ID );
-                        $member_group = in_array( 'amap_member', $user->roles, true ) ? amap_get_member_group( $user->ID ) : null;
-                        ?>
-                        <tr>
-                            <td><?php echo esc_html( $user->last_name ); ?></td>
-                            <td><?php echo esc_html( $user->first_name ); ?></td>
-                            <td><?php echo esc_html( $user->user_email ); ?></td>
-                            <td><?php echo esc_html( $contact->phone ?? '' ); ?></td>
-                            <td><?php echo esc_html( $contact->address ?? '' ); ?></td>
-                            <td><?php echo esc_html( amap_format_user_roles( $user->roles ) ); ?></td>
-                            <td><?php echo esc_html( $member_group ? $member_group->name : '—' ); ?></td>
-                            <td>
-                                <a href="<?php echo esc_url( admin_url( 'admin.php?page=amap-users&action=edit&id=' . $user->ID ) ); ?>">
-                                    <?php esc_html_e( 'Modifier', 'association-manager' ); ?>
-                                </a>
-                                |
-                                <?php
-                                $delete_url = wp_nonce_url(
-                                    admin_url( 'admin-post.php?action=amap_delete_user&id=' . $user->ID ),
-                                    'amap_delete_user_' . $user->ID
-                                );
-                                // translators: 1: prénom de l'utilisateur, 2: nom de l'utilisateur.
-                                $confirm_message = sprintf( __( 'Supprimer définitivement le compte WordPress de %1$s %2$s ?', 'association-manager' ), $user->first_name, $user->last_name );
-                                ?>
-                                <a href="<?php echo esc_url( $delete_url ); ?>" onclick="return confirm( '<?php echo esc_js( $confirm_message ); ?>' );">
-                                    <?php esc_html_e( 'Supprimer', 'association-manager' ); ?>
-                                </a>
-                                <?php if ( amap_user_uses_magic_link( $user ) ) : ?>
-                                    |
-                                    <?php
-                                    $magic_link_action_url = wp_nonce_url(
-                                        admin_url( 'admin-post.php?action=amap_send_magic_link&id=' . $user->ID ),
-                                        'amap_send_magic_link_' . $user->ID
-                                    );
-                                    ?>
-                                    <a href="<?php echo esc_url( $magic_link_action_url ); ?>">
-                                        <?php esc_html_e( 'Envoyer un lien de connexion', 'association-manager' ); ?>
-                                    </a>
-                                <?php endif; ?>
-                            </td>
-                        </tr>
-                    <?php endforeach; ?>
-                </tbody>
-            </table>
-        <?php endif; ?>
+        <form method="get">
+            <input type="hidden" name="page" value="amap-users">
+            <?php
+            $users_list_table->search_box( __( 'Rechercher', 'association-manager' ), 'amap-user' );
+            $users_list_table->display();
+            ?>
+        </form>
     </div>
     <?php
 }
@@ -635,9 +563,18 @@ function amap_handle_delete_user() {
         wp_die( esc_html__( 'Action non autorisée.', 'association-manager' ) );
     }
 
-    $id = isset( $_GET['id'] ) ? absint( $_GET['id'] ) : 0;
-    if ( ! $id || ! amap_get_amap_user( $id ) ) {
+    $id   = isset( $_GET['id'] ) ? absint( $_GET['id'] ) : 0;
+    $user = $id ? amap_get_amap_user( $id ) : null;
+    if ( ! $user ) {
         wp_die( esc_html__( 'Utilisateur introuvable.', 'association-manager' ) );
+    }
+
+    // Garde-fou suite à un incident réel : un compte administrateur qui porte aussi une
+    // casquette AMAP (ex. amap_board, pour tester cette page) apparaît dans cette liste comme
+    // n'importe quel autre utilisateur AMAP. Le supprimer supprimerait le compte WordPress en
+    // entier (amap_get_amap_user()/wp_delete_user() ci-dessous), pas seulement la casquette.
+    if ( in_array( 'administrator', $user->roles, true ) ) {
+        wp_die( esc_html__( 'Suppression impossible : ce compte porte le rôle administrateur WordPress.', 'association-manager' ) );
     }
 
     // check_admin_referer() lit aussi bien $_GET que $_POST : ici le nonce arrive en query
@@ -646,8 +583,12 @@ function amap_handle_delete_user() {
 
     // Suppression complète du compte WordPress (identité + rôles), pas seulement des
     // casquettes AMAP : cette page est le point d'entrée unique de gestion des utilisateurs.
+    // Réattribution de l'éventuel contenu (articles/pages) de ce compte à la personne qui
+    // effectue la suppression : sans ce second paramètre, wp_delete_user() envoie ce contenu à
+    // la corbeille par défaut — incident réel qui avait vidé la page d'accueil du site après la
+    // suppression d'un compte qui en était l'auteur.
     require_once ABSPATH . 'wp-admin/includes/user.php';
-    if ( ! wp_delete_user( $id ) ) {
+    if ( ! wp_delete_user( $id, get_current_user_id() ) ) {
         wp_die( esc_html__( 'La suppression du compte WordPress a échoué.', 'association-manager' ) );
     }
 
