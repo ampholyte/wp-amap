@@ -49,6 +49,24 @@ function amap_get_contracts() {
     );
 }
 
+/**
+ * Contrats d'un producteur donné, utilisés pour l'onglet "Espace producteur" de l'espace membre
+ * (member-area-producer.php) — même tri que amap_get_contracts(). Contrairement à
+ * amap_get_member_subscriptions(), aucune jointure n'est nécessaire : le producteur est déjà
+ * connu, le template calcule lui-même le statut par contrat via
+ * amap_get_contract_period_status().
+ */
+function amap_get_producer_contracts( $producer_user_id ) {
+    global $wpdb;
+
+    return $wpdb->get_results(
+        $wpdb->prepare(
+            "SELECT * FROM {$wpdb->prefix}amap_contracts WHERE producer_user_id = %d ORDER BY is_active DESC, start_date DESC",
+            $producer_user_id
+        )
+    );
+}
+
 function amap_get_contract( $id ) {
     global $wpdb;
 
@@ -344,6 +362,42 @@ function amap_render_contracts_page() {
     $producers      = amap_get_producer_users();
     $contract_types = amap_get_contract_types();
     $contracts      = amap_get_contracts();
+    $weekday_labels = amap_get_weekday_labels();
+
+    // Groupes déjà rattachés à chaque producteur (amap_get_producer_groups()), précalculés pour
+    // tous les producteurs et injectés en JSON : affichés sous le champ "Producteur" du
+    // formulaire (ajout et modification) pour repérer tout de suite un producteur pas encore
+    // rattaché à un groupe, plutôt que de le découvrir plus tard via un onglet vide (dates de
+    // livraison, souscriptions) qui ressemble à un bug.
+    $producer_groups_js_data = array();
+    foreach ( $producers as $producer ) {
+        $producer_groups_js_data[ $producer->ID ] = array_map(
+            static function ( $group ) use ( $weekday_labels ) {
+                return sprintf(
+                    '%1$s (%2$s %3$s-%4$s)',
+                    $group->name,
+                    $weekday_labels[ (int) $group->weekday ] ?? '',
+                    amap_format_time( $group->start_time ),
+                    amap_format_time( $group->end_time )
+                );
+            },
+            amap_get_producer_groups( $producer->ID )
+        );
+    }
+
+    // Lien cliquable vers la page "Groupes", réutilisé dans les messages d'avertissement
+    // "producteur non rattaché" ci-dessous — ouvert dans un nouvel onglet pour ne pas perdre la
+    // saisie en cours (formulaire "Ajouter un contrat", ou onglet "Dates de livraison") en cas de
+    // navigation. Après rattachement dans cet autre onglet, un rechargement de la page Contrats
+    // reste nécessaire pour voir la liste de dates se débloquer (les onglets Produits/Dates sont
+    // basculés en JS sans rechargement, donc sans nouvel appel à amap_get_producer_groups()).
+    $groups_page_link_html = '<a href="' . esc_url( admin_url( 'admin.php?page=amap-groups' ) ) . '" target="_blank" rel="noopener noreferrer">' . esc_html__( 'la page Groupes', 'association-manager' ) . '</a>';
+
+    $no_producer_groups_html = sprintf(
+        /* translators: %s: lien vers la page d'administration "Groupes". */
+        __( "Ce producteur n'est rattaché à aucun groupe de distribution : rattachez-le d'abord depuis %s, sinon les adhérents ne pourront pas souscrire à ses contrats.", 'association-manager' ),
+        $groups_page_link_html
+    );
 
     // Onglet actif à l'affichage : par défaut "Infos du contrat", sauf si l'URL cible
     // explicitement la modification d'un élément d'une autre sous-section (lien "Modifier"
@@ -386,6 +440,10 @@ function amap_render_contracts_page() {
         details.amap-dates-group[open] summary {
             margin-bottom: 8px;
         }
+        #amap-contract-producer-groups.amap-hint-warning {
+            color: #b32d2e;
+            font-weight: 600;
+        }
     </style>
     <div class="wrap">
         <h1><?php esc_html_e( 'Contrats', 'association-manager' ); ?></h1>
@@ -411,12 +469,12 @@ function amap_render_contracts_page() {
             <?php if ( $editing_id && $editing_contract ) : ?>
                 <h2 class="nav-tab-wrapper" id="amap-contract-tabs">
                     <a href="<?php echo esc_url( admin_url( 'admin.php?page=amap-contracts' ) ); ?>" class="nav-tab"><?php esc_html_e( 'Liste des contrats', 'association-manager' ); ?></a>
-                    <a href="#" class="nav-tab<?php echo ( 'amap-contract-form-wrapper' === $active_contract_tab ) ? ' nav-tab-active' : ''; ?>" data-amap-tab="amap-contract-form-wrapper"><?php esc_html_e( 'Infos du contrat', 'association-manager' ); ?></a>
+                    <a href="#" class="nav-tab<?php echo ( 'amap-contract-form-wrapper' === $active_contract_tab ) ? ' nav-tab-active' : ''; ?>" data-amap-tab="amap-contract-form-wrapper" data-amap-tab-query=""><?php esc_html_e( 'Infos du contrat', 'association-manager' ); ?></a>
                     <?php if ( 'basket_recurring' === $editing_contract->contract_type ) : ?>
-                        <a href="#" class="nav-tab<?php echo ( 'amap-tab-sizes' === $active_contract_tab ) ? ' nav-tab-active' : ''; ?>" data-amap-tab="amap-tab-sizes"><?php esc_html_e( 'Tailles de panier', 'association-manager' ); ?></a>
+                        <a href="#" class="nav-tab<?php echo ( 'amap-tab-sizes' === $active_contract_tab ) ? ' nav-tab-active' : ''; ?>" data-amap-tab="amap-tab-sizes" data-amap-tab-query="sizes"><?php esc_html_e( 'Tailles de panier', 'association-manager' ); ?></a>
                     <?php elseif ( 'product_grid' === $editing_contract->contract_type ) : ?>
-                        <a href="#" class="nav-tab<?php echo ( 'amap-tab-products' === $active_contract_tab ) ? ' nav-tab-active' : ''; ?>" data-amap-tab="amap-tab-products"><?php esc_html_e( 'Produits', 'association-manager' ); ?></a>
-                        <a href="#" class="nav-tab<?php echo ( 'amap-tab-dates' === $active_contract_tab ) ? ' nav-tab-active' : ''; ?>" data-amap-tab="amap-tab-dates"><?php esc_html_e( 'Dates de livraison', 'association-manager' ); ?></a>
+                        <a href="#" class="nav-tab<?php echo ( 'amap-tab-products' === $active_contract_tab ) ? ' nav-tab-active' : ''; ?>" data-amap-tab="amap-tab-products" data-amap-tab-query="products"><?php esc_html_e( 'Produits', 'association-manager' ); ?></a>
+                        <a href="#" class="nav-tab<?php echo ( 'amap-tab-dates' === $active_contract_tab ) ? ' nav-tab-active' : ''; ?>" data-amap-tab="amap-tab-dates" data-amap-tab-query="dates"><?php esc_html_e( 'Dates de livraison', 'association-manager' ); ?></a>
                     <?php endif; ?>
                 </h2>
             <?php endif; ?>
@@ -496,6 +554,7 @@ function amap_render_contracts_page() {
                                     </option>
                                 <?php endforeach; ?>
                             </select>
+                            <p class="description" id="amap-contract-producer-groups"></p>
                         </td>
                     </tr>
                     <tr>
@@ -587,6 +646,31 @@ function amap_render_contracts_page() {
 
                 typeField.addEventListener( 'change', toggleFrequencyRow );
                 toggleFrequencyRow();
+            } )();
+            </script>
+            <script>
+            ( function () {
+                var producerField       = document.getElementById( 'amap-contract-producer' );
+                var producerGroupsHint  = document.getElementById( 'amap-contract-producer-groups' );
+                var producerGroupsData  = <?php echo wp_json_encode( $producer_groups_js_data ); ?>;
+                var groupsPrefixLabel   = <?php echo wp_json_encode( __( 'Groupes livrés : ', 'association-manager' ) ); ?>;
+                var noGroupsHtml        = <?php echo wp_json_encode( $no_producer_groups_html ); ?>;
+
+                function updateProducerGroupsHint() {
+                    var groups = producerGroupsData[ producerField.value ] || [];
+                    producerGroupsHint.classList.remove( 'amap-hint-warning' );
+                    if ( ! producerField.value ) {
+                        producerGroupsHint.textContent = '';
+                    } else if ( 0 === groups.length ) {
+                        producerGroupsHint.innerHTML = noGroupsHtml;
+                        producerGroupsHint.classList.add( 'amap-hint-warning' );
+                    } else {
+                        producerGroupsHint.textContent = groupsPrefixLabel + groups.join( ', ' );
+                    }
+                }
+
+                producerField.addEventListener( 'change', updateProducerGroupsHint );
+                updateProducerGroupsHint();
             } )();
             </script>
             <script>
@@ -845,7 +929,6 @@ function amap_render_contracts_page() {
 
             <?php
             $delivery_dates  = amap_get_contract_delivery_dates( $editing_id );
-            $weekday_labels  = amap_get_weekday_labels();
             $producer_groups = amap_get_producer_groups( $editing_contract->producer_user_id );
 
             $dates_by_group = array();
@@ -868,7 +951,15 @@ function amap_render_contracts_page() {
             <div class="inside">
 
             <?php if ( empty( $producer_groups ) ) : ?>
-                <p><?php esc_html_e( "Ce producteur n'est rattaché à aucun groupe de distribution. Rattachez-le d'abord à un groupe depuis la page Groupes avant d'ajouter des dates de livraison.", 'association-manager' ); ?></p>
+                <p>
+                    <?php
+                    printf(
+                        /* translators: %s: lien vers la page d'administration "Groupes". */
+                        esc_html__( "Ce producteur n'est rattaché à aucun groupe de distribution. Rattachez-le d'abord à un groupe depuis %s avant d'ajouter des dates de livraison, puis rechargez cette page.", 'association-manager' ),
+                        $groups_page_link_html
+                    );
+                    ?>
+                </p>
             <?php else : ?>
                 <?php if ( 'contract_delivery_date_invalid' === $notice ) : ?>
                     <div class="notice notice-error"><p><?php esc_html_e( 'Groupe ou date invalide.', 'association-manager' ); ?></p></div>
@@ -1165,6 +1256,19 @@ function amap_render_contracts_page() {
                         } );
                         tab.classList.add( 'nav-tab-active' );
                         document.getElementById( tab.dataset.amapTab ).hidden = false;
+
+                        // Bascule d'onglet purement en JS (pas de rechargement) : sans ceci,
+                        // l'URL ne reflète jamais l'onglet affiché et un simple F5 (par ex. après
+                        // avoir rattaché le producteur à un groupe dans un autre onglet du
+                        // navigateur, voir le message d'avertissement de "Dates de livraison")
+                        // ramène toujours sur "Infos du contrat".
+                        var url = new URL( window.location.href );
+                        if ( tab.dataset.amapTabQuery ) {
+                            url.searchParams.set( 'active_tab', tab.dataset.amapTabQuery );
+                        } else {
+                            url.searchParams.delete( 'active_tab' );
+                        }
+                        history.replaceState( null, '', url );
                     } );
                 } );
             } )();
@@ -1296,7 +1400,17 @@ function amap_handle_add_contract() {
         )
     );
 
-    wp_safe_redirect( admin_url( 'admin.php?page=amap-contracts' ) );
+    // Redirige directement vers la page du contrat créé, sur l'onglet propre à son type (tailles
+    // de panier / produits), plutôt que vers la liste plate : le bureau enchaîne naturellement sur
+    // la saisie du contenu du contrat sans avoir à le rechercher pour cliquer "Voir le contrat".
+    $edit_url = admin_url( 'admin.php?page=amap-contracts&action=edit&id=' . $wpdb->insert_id );
+    if ( 'basket_recurring' === $contract_type ) {
+        $edit_url .= '&active_tab=sizes';
+    } elseif ( 'product_grid' === $contract_type ) {
+        $edit_url .= '&active_tab=products';
+    }
+
+    wp_safe_redirect( $edit_url );
     exit;
 }
 

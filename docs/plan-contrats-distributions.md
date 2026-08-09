@@ -116,7 +116,7 @@ préfixées `amap_`, réutilisant le pattern CRUD déjà en place pour "Utilisat
 11. Notification adhérents lors d'exception (dépend de 9 + 5, réutilise amap_send_email())   ✅ fait
 12. Restitution du bloc producteur (espace membre), dépend de 1-6, 9, 10 — scindée en sous-
     étapes, voir note ci-dessous :
-    12.1 Mes contrats + mes groupes (lecture seule)
+    12.1 Mes contrats + mes groupes (lecture seule)                  ✅ fait
     12.2 Prochaine distribution (jour fixe du groupe + exceptions éventuelles)
     12.3 Produits à livrer pour la prochaine distribution
     12.4 Adhérents disponibles par groupe
@@ -772,5 +772,59 @@ et `amap_handle_delete_distribution_exception()` (`$event = 'deleted'`, juste av
 `$wpdb->delete()`, avec les données de `$exception` déjà chargées en mémoire pour la validation
 d'origine). Pas de nouvelle page, capability ni fichier : suit le principe déjà appliqué aux étapes
 9/10 (tout dans `groups.php`).
+
+Commit à venir.
+
+## Étape 12 — Restitution du bloc producteur (espace membre)
+
+Le bloc "casquette producteur" de l'espace membre (`member-area-producer.php`) affichait jusqu'ici
+un texte statique ("Vous êtes producteur."). Restitution scindée en sous-étapes validées
+séparément, sur le même principe que la souscription en ligne (étape 7) :
+
+```
+12.1 Mes contrats + mes groupes (lecture seule)                      ✅ fait
+12.2 Prochaine distribution (jour fixe du groupe + exceptions éventuelles)
+12.3 Produits à livrer pour la prochaine distribution
+12.4 Adhérents disponibles par groupe
+```
+
+### Étape 12.1 (fait) — "Mes contrats" + "Mes groupes" (lecture seule)
+
+Même esprit que "Mes contrats" côté adhérent (étape 7.1), en plus simple : le producteur est déjà
+connu, pas de jointure contrat/groupe/taille à résoudre ligne par ligne comme pour une
+souscription.
+
+- **`amap_get_producer_contracts( $producer_user_id )`** (nouvelle fonction, `contracts.php`) —
+  contrats du producteur connecté, même tri que `amap_get_contracts()`. Le template calcule
+  lui-même le statut (`amap_get_contract_period_status()`) et le type
+  (`amap_get_contract_types()`) par contrat, comme "Mes contrats" côté adhérent.
+- **`member-area-producer.php`** : deux blocs `.amap-card` — "Mes contrats" (label, type,
+  période/statut, réutilise `.amap-subscription-list`/`.amap-status-badge` tels quels) et "Mes
+  groupes" (une seule liste globale via `amap_get_producer_groups()`, pas répétée par contrat :
+  cette fonction est par producteur et non par contrat — pour `basket_recurring` en particulier,
+  rien en base ne relie un contrat à un sous-ensemble précis de groupes). Aucune nouvelle classe
+  CSS : `.amap-card ul` avait déjà le bon rendu pour une liste simple.
+
+**Point UX remonté après test réel** (2026-08-09, même schéma que les étapes 9/10) : créer un
+contrat pour un producteur pas encore rattaché à un groupe (page admin "Contrats") faisait
+remonter des sections vides plus loin dans le parcours (dates de livraison, souscriptions
+adhérent) — ressemblant à un bug alors que c'est le comportement attendu tant que le bureau n'a
+pas fait le rattachement depuis la page "Groupes" (étape 2). Quatre corrections apportées à la
+page admin "Contrats", indépendantes de 12.1 mais découvertes en la testant :
+- Sous le champ "Producteur" du formulaire (ajout et modification), un indice JS liste les groupes
+  déjà rattachés au producteur sélectionné, ou un avertissement s'il n'en a aucun — groupes de
+  tous les producteurs précalculés côté PHP et injectés en JSON, même principe que les données
+  précalculées de la page "Souscriptions" (étape 5).
+- Cet avertissement (ainsi que celui, déjà existant depuis l'étape 4c, de l'onglet "Dates de
+  livraison") inclut désormais un lien cliquable vers la page "Groupes", ouvert dans un nouvel
+  onglet pour ne pas perdre la saisie en cours.
+- `amap_handle_add_contract()` redirige désormais vers la page du contrat créé, sur l'onglet
+  propre à son type (tailles de panier / produits) plutôt que vers la liste plate, pour enchaîner
+  directement sur la saisie du contenu du contrat.
+- Les onglets de la page "Contrats" (Infos du contrat / Tailles / Produits / Dates), basculés en
+  JS sans rechargement, ne mettaient jamais à jour l'URL : un F5 (par exemple après être allé
+  rattacher le producteur à un groupe dans un autre onglet du navigateur) retombait toujours sur
+  "Infos du contrat". Chaque clic met désormais à jour `?active_tab=...` via
+  `history.replaceState`, pour qu'un rechargement conserve l'onglet affiché.
 
 Commit à venir.
