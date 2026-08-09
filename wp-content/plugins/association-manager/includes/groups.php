@@ -722,6 +722,9 @@ function amap_render_groups_page() {
                                     >
                                     <?php echo esc_html( $producer->display_name ); ?>
                                 </label>
+                                <a href="<?php echo esc_url( admin_url( 'admin.php?page=amap-users&action=view_producer&id=' . $producer->ID ) ); ?>">
+                                    <?php esc_html_e( 'Voir la fiche', 'association-manager' ); ?>
+                                </a>
                             </p>
                         <?php endforeach; ?>
                         <p>

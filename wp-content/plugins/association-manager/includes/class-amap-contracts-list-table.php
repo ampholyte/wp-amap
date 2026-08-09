@@ -144,7 +144,11 @@ class Amap_Contracts_List_Table extends WP_List_Table {
         switch ( $column_name ) {
             case 'producer_user_id':
                 $producer = get_user_by( 'id', $contract->producer_user_id );
-                return esc_html( $producer ? $producer->display_name : '—' );
+                if ( ! $producer ) {
+                    return '—';
+                }
+                $profile_url = admin_url( 'admin.php?page=amap-users&action=view_producer&id=' . $producer->ID );
+                return sprintf( '<a href="%s">%s</a>', esc_url( $profile_url ), esc_html( $producer->display_name ) );
             case 'contract_type':
                 $contract_types = amap_get_contract_types();
                 return esc_html( $contract_types[ $contract->contract_type ] ?? $contract->contract_type );

@@ -51,6 +51,14 @@ function amap_render_users_page() {
         return;
     }
 
+    // Fiche producteur en lecture seule (?action=view_producer&id=X) : remplace entièrement la
+    // liste/formulaire habituels de cette page, plutôt qu'une nouvelle page CRUD séparée — voir
+    // amap_render_producer_profile_page().
+    if ( isset( $_GET['action'], $_GET['id'] ) && 'view_producer' === $_GET['action'] ) {
+        amap_render_producer_profile_page( absint( $_GET['id'] ) );
+        return;
+    }
+
     $notice = isset( $_GET['amap_notice'] ) ? sanitize_key( wp_unslash( $_GET['amap_notice'] ) ) : '';
 
     // Détail de l'erreur d'envoi, posé par amap_handle_send_test_email() juste avant la
@@ -305,6 +313,120 @@ function amap_render_users_page() {
             $users_list_table->display();
             ?>
         </form>
+    </div>
+    <?php
+}
+
+/**
+ * Fiche producteur agrégée en lecture seule : coordonnées + groupes de livraison + contrats,
+ * pour éviter d'avoir à recouper trois pages différentes quand le bureau veut juste consulter la
+ * situation d'un producteur. Volontairement pas de formulaire d'édition ici : les modifications
+ * restent sur les pages Utilisateurs AMAP/Groupes/Contrats existantes.
+ */
+function amap_render_producer_profile_page( $producer_user_id ) {
+    $producer = get_user_by( 'id', $producer_user_id );
+    if ( ! $producer || ! in_array( 'amap_producer', $producer->roles, true ) ) {
+        wp_die( esc_html__( 'Producteur introuvable.', 'association-manager' ) );
+    }
+
+    $contact        = amap_get_user_contact( $producer->ID );
+    $groups         = amap_get_producer_groups( $producer->ID );
+    $contracts      = amap_get_producer_contracts( $producer->ID );
+    $weekday_labels = amap_get_weekday_labels();
+    $contract_types = amap_get_contract_types();
+    ?>
+    <div class="wrap">
+        <h1>
+            <?php
+            printf(
+                /* translators: %s: nom du producteur. */
+                esc_html__( 'Fiche producteur : %s', 'association-manager' ),
+                esc_html( $producer->display_name )
+            );
+            ?>
+        </h1>
+
+        <p><a href="<?php echo esc_url( admin_url( 'admin.php?page=amap-users' ) ); ?>">&larr; <?php esc_html_e( 'Retour à la liste des utilisateurs', 'association-manager' ); ?></a></p>
+
+        <h2><?php esc_html_e( 'Coordonnées', 'association-manager' ); ?></h2>
+        <table class="form-table">
+            <tr>
+                <th><?php esc_html_e( 'Nom', 'association-manager' ); ?></th>
+                <td><?php echo esc_html( $producer->display_name ); ?></td>
+            </tr>
+            <tr>
+                <th><?php esc_html_e( 'Email', 'association-manager' ); ?></th>
+                <td><?php echo esc_html( $producer->user_email ); ?></td>
+            </tr>
+            <tr>
+                <th><?php esc_html_e( 'Téléphone', 'association-manager' ); ?></th>
+                <td><?php echo esc_html( $contact->phone ?? '—' ); ?></td>
+            </tr>
+            <tr>
+                <th><?php esc_html_e( 'Adresse', 'association-manager' ); ?></th>
+                <td><?php echo esc_html( $contact->address ?? '—' ); ?></td>
+            </tr>
+        </table>
+
+        <h2><?php esc_html_e( 'Groupes de livraison rattachés', 'association-manager' ); ?></h2>
+        <?php if ( empty( $groups ) ) : ?>
+            <p><?php esc_html_e( "Ce producteur n'est rattaché à aucun groupe de distribution.", 'association-manager' ); ?></p>
+        <?php else : ?>
+            <table class="widefat striped">
+                <thead>
+                    <tr>
+                        <th><?php esc_html_e( 'Nom', 'association-manager' ); ?></th>
+                        <th><?php esc_html_e( 'Jour', 'association-manager' ); ?></th>
+                        <th><?php esc_html_e( 'Horaire', 'association-manager' ); ?></th>
+                        <th><?php esc_html_e( 'Lieu de livraison', 'association-manager' ); ?></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php foreach ( $groups as $group ) : ?>
+                        <tr>
+                            <td>
+                                <a href="<?php echo esc_url( admin_url( 'admin.php?page=amap-groups&action=edit&id=' . $group->id ) ); ?>">
+                                    <?php echo esc_html( $group->name ); ?>
+                                </a>
+                            </td>
+                            <td><?php echo esc_html( $weekday_labels[ (int) $group->weekday ] ?? '' ); ?></td>
+                            <td><?php echo esc_html( amap_format_time( $group->start_time ) . ' - ' . amap_format_time( $group->end_time ) ); ?></td>
+                            <td><?php echo esc_html( $group->delivery_place ); ?></td>
+                        </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+        <?php endif; ?>
+
+        <h2><?php esc_html_e( 'Contrats', 'association-manager' ); ?></h2>
+        <?php if ( empty( $contracts ) ) : ?>
+            <p><?php esc_html_e( "Ce producteur n'a aucun contrat.", 'association-manager' ); ?></p>
+        <?php else : ?>
+            <table class="widefat striped">
+                <thead>
+                    <tr>
+                        <th><?php esc_html_e( 'Libellé', 'association-manager' ); ?></th>
+                        <th><?php esc_html_e( 'Type', 'association-manager' ); ?></th>
+                        <th><?php esc_html_e( 'Période', 'association-manager' ); ?></th>
+                        <th><?php esc_html_e( 'Actif', 'association-manager' ); ?></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php foreach ( $contracts as $contract ) : ?>
+                        <tr>
+                            <td>
+                                <a href="<?php echo esc_url( admin_url( 'admin.php?page=amap-contracts&action=edit&id=' . $contract->id ) ); ?>">
+                                    <?php echo esc_html( $contract->label ); ?>
+                                </a>
+                            </td>
+                            <td><?php echo esc_html( $contract_types[ $contract->contract_type ] ?? $contract->contract_type ); ?></td>
+                            <td><?php echo esc_html( $contract->start_date . ' → ' . $contract->end_date ); ?></td>
+                            <td><?php echo $contract->is_active ? esc_html__( 'Oui', 'association-manager' ) : esc_html__( 'Non', 'association-manager' ); ?></td>
+                        </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+        <?php endif; ?>
     </div>
     <?php
 }

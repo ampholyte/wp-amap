@@ -127,6 +127,17 @@ class Amap_Users_List_Table extends WP_List_Table {
             'edit' => sprintf( '<a href="%s">%s</a>', esc_url( $edit_url ), esc_html__( 'Modifier', 'association-manager' ) ),
         );
 
+        // Fiche agrégée (coordonnées + groupes + contrats) : n'a de sens que pour la casquette
+        // producteur, les adhérents/bureau n'ayant ni groupe de livraison ni contrat à consulter.
+        if ( in_array( 'amap_producer', $user->roles, true ) ) {
+            $profile_url = admin_url( 'admin.php?page=amap-users&action=view_producer&id=' . $user->ID );
+            $actions['view_producer'] = sprintf(
+                '<a href="%s">%s</a>',
+                esc_url( $profile_url ),
+                esc_html__( 'Voir la fiche', 'association-manager' )
+            );
+        }
+
         // Un compte administrateur ne peut pas être supprimé depuis cette page (voir
         // amap_handle_delete_user()) : pas de lien "Supprimer" qui mènerait de toute façon à un
         // refus côté serveur.
