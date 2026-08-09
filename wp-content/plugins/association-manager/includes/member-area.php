@@ -112,8 +112,11 @@ function amap_maybe_render_member_area() {
  * ne les propose jamais — wp_die() dans ces cas. Souscrire plusieurs fois au même contrat est
  * volontairement permis (voir amap_get_available_contracts_for_member()), donc pas de vérif de
  * doublon ici. L'absence de groupe rattaché redirige vers l'onglet adhérent, qui explique déjà la
- * marche à suivre ; les tailles de panier manquantes relèvent d'une configuration incomplète côté
- * bureau, pas d'une tentative de trafiquer la requête.
+ * marche à suivre. En revanche, une taille de panier / un produit / une date de livraison
+ * manquants relèvent d'une configuration incomplète côté bureau, pas d'une tentative de trafiquer
+ * la requête : un contrat proposé normalement à la souscription peut très bien y mener, donc ces
+ * cas retournent un tableau avec une clé 'error' (affiché en notice par member-area-subscribe.php)
+ * plutôt qu'un wp_die().
  */
 function amap_get_member_subscribe_form_data( $user ) {
     $contract_id = isset( $_GET['contract_id'] ) ? absint( $_GET['contract_id'] ) : 0;
@@ -152,7 +155,7 @@ function amap_get_member_subscribe_form_data( $user ) {
         );
 
         if ( empty( $basket_sizes ) ) {
-            wp_die( esc_html__( "Aucune taille de panier n'est configurée pour ce contrat. Contactez le bureau.", 'association-manager' ) );
+            return array( 'error' => 'no_basket_sizes' );
         }
     } else {
         $products = array_map(
@@ -166,7 +169,7 @@ function amap_get_member_subscribe_form_data( $user ) {
         );
 
         if ( empty( $products ) ) {
-            wp_die( esc_html__( "Aucun produit n'est configuré pour ce contrat. Contactez le bureau.", 'association-manager' ) );
+            return array( 'error' => 'no_products' );
         }
 
         // Groupe déjà fixé (contrairement à l'admin, qui construit les dates de tous les
@@ -184,7 +187,7 @@ function amap_get_member_subscribe_form_data( $user ) {
         }
 
         if ( empty( $delivery_dates ) ) {
-            wp_die( esc_html__( "Aucune date de livraison n'est configurée pour votre groupe sur ce contrat. Contactez le bureau.", 'association-manager' ) );
+            return array( 'error' => 'no_delivery_dates' );
         }
     }
 

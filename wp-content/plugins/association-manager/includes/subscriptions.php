@@ -402,6 +402,97 @@ function amap_get_member_subscriptions( $member_user_id ) {
 }
 
 /**
+ * Produits/paniers à récupérer par l'adhérent connecté à sa prochaine distribution — même forme
+ * de retour que amap_get_group_deliveries() (une entrée par contrat, items = [{label, quantity}]),
+ * mais agrégée uniquement sur les souscriptions DE CET ADHÉRENT (pas tous les adhérents du
+ * groupe) : un contrat souscrit plusieurs fois (ex. 2 grands paniers + 1 petit) donne une seule
+ * carte aux quantités cumulées, jamais une carte par souscription. $distribution_date doit être
+ * la date calendaire brute de la distribution (`original_date` de amap_get_group_next_distribution(),
+ * jamais `date` qui peut avoir été déplacée — voir le commentaire de cette fonction).
+ */
+function amap_get_member_deliveries( array $subscriptions, $group, $distribution_date ) {
+    $by_contract = array();
+
+    foreach ( $subscriptions as $entry ) {
+        $subscription = $entry['subscription'];
+        $contract     = $entry['contract'];
+
+        if ( (int) $subscription->group_id !== (int) $group->id || 'active' !== $entry['status'] ) {
+            continue;
+        }
+
+        $contract_id = $contract->id;
+        if ( ! isset( $by_contract[ $contract_id ] ) ) {
+            $by_contract[ $contract_id ] = array(
+                'contract' => $contract,
+                'items'    => array(),
+            );
+        }
+
+        if ( 'basket_recurring' === $contract->contract_type ) {
+            $contract_dates = amap_get_weekday_dates_in_range(
+                $contract->start_date,
+                $contract->end_date,
+                (int) $group->weekday,
+                (int) $contract->frequency_weeks
+            );
+            if ( ! in_array( $distribution_date, $contract_dates, true )
+                || ! $entry['basket_size']
+                || amap_subscription_has_leave( $subscription->id, $distribution_date )
+            ) {
+                continue;
+            }
+
+            $item_key = 'basket_' . $entry['basket_size']->id;
+            if ( ! isset( $by_contract[ $contract_id ]['items'][ $item_key ] ) ) {
+                $by_contract[ $contract_id ]['items'][ $item_key ] = array(
+                    'label'    => $entry['basket_size']->label,
+                    'quantity' => 0,
+                );
+            }
+            ++$by_contract[ $contract_id ]['items'][ $item_key ]['quantity'];
+        } else {
+            $delivery_date_row = amap_get_contract_delivery_date_by_date( $contract_id, $group->id, $distribution_date );
+            if ( ! $delivery_date_row ) {
+                continue;
+            }
+
+            foreach ( amap_get_subscription_items( $subscription->id ) as $item ) {
+                if ( (int) $item->contract_delivery_date_id !== (int) $delivery_date_row->id || (int) $item->quantity <= 0 ) {
+                    continue;
+                }
+                $product = amap_get_contract_product( (int) $item->contract_product_id );
+                if ( ! $product ) {
+                    continue;
+                }
+
+                $item_key = 'product_' . $product->id;
+                if ( ! isset( $by_contract[ $contract_id ]['items'][ $item_key ] ) ) {
+                    $by_contract[ $contract_id ]['items'][ $item_key ] = array(
+                        'label'    => $product->label,
+                        'quantity' => 0,
+                    );
+                }
+                $by_contract[ $contract_id ]['items'][ $item_key ]['quantity'] += (int) $item->quantity;
+            }
+        }
+    }
+
+    $deliveries = array();
+    foreach ( $by_contract as $entry ) {
+        if ( empty( $entry['items'] ) ) {
+            continue;
+        }
+        $deliveries[] = array(
+            'contract' => $entry['contract'],
+            'items'    => array_values( $entry['items'] ),
+        );
+    }
+
+    return $deliveries;
+}
+
+/**
  * Contrats ouverts à la souscription (`is_active`) des producteurs livrant le groupe de
  * l'adhérent connecté (amap_get_member_group(), fixé par le bureau sur la page "Utilisateurs
  * AMAP") — proposés dans l'onglet "Espace adhérent" (member-area-member.php) avec un bouton
