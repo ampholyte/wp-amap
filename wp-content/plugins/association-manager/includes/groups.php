@@ -735,8 +735,7 @@ function amap_render_groups_page() {
             </details>
 
             <?php
-            $distribution_exceptions = amap_get_distribution_exceptions( $editing_id );
-            $exception_type_labels   = amap_get_distribution_exception_type_labels();
+            $exception_type_labels = amap_get_distribution_exception_type_labels();
             // Reste ouverte si on est en train de modifier une exception (le formulaire d'édition
             // doit rester visible) ou si un message la concerne (retour après ajout/modification/
             // suppression) — jamais masquer un message pertinent derrière une section repliée.
@@ -766,69 +765,11 @@ function amap_render_groups_page() {
                 <div class="notice notice-success"><p><?php esc_html_e( 'Exception de distribution supprimée.', 'association-manager' ); ?></p></div>
             <?php endif; ?>
 
-            <?php if ( empty( $distribution_exceptions ) ) : ?>
-                <p><?php esc_html_e( 'Aucune exception enregistrée pour ce groupe.', 'association-manager' ); ?></p>
-            <?php else : ?>
-                <table class="widefat">
-                    <thead>
-                        <tr>
-                            <th><?php esc_html_e( 'Distribution concernée', 'association-manager' ); ?></th>
-                            <th><?php esc_html_e( 'Type', 'association-manager' ); ?></th>
-                            <th><?php esc_html_e( 'Nouvelle date/horaire/lieu', 'association-manager' ); ?></th>
-                            <th><?php esc_html_e( 'Motif', 'association-manager' ); ?></th>
-                            <th><?php esc_html_e( 'Décidé par', 'association-manager' ); ?></th>
-                            <th><?php esc_html_e( 'Actions', 'association-manager' ); ?></th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php foreach ( $distribution_exceptions as $exception ) : ?>
-                            <?php $decided_by_user = get_userdata( $exception->decided_by ); ?>
-                            <tr>
-                                <td><?php echo esc_html( $exception->distribution_date ); ?></td>
-                                <td><?php echo esc_html( $exception_type_labels[ $exception->exception_type ] ?? $exception->exception_type ); ?></td>
-                                <td>
-                                    <?php if ( 'moved' === $exception->exception_type ) : ?>
-                                        <?php
-                                        $moved_parts = array();
-                                        if ( $exception->new_date ) {
-                                            $moved_parts[] = $exception->new_date;
-                                        }
-                                        if ( $exception->new_start_time && $exception->new_end_time ) {
-                                            $moved_parts[] = amap_format_time( $exception->new_start_time ) . '-' . amap_format_time( $exception->new_end_time );
-                                        }
-                                        if ( $exception->new_place ) {
-                                            $moved_parts[] = $exception->new_place;
-                                        }
-                                        echo esc_html( implode( ' · ', $moved_parts ) );
-                                        ?>
-                                    <?php else : ?>
-                                        —
-                                    <?php endif; ?>
-                                </td>
-                                <td><?php echo esc_html( $exception->reason ? $exception->reason : '—' ); ?></td>
-                                <td><?php echo esc_html( $decided_by_user ? $decided_by_user->display_name : '—' ); ?></td>
-                                <td>
-                                    <a href="<?php echo esc_url( admin_url( 'admin.php?page=amap-groups&action=edit&id=' . $editing_id . '&exception_action=edit&exception_id=' . $exception->id ) ); ?>">
-                                        <?php esc_html_e( 'Modifier', 'association-manager' ); ?>
-                                    </a>
-                                    |
-                                    <?php
-                                    $delete_exception_url = wp_nonce_url(
-                                        admin_url( 'admin-post.php?action=amap_delete_distribution_exception&id=' . $exception->id ),
-                                        'amap_delete_distribution_exception_' . $exception->id
-                                    );
-                                    // translators: %s: date de la distribution concernée.
-                                    $confirm_exception_message = sprintf( __( "Supprimer définitivement l'exception du %s ?", 'association-manager' ), $exception->distribution_date );
-                                    ?>
-                                    <a href="<?php echo esc_url( $delete_exception_url ); ?>" onclick="return confirm( '<?php echo esc_js( $confirm_exception_message ); ?>' );">
-                                        <?php esc_html_e( 'Supprimer', 'association-manager' ); ?>
-                                    </a>
-                                </td>
-                            </tr>
-                        <?php endforeach; ?>
-                    </tbody>
-                </table>
-            <?php endif; ?>
+            <?php
+            $exceptions_list_table = new Amap_Distribution_Exceptions_List_Table();
+            $exceptions_list_table->prepare_items( $editing_id );
+            $exceptions_list_table->display();
+            ?>
 
             <?php if ( ! $exception_editing_id ) : ?>
                 <p>
