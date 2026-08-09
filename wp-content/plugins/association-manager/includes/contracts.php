@@ -180,6 +180,24 @@ function amap_get_contract_delivery_dates_for_group( $contract_id, $group_id ) {
 }
 
 /**
+ * Ligne de date de livraison pour un couple (contrat, groupe) à une date exacte, ou null. Utilisée
+ * par amap_get_contract_products_to_deliver() pour retrouver les subscription_items rattachés à
+ * la prochaine distribution d'un groupe (amap_get_group_next_distribution(), étape 12.2).
+ */
+function amap_get_contract_delivery_date_by_date( $contract_id, $group_id, $delivery_date ) {
+    global $wpdb;
+
+    return $wpdb->get_row(
+        $wpdb->prepare(
+            "SELECT * FROM {$wpdb->prefix}amap_contract_delivery_dates WHERE contract_id = %d AND group_id = %d AND delivery_date = %s",
+            $contract_id,
+            $group_id,
+            $delivery_date
+        )
+    );
+}
+
+/**
  * Revérifie côté PHP la contrainte UNIQUE(contract_id, group_id, delivery_date), pour afficher
  * un message d'erreur clair plutôt que de laisser échouer silencieusement le
  * $wpdb->insert()/update(). $exclude_id : ID à ignorer, pour ne pas se comparer à soi-même lors

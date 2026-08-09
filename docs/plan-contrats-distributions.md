@@ -784,7 +784,7 @@ séparément, sur le même principe que la souscription en ligne (étape 7) :
 ```
 12.1 Mes contrats + mes groupes (lecture seule)                      ✅ fait
 12.2 Prochaine distribution (jour fixe du groupe + exceptions éventuelles) ✅ fait
-12.3 Produits à livrer pour la prochaine distribution
+12.3 Produits à livrer pour la prochaine distribution              ✅ fait
 12.4 Adhérents disponibles par groupe
 ```
 
@@ -852,5 +852,51 @@ Commit à venir.
   blocs. Le badge de statut (`.amap-status-badge--cancelled`/`--moved`, nouveaux modificateurs sur
   les tokens `--color-error`/`--color-warning` déjà existants) n'apparaît que si la distribution
   n'est pas `normal` — rien à signaler pour le cas courant.
+
+Commit à venir.
+
+### Étape 12.3 (fait) — Produits à livrer pour la prochaine distribution
+
+Croise pour la première fois contrats, groupes, souscriptions et congés — plusieurs décisions
+techniques tranchées en conversation avant codage (2026-08-09) :
+
+- **Date "brute" vs date effective** : `amap_get_group_next_distribution()` (12.2) gagne une clé
+  `original_date`, toujours la date calculée sur le jour fixe du groupe, jamais remplacée par
+  `new_date` d'une exception `moved`. Les commandes déjà enregistrées (dates de livraison
+  `product_grid`, échéancier `basket_recurring`) restent ancrées sur le calendrier normal même
+  quand la distribution est physiquement déplacée — `date` reste réservée à l'affichage ("où/quand
+  aller"), `original_date` sert à retrouver "quoi apporter".
+- **`amap_get_contract_delivery_date_by_date( $contract_id, $group_id, $delivery_date )`**
+  (nouvelle fonction, `contracts.php`) — variante de `amap_get_contract_delivery_dates_for_group()`
+  qui cible une date exacte et retourne la ligne (donc son `id`, nécessaire pour retrouver les
+  `subscription_items`).
+- **`amap_get_contract_baskets_to_deliver( $contract, $group, $distribution_date )`**
+  (`basket_recurring`) et **`amap_get_contract_products_to_deliver( $contract, $group,
+  $distribution_date )`** (`product_grid`), nouvelles fonctions `subscriptions.php` : retournent
+  `null` si la date ne correspond à aucune livraison réelle pour ce contrat (semaine creuse d'un
+  contrat bimensuel via `amap_get_weekday_dates_in_range()` avec `frequency_weeks`, ou aucune ligne
+  `wp_amap_contract_delivery_dates` pour ce couple contrat/groupe/date), sinon un tableau d'entrées
+  agrégées (tailles de panier comptées en excluant les souscriptions en congé ce jour-là via
+  `amap_subscription_has_leave()` ; quantités par produit sommées tous adhérents confondus).
+- **`amap_get_group_deliveries( $group, $producer_contracts, $distribution_date )`** (nouvelle
+  fonction, `subscriptions.php`) — orchestre les deux fonctions ci-dessus selon `contract_type`,
+  filtre sur les contrats dont la période est "en cours" aujourd'hui
+  (`amap_get_contract_period_status()`, comme 12.1) et ignore silencieusement un contrat sans rien
+  à livrer (semaine creuse ou aucune commande), plutôt que de l'afficher avec "0". **Jamais de
+  fusion entre contrats** même en cas de libellés de taille/produit identiques : aucun lien fiable
+  entre eux en base.
+- **`member-area-producer.php`** : nouvelle carte "Produits à livrer" (tranchée en conversation
+  plutôt qu'une intégration à "Mes groupes", déjà dense depuis 12.2, ou un regroupement par contrat
+  sous "Mes contrats", qui aurait éclaté l'info d'un même groupe) — une entrée par groupe (comme
+  "Mes groupes"), avec la date de la prochaine distribution puis un sous-bloc par contrat listant
+  ses paniers/produits agrégés. `$group_next_distributions` précalculé une seule fois en tête de
+  template et partagé entre les cartes "Mes groupes" et "Produits à livrer", pour ne pas appeler
+  `amap_get_group_next_distribution()` deux fois par groupe.
+- **Portée volontairement limitée aux agrégats** : pas de détail nominatif (qui a commandé quoi)
+  à ce stade — réservé à l'étape 12.4 ("Adhérents disponibles par groupe"), pour ne pas dupliquer
+  cette information entre les deux étapes.
+- CSS : deux nouvelles classes, `.amap-subscription-item__meta` (texte secondaire discret, ex. la
+  date dans l'en-tête d'une carte) et `.amap-delivery-contract-label` (sous-titre de contrat dans
+  la liste des produits à livrer).
 
 Commit à venir.

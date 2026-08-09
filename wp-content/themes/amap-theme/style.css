@@ -372,6 +372,16 @@ input[type="submit"]:hover,
     font-weight: 600;
 }
 
+.amap-subscription-item__meta {
+    color: var(--color-text-muted);
+    font-size: 0.9rem;
+}
+
+.amap-delivery-contract-label {
+    font-weight: 600;
+    margin: var(--space-2) 0 var(--space-1);
+}
+
 .amap-status-badge {
     display: inline-block;
     padding: var(--space-1) var(--space-2);

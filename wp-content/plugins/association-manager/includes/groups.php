@@ -238,6 +238,11 @@ function amap_get_group_distribution_exception_by_date( $group_id, $distribution
  * Ne cherche pas la prochaine date NON annulée en cas d'exception "cancelled" sur la date
  * calculée : une annulation reste un cas rare (metier-producteurs.md), simplement signalée sur la
  * date qu'elle concerne plutôt que masquée derrière une recherche en avant.
+ *
+ * `original_date` (toujours la date calculée sur le jour fixe du groupe, jamais remplacée par
+ * `new_date`) sert à retrouver les commandes déjà enregistrées (dates de livraison product_grid,
+ * échéancier basket_recurring), qui restent ancrées sur le calendrier normal même quand la
+ * distribution est déplacée — `date` reste la date effective à afficher au producteur.
  */
 function amap_get_group_next_distribution( $group ) {
     $today       = current_time( 'Y-m-d' );
@@ -248,30 +253,33 @@ function amap_get_group_next_distribution( $group ) {
 
     if ( $exception && 'cancelled' === $exception->exception_type ) {
         return array(
-            'date'      => $date,
-            'status'    => 'cancelled',
-            'exception' => $exception,
+            'date'          => $date,
+            'original_date' => $date,
+            'status'        => 'cancelled',
+            'exception'     => $exception,
         );
     }
 
     if ( $exception && 'moved' === $exception->exception_type ) {
         return array(
-            'date'       => $exception->new_date ?: $date,
-            'start_time' => $exception->new_start_time ?: $group->start_time,
-            'end_time'   => $exception->new_end_time ?: $group->end_time,
-            'place'      => $exception->new_place ?: $group->delivery_place,
-            'status'     => 'moved',
-            'exception'  => $exception,
+            'date'          => $exception->new_date ?: $date,
+            'original_date' => $date,
+            'start_time'    => $exception->new_start_time ?: $group->start_time,
+            'end_time'      => $exception->new_end_time ?: $group->end_time,
+            'place'         => $exception->new_place ?: $group->delivery_place,
+            'status'        => 'moved',
+            'exception'     => $exception,
         );
     }
 
     return array(
-        'date'       => $date,
-        'start_time' => $group->start_time,
-        'end_time'   => $group->end_time,
-        'place'      => $group->delivery_place,
-        'status'     => 'normal',
-        'exception'  => null,
+        'date'          => $date,
+        'original_date' => $date,
+        'start_time'    => $group->start_time,
+        'end_time'      => $group->end_time,
+        'place'         => $group->delivery_place,
+        'status'        => 'normal',
+        'exception'     => null,
     );
 }
 

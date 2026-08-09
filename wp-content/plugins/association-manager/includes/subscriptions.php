@@ -86,6 +86,153 @@ function amap_subscription_has_leave( $subscription_id, $leave_date ) {
 }
 
 /**
+ * Paniers à livrer par un contrat basket_recurring, pour un groupe et une date de distribution
+ * donnés (date "brute" du jour fixe du groupe — amap_get_group_next_distribution(), étape 12.2).
+ * Retourne null si cette date ne fait pas partie de l'échéancier du contrat (contrat bimensuel
+ * hors semaine de livraison) : amap_get_weekday_dates_in_range() revalidée avec
+ * frequency_weeks, même principe que les congés (étape 8c). Sinon, un tableau (potentiellement
+ * vide) d'entrées { basket_size, count }, un adhérent en congé ce jour-là étant exclu du
+ * décompte.
+ */
+function amap_get_contract_baskets_to_deliver( $contract, $group, $distribution_date ) {
+    global $wpdb;
+
+    $delivery_dates = amap_get_weekday_dates_in_range(
+        $contract->start_date,
+        $contract->end_date,
+        (int) $group->weekday,
+        (int) $contract->frequency_weeks
+    );
+    if ( ! in_array( $distribution_date, $delivery_dates, true ) ) {
+        return null;
+    }
+
+    $subscriptions = $wpdb->get_results(
+        $wpdb->prepare(
+            "SELECT * FROM {$wpdb->prefix}amap_subscriptions WHERE contract_id = %d AND group_id = %d",
+            $contract->id,
+            $group->id
+        )
+    );
+
+    $counts = array();
+    foreach ( $subscriptions as $subscription ) {
+        if ( amap_subscription_has_leave( $subscription->id, $distribution_date ) ) {
+            continue;
+        }
+        $size_id            = (int) $subscription->basket_size_id;
+        $counts[ $size_id ] = ( $counts[ $size_id ] ?? 0 ) + 1;
+    }
+
+    $result = array();
+    foreach ( $counts as $size_id => $count ) {
+        $basket_size = amap_get_contract_basket_size( $size_id );
+        if ( $basket_size ) {
+            $result[] = array(
+                'basket_size' => $basket_size,
+                'count'       => $count,
+            );
+        }
+    }
+
+    return $result;
+}
+
+/**
+ * Produits à livrer par un contrat product_grid, pour un groupe et une date de distribution
+ * donnés (date "brute", voir amap_get_contract_baskets_to_deliver() ci-dessus). Retourne null si
+ * aucune date de livraison n'est enregistrée pour ce couple (contrat, groupe) à cette date exacte
+ * (amap_get_contract_delivery_date_by_date()). Sinon, un tableau (potentiellement vide) d'entrées
+ * { product, quantity }, quantités agrégées tous adhérents confondus.
+ */
+function amap_get_contract_products_to_deliver( $contract, $group, $distribution_date ) {
+    global $wpdb;
+
+    $delivery_date_row = amap_get_contract_delivery_date_by_date( $contract->id, $group->id, $distribution_date );
+    if ( ! $delivery_date_row ) {
+        return null;
+    }
+
+    $rows = $wpdb->get_results(
+        $wpdb->prepare(
+            "SELECT si.contract_product_id, SUM(si.quantity) AS total_quantity
+             FROM {$wpdb->prefix}amap_subscription_items si
+             INNER JOIN {$wpdb->prefix}amap_subscriptions s ON s.id = si.subscription_id
+             WHERE s.contract_id = %d AND s.group_id = %d AND si.contract_delivery_date_id = %d
+             GROUP BY si.contract_product_id",
+            $contract->id,
+            $group->id,
+            $delivery_date_row->id
+        )
+    );
+
+    $result = array();
+    foreach ( $rows as $row ) {
+        $product = amap_get_contract_product( (int) $row->contract_product_id );
+        if ( $product && (int) $row->total_quantity > 0 ) {
+            $result[] = array(
+                'product'  => $product,
+                'quantity' => (int) $row->total_quantity,
+            );
+        }
+    }
+
+    return $result;
+}
+
+/**
+ * Paniers/produits à livrer par un producteur, pour un groupe et une date de distribution donnés
+ * — une entrée par contrat concerné, jamais fusionnées entre contrats même en cas de libellés
+ * identiques (aucun lien fiable entre tailles/produits de contrats différents en base). Seuls les
+ * contrats dont la période est "en cours" aujourd'hui (amap_get_contract_period_status()) sont
+ * pris en compte, et seulement s'ils ont effectivement quelque chose à livrer ce jour-là : un
+ * contrat bimensuel hors semaine de livraison, ou sans aucune commande, est silencieusement
+ * absent du résultat plutôt qu'affiché avec "0".
+ */
+function amap_get_group_deliveries( $group, array $producer_contracts, $distribution_date ) {
+    $deliveries = array();
+
+    foreach ( $producer_contracts as $contract ) {
+        if ( 'active' !== amap_get_contract_period_status( $contract ) ) {
+            continue;
+        }
+
+        if ( 'basket_recurring' === $contract->contract_type ) {
+            $entries = amap_get_contract_baskets_to_deliver( $contract, $group, $distribution_date );
+            $items   = $entries ? array_map(
+                static function ( $entry ) {
+                    return array(
+                        'label'    => $entry['basket_size']->label,
+                        'quantity' => $entry['count'],
+                    );
+                },
+                $entries
+            ) : array();
+        } else {
+            $entries = amap_get_contract_products_to_deliver( $contract, $group, $distribution_date );
+            $items   = $entries ? array_map(
+                static function ( $entry ) {
+                    return array(
+                        'label'    => $entry['product']->label,
+                        'quantity' => $entry['quantity'],
+                    );
+                },
+                $entries
+            ) : array();
+        }
+
+        if ( ! empty( $items ) ) {
+            $deliveries[] = array(
+                'contract' => $contract,
+                'items'    => $items,
+            );
+        }
+    }
+
+    return $deliveries;
+}
+
+/**
  * Souscriptions de l'adhérent connecté, enrichies pour l'affichage front (onglet "Espace
  * adhérent" de member-area.php) — même principe de jointure en PHP que
  * amap_get_producer_groups(). Un contrat supprimé entre-temps (pas de contrainte FOREIGN KEY
