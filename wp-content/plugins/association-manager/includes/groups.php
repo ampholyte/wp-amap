@@ -515,7 +515,8 @@ function amap_render_groups_page() {
         $form_data = array();
     }
 
-    $groups = amap_get_groups();
+    $groups_list_table = new Amap_Groups_List_Table();
+    $groups_list_table->prepare_items();
     ?>
     <div class="wrap">
         <h1><?php esc_html_e( 'Groupes de distribution', 'association-manager' ); ?></h1>
@@ -1065,49 +1066,13 @@ function amap_render_groups_page() {
             </details>
         <?php endif; ?>
 
-        <?php if ( empty( $groups ) ) : ?>
-            <p><?php esc_html_e( 'Aucun groupe enregistré pour le moment.', 'association-manager' ); ?></p>
-        <?php else : ?>
-            <table class="widefat">
-                <thead>
-                    <tr>
-                        <th><?php esc_html_e( 'Nom', 'association-manager' ); ?></th>
-                        <th><?php esc_html_e( 'Lieu de livraison', 'association-manager' ); ?></th>
-                        <th><?php esc_html_e( 'Jour', 'association-manager' ); ?></th>
-                        <th><?php esc_html_e( 'Horaire', 'association-manager' ); ?></th>
-                        <th><?php esc_html_e( 'Actions', 'association-manager' ); ?></th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php foreach ( $groups as $group ) : ?>
-                        <?php $weekday_labels = amap_get_weekday_labels(); ?>
-                        <tr>
-                            <td><?php echo esc_html( $group->name ); ?></td>
-                            <td><?php echo esc_html( $group->delivery_place ); ?></td>
-                            <td><?php echo esc_html( $weekday_labels[ (int) $group->weekday ] ?? '' ); ?></td>
-                            <td><?php echo esc_html( amap_format_time( $group->start_time ) . ' - ' . amap_format_time( $group->end_time ) ); ?></td>
-                            <td>
-                                <a href="<?php echo esc_url( admin_url( 'admin.php?page=amap-groups&action=edit&id=' . $group->id ) ); ?>">
-                                    <?php esc_html_e( 'Voir le groupe', 'association-manager' ); ?>
-                                </a>
-                                |
-                                <?php
-                                $delete_url = wp_nonce_url(
-                                    admin_url( 'admin-post.php?action=amap_delete_group&id=' . $group->id ),
-                                    'amap_delete_group_' . $group->id
-                                );
-                                // translators: %s: nom du groupe.
-                                $confirm_message = sprintf( __( 'Supprimer définitivement le groupe %s ?', 'association-manager' ), $group->name );
-                                ?>
-                                <a href="<?php echo esc_url( $delete_url ); ?>" onclick="return confirm( '<?php echo esc_js( $confirm_message ); ?>' );">
-                                    <?php esc_html_e( 'Supprimer', 'association-manager' ); ?>
-                                </a>
-                            </td>
-                        </tr>
-                    <?php endforeach; ?>
-                </tbody>
-            </table>
-        <?php endif; ?>
+        <form method="get">
+            <input type="hidden" name="page" value="amap-groups">
+            <?php
+            $groups_list_table->search_box( __( 'Rechercher', 'association-manager' ), 'amap-group' );
+            $groups_list_table->display();
+            ?>
+        </form>
     </div>
     <?php
 }

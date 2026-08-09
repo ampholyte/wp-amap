@@ -436,7 +436,6 @@ function amap_render_contracts_page() {
 
     $producers      = amap_get_producer_users();
     $contract_types = amap_get_contract_types();
-    $contracts      = amap_get_contracts();
     $weekday_labels = amap_get_weekday_labels();
 
     // Groupes déjà rattachés à chaque producteur (amap_get_producer_groups()), précalculés pour
@@ -1541,55 +1540,17 @@ function amap_render_contracts_page() {
         <?php endif; ?>
 
         <?php if ( ! $editing_id ) : ?>
-            <?php if ( empty( $contracts ) ) : ?>
-                <p><?php esc_html_e( 'Aucun contrat enregistré pour le moment.', 'association-manager' ); ?></p>
-            <?php else : ?>
-                <table class="widefat">
-                    <thead>
-                        <tr>
-                            <th><?php esc_html_e( 'Libellé', 'association-manager' ); ?></th>
-                            <th><?php esc_html_e( 'Producteur', 'association-manager' ); ?></th>
-                            <th><?php esc_html_e( 'Type', 'association-manager' ); ?></th>
-                            <th><?php esc_html_e( 'Période', 'association-manager' ); ?></th>
-                            <th><?php esc_html_e( 'Fréquence', 'association-manager' ); ?></th>
-                            <th><?php esc_html_e( 'Congés max', 'association-manager' ); ?></th>
-                            <th><?php esc_html_e( 'Actif', 'association-manager' ); ?></th>
-                            <th><?php esc_html_e( 'Actions', 'association-manager' ); ?></th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php foreach ( $contracts as $contract ) : ?>
-                            <?php $producer = get_user_by( 'id', $contract->producer_user_id ); ?>
-                            <tr>
-                                <td><?php echo esc_html( $contract->label ); ?></td>
-                                <td><?php echo esc_html( $producer ? $producer->display_name : '—' ); ?></td>
-                                <td><?php echo esc_html( $contract_types[ $contract->contract_type ] ?? $contract->contract_type ); ?></td>
-                                <td><?php echo esc_html( $contract->start_date . ' → ' . $contract->end_date ); ?></td>
-                                <td><?php echo esc_html( null !== $contract->frequency_weeks ? $contract->frequency_weeks : '—' ); ?></td>
-                                <td><?php echo esc_html( null !== $contract->max_leaves ? $contract->max_leaves : '—' ); ?></td>
-                                <td><?php echo $contract->is_active ? esc_html__( 'Oui', 'association-manager' ) : esc_html__( 'Non', 'association-manager' ); ?></td>
-                                <td>
-                                    <a href="<?php echo esc_url( admin_url( 'admin.php?page=amap-contracts&action=edit&id=' . $contract->id ) ); ?>">
-                                        <?php esc_html_e( 'Voir', 'association-manager' ); ?>
-                                    </a>
-                                    |
-                                    <?php
-                                    $delete_url = wp_nonce_url(
-                                        admin_url( 'admin-post.php?action=amap_delete_contract&id=' . $contract->id ),
-                                        'amap_delete_contract_' . $contract->id
-                                    );
-                                    // translators: %s: libellé du contrat.
-                                    $confirm_message = sprintf( __( 'Supprimer définitivement le contrat %s ?', 'association-manager' ), $contract->label );
-                                    ?>
-                                    <a href="<?php echo esc_url( $delete_url ); ?>" onclick="return confirm( '<?php echo esc_js( $confirm_message ); ?>' );">
-                                        <?php esc_html_e( 'Supprimer', 'association-manager' ); ?>
-                                    </a>
-                                </td>
-                            </tr>
-                        <?php endforeach; ?>
-                    </tbody>
-                </table>
-            <?php endif; ?>
+            <?php
+            $contracts_list_table = new Amap_Contracts_List_Table();
+            $contracts_list_table->prepare_items();
+            ?>
+            <form method="get">
+                <input type="hidden" name="page" value="amap-contracts">
+                <?php
+                $contracts_list_table->search_box( __( 'Rechercher', 'association-manager' ), 'amap-contract' );
+                $contracts_list_table->display();
+                ?>
+            </form>
         <?php endif; ?>
     </div>
     <?php

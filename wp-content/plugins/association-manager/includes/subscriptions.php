@@ -19,14 +19,6 @@ function amap_get_member_users() {
     return $user_query->get_results();
 }
 
-function amap_get_subscriptions() {
-    global $wpdb;
-
-    return $wpdb->get_results(
-        "SELECT * FROM {$wpdb->prefix}amap_subscriptions ORDER BY signed_at DESC"
-    );
-}
-
 function amap_get_subscription( $id ) {
     global $wpdb;
 
@@ -977,8 +969,6 @@ function amap_render_subscriptions_page() {
 
     $selected_contract_id   = isset( $form_data['contract_id'] ) ? (int) $form_data['contract_id'] : 0;
     $selected_contract_data = $contracts_js_data[ $selected_contract_id ] ?? null;
-
-    $subscriptions = amap_get_subscriptions();
     ?>
     <style>
         .amap-items-grid-wrapper {
@@ -1542,58 +1532,14 @@ function amap_render_subscriptions_page() {
             </script>
         <?php endif; ?>
 
-        <?php if ( empty( $subscriptions ) ) : ?>
-            <p><?php esc_html_e( 'Aucune souscription enregistrée pour le moment.', 'association-manager' ); ?></p>
-        <?php else : ?>
-            <table class="widefat">
-                <thead>
-                    <tr>
-                        <th><?php esc_html_e( 'Contrat', 'association-manager' ); ?></th>
-                        <th><?php esc_html_e( 'Producteur', 'association-manager' ); ?></th>
-                        <th><?php esc_html_e( 'Adhérent', 'association-manager' ); ?></th>
-                        <th><?php esc_html_e( 'Groupe', 'association-manager' ); ?></th>
-                        <th><?php esc_html_e( 'Taille de panier', 'association-manager' ); ?></th>
-                        <th><?php esc_html_e( 'Signée le', 'association-manager' ); ?></th>
-                        <th><?php esc_html_e( 'Actions', 'association-manager' ); ?></th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php foreach ( $subscriptions as $subscription ) : ?>
-                        <?php
-                        $row_contract    = amap_get_contract( $subscription->contract_id );
-                        $row_producer    = $row_contract ? get_user_by( 'id', $row_contract->producer_user_id ) : null;
-                        $row_member      = get_user_by( 'id', $subscription->member_user_id );
-                        $row_group       = amap_get_group( $subscription->group_id );
-                        $row_basket_size = $subscription->basket_size_id ? amap_get_contract_basket_size( $subscription->basket_size_id ) : null;
-                        ?>
-                        <tr>
-                            <td><?php echo esc_html( $row_contract ? $row_contract->label : '—' ); ?></td>
-                            <td><?php echo esc_html( $row_producer ? $row_producer->display_name : '—' ); ?></td>
-                            <td><?php echo esc_html( $row_member ? $row_member->display_name : '—' ); ?></td>
-                            <td><?php echo esc_html( $row_group ? $row_group->name : '—' ); ?></td>
-                            <td><?php echo esc_html( $row_basket_size ? $row_basket_size->label : '—' ); ?></td>
-                            <td><?php echo esc_html( $subscription->signed_at ); ?></td>
-                            <td>
-                                <a href="<?php echo esc_url( admin_url( 'admin.php?page=amap-subscriptions&action=edit&id=' . $subscription->id ) ); ?>">
-                                    <?php esc_html_e( 'Modifier', 'association-manager' ); ?>
-                                </a>
-                                |
-                                <?php
-                                $delete_url       = wp_nonce_url(
-                                    admin_url( 'admin-post.php?action=amap_delete_subscription&id=' . $subscription->id ),
-                                    'amap_delete_subscription_' . $subscription->id
-                                );
-                                $confirm_message = __( 'Supprimer définitivement cette souscription ?', 'association-manager' );
-                                ?>
-                                <a href="<?php echo esc_url( $delete_url ); ?>" onclick="return confirm( '<?php echo esc_js( $confirm_message ); ?>' );">
-                                    <?php esc_html_e( 'Supprimer', 'association-manager' ); ?>
-                                </a>
-                            </td>
-                        </tr>
-                    <?php endforeach; ?>
-                </tbody>
-            </table>
-        <?php endif; ?>
+        <?php
+        $subscriptions_list_table = new Amap_Subscriptions_List_Table();
+        $subscriptions_list_table->prepare_items();
+        ?>
+        <form method="get">
+            <input type="hidden" name="page" value="amap-subscriptions">
+            <?php $subscriptions_list_table->display(); ?>
+        </form>
     </div>
     <?php
 }
