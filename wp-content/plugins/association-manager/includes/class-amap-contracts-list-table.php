@@ -32,6 +32,13 @@ class Amap_Contracts_List_Table extends WP_List_Table {
         );
     }
 
+    /**
+     * Nombre de souscriptions par contract_id, indexé après prepare_items() pour éviter une
+     * requête par ligne (N+1) dans column_default() — même principe que $producer_counts et
+     * $member_counts sur Amap_Groups_List_Table.
+     */
+    private $subscription_counts = array();
+
     public function get_columns() {
         return array(
             'label'            => __( 'Libellé', 'association-manager' ),
@@ -41,6 +48,7 @@ class Amap_Contracts_List_Table extends WP_List_Table {
             'frequency_weeks'  => __( 'Fréquence', 'association-manager' ),
             'max_leaves'       => __( 'Congés max', 'association-manager' ),
             'is_active'        => __( 'Actif', 'association-manager' ),
+            'subscriptions'    => __( 'Souscriptions', 'association-manager' ),
         );
     }
 
@@ -104,6 +112,32 @@ class Amap_Contracts_List_Table extends WP_List_Table {
         );
 
         $this->_column_headers = array( $this->get_columns(), array(), $this->get_sortable_columns(), 'label' );
+
+        $this->load_subscription_counts( $wpdb );
+    }
+
+    /**
+     * Compte les souscriptions rattachées à chaque contrat de la page courante, en une seule
+     * requête groupée plutôt qu'une requête par ligne (N+1) dans column_default().
+     */
+    private function load_subscription_counts( $wpdb ) {
+        $contract_ids = wp_list_pluck( $this->items, 'id' );
+
+        if ( ! $contract_ids ) {
+            return;
+        }
+
+        $placeholders = implode( ',', array_fill( 0, count( $contract_ids ), '%d' ) );
+
+        $rows = $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT contract_id, COUNT(*) AS cnt FROM {$wpdb->prefix}amap_subscriptions WHERE contract_id IN ({$placeholders}) GROUP BY contract_id",
+                $contract_ids
+            )
+        );
+        foreach ( $rows as $row ) {
+            $this->subscription_counts[ (int) $row->contract_id ] = (int) $row->cnt;
+        }
     }
 
     protected function column_default( $contract, $column_name ) {
@@ -122,6 +156,8 @@ class Amap_Contracts_List_Table extends WP_List_Table {
                 return esc_html( null !== $contract->max_leaves ? $contract->max_leaves : '—' );
             case 'is_active':
                 return $contract->is_active ? esc_html__( 'Oui', 'association-manager' ) : esc_html__( 'Non', 'association-manager' );
+            case 'subscriptions':
+                return esc_html( (string) ( $this->subscription_counts[ (int) $contract->id ] ?? 0 ) );
             default:
                 return '';
         }

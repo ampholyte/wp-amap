@@ -32,12 +32,25 @@ class Amap_Groups_List_Table extends WP_List_Table {
         );
     }
 
+    /**
+     * Nombre de producteurs rattachés par group_id, indexé après prepare_items() pour éviter une
+     * requête par ligne (N+1) dans column_default().
+     */
+    private $producer_counts = array();
+
+    /**
+     * Nombre d'adhérents rattachés par group_id, même principe que $producer_counts.
+     */
+    private $member_counts = array();
+
     public function get_columns() {
         return array(
             'name'           => __( 'Nom', 'association-manager' ),
             'delivery_place' => __( 'Lieu de livraison', 'association-manager' ),
             'weekday'        => __( 'Jour', 'association-manager' ),
             'start_time'     => __( 'Horaire', 'association-manager' ),
+            'producer_count' => __( 'Producteurs', 'association-manager' ),
+            'member_count'   => __( 'Adhérents', 'association-manager' ),
         );
     }
 
@@ -104,6 +117,42 @@ class Amap_Groups_List_Table extends WP_List_Table {
         );
 
         $this->_column_headers = array( $this->get_columns(), array(), $this->get_sortable_columns(), 'name' );
+
+        $this->load_related_counts( $wpdb );
+    }
+
+    /**
+     * Compte producteurs et adhérents rattachés à chaque groupe de la page courante, en une seule
+     * requête groupée par table plutôt qu'une requête par ligne (N+1) dans column_default().
+     */
+    private function load_related_counts( $wpdb ) {
+        $group_ids = wp_list_pluck( $this->items, 'id' );
+
+        if ( ! $group_ids ) {
+            return;
+        }
+
+        $placeholders = implode( ',', array_fill( 0, count( $group_ids ), '%d' ) );
+
+        $producer_rows = $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT group_id, COUNT(*) AS cnt FROM {$wpdb->prefix}amap_group_producers WHERE group_id IN ({$placeholders}) GROUP BY group_id",
+                $group_ids
+            )
+        );
+        foreach ( $producer_rows as $row ) {
+            $this->producer_counts[ (int) $row->group_id ] = (int) $row->cnt;
+        }
+
+        $member_rows = $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT group_id, COUNT(*) AS cnt FROM {$wpdb->prefix}amap_group_members WHERE group_id IN ({$placeholders}) GROUP BY group_id",
+                $group_ids
+            )
+        );
+        foreach ( $member_rows as $row ) {
+            $this->member_counts[ (int) $row->group_id ] = (int) $row->cnt;
+        }
     }
 
     protected function column_default( $group, $column_name ) {
@@ -115,6 +164,10 @@ class Amap_Groups_List_Table extends WP_List_Table {
                 return esc_html( $weekday_labels[ (int) $group->weekday ] ?? '' );
             case 'start_time':
                 return esc_html( amap_format_time( $group->start_time ) . ' - ' . amap_format_time( $group->end_time ) );
+            case 'producer_count':
+                return esc_html( (string) ( $this->producer_counts[ (int) $group->id ] ?? 0 ) );
+            case 'member_count':
+                return esc_html( (string) ( $this->member_counts[ (int) $group->id ] ?? 0 ) );
             default:
                 return '';
         }
