@@ -852,10 +852,7 @@ function amap_render_contracts_page() {
         <?php endif; ?>
 
         <?php if ( $editing_id && $editing_contract && 'product_grid' === $editing_contract->contract_type ) : ?>
-            <?php
-            $contract_products = amap_get_contract_products( $editing_id );
-            $discount_groups   = amap_get_contract_discount_groups( $editing_id );
-            ?>
+            <?php $discount_groups = amap_get_contract_discount_groups( $editing_id ); ?>
             <div class="postbox amap-tab-panel" id="amap-tab-products"<?php echo ( 'amap-tab-products' === $active_contract_tab ) ? '' : ' hidden'; ?>>
             <div class="inside">
             <h2><?php esc_html_e( 'Familles de remise', 'association-manager' ); ?></h2>
@@ -870,55 +867,11 @@ function amap_render_contracts_page() {
                 <div class="notice notice-success"><p><?php esc_html_e( 'Famille de remise supprimée.', 'association-manager' ); ?></p></div>
             <?php endif; ?>
 
-            <?php if ( empty( $discount_groups ) ) : ?>
-                <p><?php esc_html_e( 'Aucune famille de remise pour le moment.', 'association-manager' ); ?></p>
-            <?php else : ?>
-                <table class="widefat">
-                    <thead>
-                        <tr>
-                            <th><?php esc_html_e( 'Libellé', 'association-manager' ); ?></th>
-                            <th><?php esc_html_e( 'Prix', 'association-manager' ); ?></th>
-                            <th><?php esc_html_e( 'Remise', 'association-manager' ); ?></th>
-                            <th><?php esc_html_e( 'Actions', 'association-manager' ); ?></th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php foreach ( $discount_groups as $discount_group ) : ?>
-                            <tr>
-                                <td><?php echo esc_html( $discount_group->label ); ?></td>
-                                <td><?php echo esc_html( number_format_i18n( (float) $discount_group->price, 2 ) ); ?> €</td>
-                                <td>
-                                    <?php
-                                    printf(
-                                        /* translators: 1: quantité achetée, 2: quantité facturée. */
-                                        esc_html__( '%1$d achetés → %2$d facturés', 'association-manager' ),
-                                        (int) $discount_group->bought_quantity,
-                                        (int) $discount_group->billed_quantity
-                                    );
-                                    ?>
-                                </td>
-                                <td>
-                                    <a href="<?php echo esc_url( admin_url( 'admin.php?page=amap-contracts&action=edit&id=' . $editing_id . '&discount_action=edit&discount_id=' . $discount_group->id ) ); ?>">
-                                        <?php esc_html_e( 'Modifier', 'association-manager' ); ?>
-                                    </a>
-                                    |
-                                    <?php
-                                    $delete_discount_group_url = wp_nonce_url(
-                                        admin_url( 'admin-post.php?action=amap_delete_contract_discount_group&id=' . $discount_group->id ),
-                                        'amap_delete_contract_discount_group_' . $discount_group->id
-                                    );
-                                    // translators: %s: libellé de la famille de remise.
-                                    $confirm_discount_group_message = sprintf( __( 'Supprimer définitivement la famille %s ? Les produits qui en faisaient partie repasseront en prix libre.', 'association-manager' ), $discount_group->label );
-                                    ?>
-                                    <a href="<?php echo esc_url( $delete_discount_group_url ); ?>" onclick="return confirm( '<?php echo esc_js( $confirm_discount_group_message ); ?>' );">
-                                        <?php esc_html_e( 'Supprimer', 'association-manager' ); ?>
-                                    </a>
-                                </td>
-                            </tr>
-                        <?php endforeach; ?>
-                    </tbody>
-                </table>
-            <?php endif; ?>
+            <?php
+            $discount_groups_list_table = new Amap_Contract_Discount_Groups_List_Table();
+            $discount_groups_list_table->prepare_items( $editing_id );
+            $discount_groups_list_table->display();
+            ?>
 
             <?php if ( ! $discount_group_editing_id ) : ?>
                 <p>
@@ -1002,47 +955,11 @@ function amap_render_contracts_page() {
                 <div class="notice notice-success"><p><?php esc_html_e( 'Produit supprimé.', 'association-manager' ); ?></p></div>
             <?php endif; ?>
 
-            <?php if ( empty( $contract_products ) ) : ?>
-                <p><?php esc_html_e( 'Aucun produit pour le moment.', 'association-manager' ); ?></p>
-            <?php else : ?>
-                <?php $discount_group_labels = wp_list_pluck( $discount_groups, 'label', 'id' ); ?>
-                <table class="widefat">
-                    <thead>
-                        <tr>
-                            <th><?php esc_html_e( 'Libellé', 'association-manager' ); ?></th>
-                            <th><?php esc_html_e( 'Prix', 'association-manager' ); ?></th>
-                            <th><?php esc_html_e( 'Famille de remise', 'association-manager' ); ?></th>
-                            <th><?php esc_html_e( 'Actions', 'association-manager' ); ?></th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php foreach ( $contract_products as $contract_product ) : ?>
-                            <tr>
-                                <td><?php echo esc_html( $contract_product->label ); ?></td>
-                                <td><?php echo esc_html( number_format_i18n( (float) $contract_product->price, 2 ) ); ?> €</td>
-                                <td><?php echo esc_html( $discount_group_labels[ (int) $contract_product->discount_group_id ] ?? '—' ); ?></td>
-                                <td>
-                                    <a href="<?php echo esc_url( admin_url( 'admin.php?page=amap-contracts&action=edit&id=' . $editing_id . '&product_action=edit&product_id=' . $contract_product->id ) ); ?>">
-                                        <?php esc_html_e( 'Modifier', 'association-manager' ); ?>
-                                    </a>
-                                    |
-                                    <?php
-                                    $delete_product_url = wp_nonce_url(
-                                        admin_url( 'admin-post.php?action=amap_delete_contract_product&id=' . $contract_product->id ),
-                                        'amap_delete_contract_product_' . $contract_product->id
-                                    );
-                                    // translators: %s: libellé du produit.
-                                    $confirm_product_message = sprintf( __( 'Supprimer définitivement le produit %s ?', 'association-manager' ), $contract_product->label );
-                                    ?>
-                                    <a href="<?php echo esc_url( $delete_product_url ); ?>" onclick="return confirm( '<?php echo esc_js( $confirm_product_message ); ?>' );">
-                                        <?php esc_html_e( 'Supprimer', 'association-manager' ); ?>
-                                    </a>
-                                </td>
-                            </tr>
-                        <?php endforeach; ?>
-                    </tbody>
-                </table>
-            <?php endif; ?>
+            <?php
+            $contract_products_list_table = new Amap_Contract_Products_List_Table();
+            $contract_products_list_table->prepare_items( $editing_id );
+            $contract_products_list_table->display();
+            ?>
 
             <?php if ( ! $product_editing_id ) : ?>
                 <p>

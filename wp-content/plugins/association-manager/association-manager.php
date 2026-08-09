@@ -34,6 +34,8 @@ require_once __DIR__ . '/includes/class-amap-distribution-volunteers-list-table.
 require_once __DIR__ . '/includes/groups.php';
 require_once __DIR__ . '/includes/class-amap-contracts-list-table.php';
 require_once __DIR__ . '/includes/class-amap-contract-basket-sizes-list-table.php';
+require_once __DIR__ . '/includes/class-amap-contract-discount-groups-list-table.php';
+require_once __DIR__ . '/includes/class-amap-contract-products-list-table.php';
 require_once __DIR__ . '/includes/contracts.php';
 require_once __DIR__ . '/includes/class-amap-subscriptions-list-table.php';
 require_once __DIR__ . '/includes/subscriptions.php';
