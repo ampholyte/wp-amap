@@ -886,11 +886,6 @@ function amap_render_groups_page() {
             </details>
 
             <?php
-            $distribution_volunteers = amap_get_distribution_volunteers( $editing_id );
-            $volunteers_by_date      = array();
-            foreach ( $distribution_volunteers as $volunteer ) {
-                $volunteers_by_date[ $volunteer->distribution_date ][] = $volunteer;
-            }
             $eligible_members = amap_get_group_member_users( $editing_id );
             $current_year     = (int) current_time( 'Y' );
             // Reste ouverte si un message concerne cette section (retour après ajout/suppression) —
@@ -916,52 +911,11 @@ function amap_render_groups_page() {
                     <div class="notice notice-success"><p><?php esc_html_e( 'Bénévole retiré.', 'association-manager' ); ?></p></div>
                 <?php endif; ?>
 
-                <?php if ( empty( $volunteers_by_date ) ) : ?>
-                    <p><?php esc_html_e( 'Aucun bénévole enregistré pour ce groupe.', 'association-manager' ); ?></p>
-                <?php else : ?>
-                    <table class="widefat">
-                        <thead>
-                            <tr>
-                                <th><?php esc_html_e( 'Distribution', 'association-manager' ); ?></th>
-                                <th><?php esc_html_e( 'Bénévoles', 'association-manager' ); ?></th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php foreach ( $volunteers_by_date as $distribution_date => $date_volunteers ) : ?>
-                                <?php $volunteer_count = count( $date_volunteers ); ?>
-                                <tr>
-                                    <td><?php echo esc_html( $distribution_date ); ?></td>
-                                    <td>
-                                        <span style="color: <?php echo esc_attr( $volunteer_count < 2 ? '#d63638' : '#00a32a' ); ?>; font-weight: 600;">
-                                            <?php
-                                            // translators: %d: nombre de bénévoles déjà inscrits pour cette distribution (sur 3 maximum).
-                                            echo esc_html( sprintf( __( '%d/3', 'association-manager' ), $volunteer_count ) );
-                                            ?>
-                                        </span>
-                                        <ul style="margin: 4px 0 0;">
-                                            <?php foreach ( $date_volunteers as $volunteer ) : ?>
-                                                <?php $volunteer_user = get_userdata( $volunteer->member_user_id ); ?>
-                                                <li>
-                                                    <?php echo esc_html( $volunteer_user ? $volunteer_user->display_name : '#' . $volunteer->member_user_id ); ?>
-                                                    —
-                                                    <?php
-                                                    $delete_volunteer_url = wp_nonce_url(
-                                                        admin_url( 'admin-post.php?action=amap_delete_distribution_volunteer&id=' . $volunteer->id ),
-                                                        'amap_delete_distribution_volunteer_' . $volunteer->id
-                                                    );
-                                                    ?>
-                                                    <a href="<?php echo esc_url( $delete_volunteer_url ); ?>" onclick="return confirm( '<?php echo esc_js( __( 'Retirer ce bénévole de cette distribution ?', 'association-manager' ) ); ?>' );">
-                                                        <?php esc_html_e( 'Retirer', 'association-manager' ); ?>
-                                                    </a>
-                                                </li>
-                                            <?php endforeach; ?>
-                                        </ul>
-                                    </td>
-                                </tr>
-                            <?php endforeach; ?>
-                        </tbody>
-                    </table>
-                <?php endif; ?>
+                <?php
+                $volunteers_list_table = new Amap_Distribution_Volunteers_List_Table();
+                $volunteers_list_table->prepare_items( $editing_id );
+                $volunteers_list_table->display();
+                ?>
 
                 <?php if ( empty( $eligible_members ) ) : ?>
                     <p><?php esc_html_e( "Aucun adhérent rattaché à ce groupe comme point de retrait pour l'instant.", 'association-manager' ); ?></p>
