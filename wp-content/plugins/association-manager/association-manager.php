@@ -36,6 +36,7 @@ require_once __DIR__ . '/includes/class-amap-contracts-list-table.php';
 require_once __DIR__ . '/includes/class-amap-contract-basket-sizes-list-table.php';
 require_once __DIR__ . '/includes/class-amap-contract-discount-groups-list-table.php';
 require_once __DIR__ . '/includes/class-amap-contract-products-list-table.php';
+require_once __DIR__ . '/includes/class-amap-contract-delivery-dates-list-table.php';
 require_once __DIR__ . '/includes/contracts.php';
 require_once __DIR__ . '/includes/class-amap-subscriptions-list-table.php';
 require_once __DIR__ . '/includes/subscriptions.php';

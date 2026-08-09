@@ -1173,64 +1173,20 @@ function amap_render_contracts_page() {
                         <?php if ( empty( $group_dates ) ) : ?>
                             <p><?php esc_html_e( 'Aucune date enregistrée pour ce groupe.', 'association-manager' ); ?></p>
                         <?php else : ?>
-                            <div id="amap-dates-group-<?php echo esc_attr( $group_id_key ); ?>-view">
-                                <table class="widefat">
-                                    <thead>
-                                        <tr>
-                                            <th><?php esc_html_e( 'Date', 'association-manager' ); ?></th>
-                                            <th><?php esc_html_e( 'Actions', 'association-manager' ); ?></th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <?php foreach ( $group_dates as $delivery_date_row ) : ?>
-                                            <tr>
-                                                <td><?php echo esc_html( $delivery_date_row->delivery_date ); ?></td>
-                                                <td>
-                                                    <a href="<?php echo esc_url( admin_url( 'admin.php?page=amap-contracts&action=edit&id=' . $editing_id . '&date_action=edit&date_id=' . $delivery_date_row->id ) ); ?>">
-                                                        <?php esc_html_e( 'Modifier', 'association-manager' ); ?>
-                                                    </a>
-                                                    |
-                                                    <?php
-                                                    $delete_date_url = wp_nonce_url(
-                                                        admin_url( 'admin-post.php?action=amap_delete_contract_delivery_date&id=' . $delivery_date_row->id ),
-                                                        'amap_delete_contract_delivery_date_' . $delivery_date_row->id
-                                                    );
-                                                    // translators: %s: date de livraison.
-                                                    $confirm_date_message = sprintf( __( 'Supprimer définitivement la date %s ?', 'association-manager' ), $delivery_date_row->delivery_date );
-                                                    ?>
-                                                    <a href="<?php echo esc_url( $delete_date_url ); ?>" onclick="return confirm( '<?php echo esc_js( $confirm_date_message ); ?>' );">
-                                                        <?php esc_html_e( 'Supprimer', 'association-manager' ); ?>
-                                                    </a>
-                                                </td>
-                                            </tr>
-                                        <?php endforeach; ?>
-                                    </tbody>
-                                </table>
+                            <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="amap-bulk-delete-dates-form">
+                                <?php wp_nonce_field( 'amap_bulk_delete_contract_delivery_dates_' . $editing_id . '_' . $group_id_key ); ?>
+                                <input type="hidden" name="action" value="amap_bulk_delete_contract_delivery_dates">
+                                <input type="hidden" name="contract_id" value="<?php echo esc_attr( $editing_id ); ?>">
+                                <input type="hidden" name="group_id" value="<?php echo esc_attr( $group_id_key ); ?>">
+                                <?php
+                                $delivery_dates_list_table = new Amap_Contract_Delivery_Dates_List_Table();
+                                $delivery_dates_list_table->prepare_items( $group_dates );
+                                $delivery_dates_list_table->display();
+                                ?>
                                 <p>
-                                    <button type="button" class="button" data-amap-show="amap-dates-group-<?php echo esc_attr( $group_id_key ); ?>-bulk" data-amap-hide="amap-dates-group-<?php echo esc_attr( $group_id_key ); ?>-view"><?php esc_html_e( 'Modifier la liste', 'association-manager' ); ?></button>
+                                    <?php submit_button( __( 'Supprimer les dates sélectionnées', 'association-manager' ), 'secondary', 'submit', false ); ?>
                                 </p>
-                            </div>
-                            <div id="amap-dates-group-<?php echo esc_attr( $group_id_key ); ?>-bulk" hidden>
-                                <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
-                                    <?php wp_nonce_field( 'amap_bulk_delete_contract_delivery_dates_' . $editing_id . '_' . $group_id_key ); ?>
-                                    <input type="hidden" name="action" value="amap_bulk_delete_contract_delivery_dates">
-                                    <input type="hidden" name="contract_id" value="<?php echo esc_attr( $editing_id ); ?>">
-                                    <input type="hidden" name="group_id" value="<?php echo esc_attr( $group_id_key ); ?>">
-                                    <p class="description"><?php esc_html_e( 'Décochez les dates à supprimer, puis enregistrez.', 'association-manager' ); ?></p>
-                                    <?php foreach ( $group_dates as $delivery_date_row ) : ?>
-                                        <p>
-                                            <label>
-                                                <input type="checkbox" name="keep_ids[]" value="<?php echo esc_attr( $delivery_date_row->id ); ?>" checked>
-                                                <?php echo esc_html( $delivery_date_row->delivery_date ); ?>
-                                            </label>
-                                        </p>
-                                    <?php endforeach; ?>
-                                    <p>
-                                        <?php submit_button( __( 'Enregistrer', 'association-manager' ), 'primary', 'submit', false ); ?>
-                                        <button type="button" class="button" data-amap-show="amap-dates-group-<?php echo esc_attr( $group_id_key ); ?>-view" data-amap-hide="amap-dates-group-<?php echo esc_attr( $group_id_key ); ?>-bulk"><?php esc_html_e( 'Annuler', 'association-manager' ); ?></button>
-                                    </p>
-                                </form>
-                            </div>
+                            </form>
                         <?php endif; ?>
 
                         <?php if ( ! empty( $candidate_dates ) ) : ?>
@@ -1329,6 +1285,26 @@ function amap_render_contracts_page() {
                             checkboxes.forEach( function ( checkbox ) {
                                 checkbox.checked = ( parseInt( checkbox.dataset.index, 10 ) % frequency === 0 );
                             } );
+                        } );
+                    } );
+
+                    // Confirmation avant suppression en masse des dates cochées, avec leur nombre
+                    // affiché : une case "tout cocher" rend une suppression involontaire de toutes
+                    // les dates d'un groupe plus facile qu'avec l'ancien panneau "Modifier la
+                    // liste", d'où l'intérêt d'afficher clairement l'ampleur de l'action avant de
+                    // valider plutôt qu'un message générique.
+                    var confirmSingular = <?php echo wp_json_encode( __( 'Supprimer la date sélectionnée ?', 'association-manager' ) ); ?>;
+                    var confirmPlural   = <?php echo wp_json_encode( __( 'Supprimer les %d dates sélectionnées ?', 'association-manager' ) ); ?>;
+                    document.querySelectorAll( '.amap-bulk-delete-dates-form' ).forEach( function ( form ) {
+                        form.addEventListener( 'submit', function ( event ) {
+                            var checkedCount = form.querySelectorAll( 'input[name="delivery_date_ids[]"]:checked' ).length;
+                            if ( ! checkedCount ) {
+                                return;
+                            }
+                            var message = ( checkedCount > 1 ) ? confirmPlural.replace( '%d', checkedCount ) : confirmSingular;
+                            if ( ! window.confirm( message ) ) {
+                                event.preventDefault();
+                            }
                         } );
                     } );
                 } )();
@@ -2196,8 +2172,8 @@ add_action( 'admin_post_amap_bulk_delete_contract_delivery_dates', 'amap_handle_
 
 /**
  * Suppression en masse depuis l'accordéon "Dates de livraison" (amap_render_contracts_page()),
- * regroupé par groupe de distribution : les dates dont la case est restée cochée (keep_ids[])
- * sont conservées, toutes les autres dates de ce contrat et de ce groupe sont supprimées.
+ * regroupé par groupe de distribution : les dates dont la case est cochée (delivery_date_ids[],
+ * convention WP_List_Table standard — cochée = sélectionnée pour l'action) sont supprimées.
  * Défense en profondeur, comme amap_handle_generate_contract_delivery_dates() : la suppression
  * ne porte que sur les dates qui appartiennent réellement à ce couple (contrat, groupe), jamais
  * sur les ID reçus tels quels.
@@ -2216,7 +2192,7 @@ function amap_handle_bulk_delete_contract_delivery_dates() {
 
     check_admin_referer( 'amap_bulk_delete_contract_delivery_dates_' . $contract_id . '_' . $group_id );
 
-    $keep_ids = isset( $_POST['keep_ids'] ) ? array_map( 'absint', (array) $_POST['keep_ids'] ) : array();
+    $delete_ids = isset( $_POST['delivery_date_ids'] ) ? array_map( 'absint', (array) $_POST['delivery_date_ids'] ) : array();
 
     global $wpdb;
     $existing_rows = $wpdb->get_results(
@@ -2229,7 +2205,7 @@ function amap_handle_bulk_delete_contract_delivery_dates() {
 
     $deleted_count = 0;
     foreach ( $existing_rows as $existing_row ) {
-        if ( in_array( (int) $existing_row->id, $keep_ids, true ) ) {
+        if ( ! in_array( (int) $existing_row->id, $delete_ids, true ) ) {
             continue;
         }
         $wpdb->delete( $wpdb->prefix . 'amap_contract_delivery_dates', array( 'id' => $existing_row->id ) );
