@@ -53,15 +53,27 @@
         },
         {
             "step": "wp-cli",
-            "command": "wp user create bureau-demo bureau-demo@example.com --role=amap_board --user_pass=demo1234 --display_name='Bureau (démo)'"
+            "command": "wp user add-role admin amap_board"
         },
         {
             "step": "wp-cli",
-            "command": "wp user create producteur-demo producteur-demo@example.com --role=amap_producer --user_pass=demo1234 --display_name='Producteur (démo)'"
+            "command": "wp user add-role admin amap_member"
         },
         {
             "step": "wp-cli",
-            "command": "wp user create adherent-demo adherent-demo@example.com --role=amap_member --user_pass=demo1234 --display_name='Adhérent (démo)'"
+            "command": "wp user update admin --user_email=admin-demo@example.com --first_name=Admin --last_name=Démo --display_name='Admin (démo)'"
+        },
+        {
+            "step": "wp-cli",
+            "command": "wp user create bureau-demo bureau-demo@example.com --role=amap_board --user_pass=demo1234 --first_name=Bureau --last_name=Démo --display_name='Bureau (démo)'"
+        },
+        {
+            "step": "wp-cli",
+            "command": "wp user create producteur-demo producteur-demo@example.com --role=amap_producer --user_pass=demo1234 --first_name=Producteur --last_name=Démo --display_name='Producteur (démo)'"
+        },
+        {
+            "step": "wp-cli",
+            "command": "wp user create adherent-demo adherent-demo@example.com --role=amap_member --user_pass=demo1234 --first_name=Adhérent --last_name=Démo --display_name='Adhérent (démo)'"
         }
     ]
 }
