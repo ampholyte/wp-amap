@@ -396,6 +396,17 @@ input[type="submit"]:hover,
     color: var(--color-text-muted);
 }
 
+/* Espace membre : badges d'exception de distribution ("Mes groupes" côté producteur) */
+.amap-status-badge--cancelled {
+    background: var(--color-error-bg);
+    color: var(--color-error);
+}
+
+.amap-status-badge--moved {
+    background: var(--color-warning-bg);
+    color: var(--color-warning);
+}
+
 /* Formulaire de souscription : grille produits×dates (member-area-subscribe.php) */
 .amap-items-grid-wrapper {
     overflow-x: auto;

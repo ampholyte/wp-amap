@@ -1,14 +1,16 @@
 <?php
 /**
- * Onglet "Espace producteur" (étape 12.1, lecture seule) : contrats du producteur connecté et
- * groupes qu'il livre. La prochaine distribution, les produits à livrer et les adhérents par
- * groupe viendront dans une étape ultérieure (voir docs/plan-contrats-distributions.md).
+ * Onglet "Espace producteur" : contrats du producteur connecté, groupes qu'il livre et prochaine
+ * distribution de chacun (étapes 12.1/12.2, lecture seule). Les produits à livrer et les
+ * adhérents par groupe viendront dans une étape ultérieure (voir
+ * docs/plan-contrats-distributions.md).
  */
-$contracts      = amap_get_producer_contracts( $args['current_user']->ID );
-$groups         = amap_get_producer_groups( $args['current_user']->ID );
-$status_labels  = amap_get_contract_period_status_labels();
-$contract_types = amap_get_contract_types();
-$weekday_labels = amap_get_weekday_labels();
+$contracts             = amap_get_producer_contracts( $args['current_user']->ID );
+$groups                = amap_get_producer_groups( $args['current_user']->ID );
+$status_labels         = amap_get_contract_period_status_labels();
+$contract_types        = amap_get_contract_types();
+$weekday_labels        = amap_get_weekday_labels();
+$exception_type_labels = amap_get_distribution_exception_type_labels();
 ?>
 
 <div class="amap-card">
@@ -43,19 +45,60 @@ $weekday_labels = amap_get_weekday_labels();
     <?php if ( empty( $groups ) ) : ?>
         <p><?php esc_html_e( "Vous n'êtes pour l'instant rattaché à aucun groupe de distribution. Contactez le bureau.", 'association-manager' ); ?></p>
     <?php else : ?>
-        <ul>
+        <ul class="amap-subscription-list">
             <?php foreach ( $groups as $group ) : ?>
-                <li>
-                    <?php
-                    printf(
-                        /* translators: 1: nom du groupe. 2: jour de la semaine. 3: horaire. 4: lieu de livraison. */
-                        esc_html__( '%1$s — %2$s %3$s (%4$s)', 'association-manager' ),
-                        esc_html( $group->name ),
-                        esc_html( $weekday_labels[ (int) $group->weekday ] ?? '' ),
-                        esc_html( amap_format_time( $group->start_time ) . '-' . amap_format_time( $group->end_time ) ),
-                        esc_html( $group->delivery_place )
-                    );
-                    ?>
+                <?php $next = amap_get_group_next_distribution( $group ); ?>
+                <li class="amap-subscription-item">
+                    <div class="amap-subscription-item__header">
+                        <span class="amap-subscription-item__label"><?php echo esc_html( $group->name ); ?></span>
+                        <?php if ( 'normal' !== $next['status'] ) : ?>
+                            <span class="amap-status-badge amap-status-badge--<?php echo esc_attr( $next['status'] ); ?>">
+                                <?php echo esc_html( $exception_type_labels[ $next['status'] ] ); ?>
+                            </span>
+                        <?php endif; ?>
+                    </div>
+                    <ul>
+                        <li>
+                            <?php
+                            printf(
+                                /* translators: 1: jour de la semaine. 2: horaire. 3: lieu de livraison. */
+                                esc_html__( 'Jour de distribution : %1$s %2$s (%3$s)', 'association-manager' ),
+                                esc_html( $weekday_labels[ (int) $group->weekday ] ?? '' ),
+                                esc_html( amap_format_time( $group->start_time ) . '-' . amap_format_time( $group->end_time ) ),
+                                esc_html( $group->delivery_place )
+                            );
+                            ?>
+                        </li>
+                        <?php if ( 'cancelled' === $next['status'] ) : ?>
+                            <li>
+                                <?php
+                                printf(
+                                    /* translators: %s: date de la distribution annulée. */
+                                    esc_html__( 'Prochaine distribution : %s — annulée.', 'association-manager' ),
+                                    esc_html( date_i18n( 'j F Y', strtotime( $next['date'] ) ) )
+                                );
+                                ?>
+                                <?php if ( ! empty( $next['exception']->reason ) ) : ?>
+                                    <?php echo esc_html( sprintf( __( ' Motif : %s', 'association-manager' ), $next['exception']->reason ) ); ?>
+                                <?php endif; ?>
+                            </li>
+                        <?php else : ?>
+                            <li>
+                                <?php
+                                printf(
+                                    /* translators: 1: date. 2: horaire. 3: lieu de livraison. */
+                                    esc_html__( 'Prochaine distribution : %1$s, %2$s (%3$s)', 'association-manager' ),
+                                    esc_html( date_i18n( 'j F Y', strtotime( $next['date'] ) ) ),
+                                    esc_html( amap_format_time( $next['start_time'] ) . '-' . amap_format_time( $next['end_time'] ) ),
+                                    esc_html( $next['place'] )
+                                );
+                                ?>
+                                <?php if ( 'moved' === $next['status'] && ! empty( $next['exception']->reason ) ) : ?>
+                                    <?php echo esc_html( sprintf( __( ' Motif : %s', 'association-manager' ), $next['exception']->reason ) ); ?>
+                                <?php endif; ?>
+                            </li>
+                        <?php endif; ?>
+                    </ul>
                 </li>
             <?php endforeach; ?>
         </ul>

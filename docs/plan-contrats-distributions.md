@@ -783,7 +783,7 @@ séparément, sur le même principe que la souscription en ligne (étape 7) :
 
 ```
 12.1 Mes contrats + mes groupes (lecture seule)                      ✅ fait
-12.2 Prochaine distribution (jour fixe du groupe + exceptions éventuelles)
+12.2 Prochaine distribution (jour fixe du groupe + exceptions éventuelles) ✅ fait
 12.3 Produits à livrer pour la prochaine distribution
 12.4 Adhérents disponibles par groupe
 ```
@@ -826,5 +826,31 @@ page admin "Contrats", indépendantes de 12.1 mais découvertes en la testant :
   rattacher le producteur à un groupe dans un autre onglet du navigateur) retombait toujours sur
   "Infos du contrat". Chaque clic met désormais à jour `?active_tab=...` via
   `history.replaceState`, pour qu'un rechargement conserve l'onglet affiché.
+
+Commit à venir.
+
+### Étape 12.2 (fait) — Prochaine distribution (jour fixe du groupe + exceptions éventuelles)
+
+- **`amap_get_group_distribution_exception_by_date( $group_id, $distribution_date )`** (nouvelle
+  fonction, `groups.php`) — variante de `amap_group_has_distribution_exception()` qui retourne la
+  ligne elle-même plutôt qu'un booléen.
+- **`amap_get_group_next_distribution( $group )`** (nouvelle fonction, `groups.php`) — calcule la
+  prochaine occurrence du jour fixe du groupe (`weekday`, aujourd'hui inclus, via
+  `amap_get_weekday_dates_in_range()` sur une fenêtre de 7 jours) et retourne les infos
+  **effectives** (date/heure/lieu, celles de l'exception si `moved`, sinon celles du groupe) avec
+  un statut `normal`/`cancelled`/`moved`. Une seule distribution par semaine et par groupe, pas de
+  fréquence bimensuelle à ce niveau (`metier-producteurs.md`), contrairement à un contrat
+  `basket_recurring`.
+- **Pas de recherche de la prochaine date non annulée** en cas d'exception `cancelled` sur la date
+  calculée : tranché en conversation avant codage, une annulation restant un "cas rare"
+  (`metier-producteurs.md`) — la date concernée est simplement affichée avec un badge, sans boucler
+  sur les semaines suivantes pour trouver une distribution qui aura effectivement lieu.
+- **`member-area-producer.php`** : "Mes groupes" passe d'un simple `<ul>` à des cartes façon "Mes
+  contrats" (réutilise `.amap-subscription-list`/`.amap-subscription-item`), tranché en
+  conversation plutôt qu'une nouvelle carte séparée — chaque groupe affiche son jour fixe (déjà là
+  depuis 12.1) et sa prochaine distribution ensemble, sans dupliquer le nom du groupe entre deux
+  blocs. Le badge de statut (`.amap-status-badge--cancelled`/`--moved`, nouveaux modificateurs sur
+  les tokens `--color-error`/`--color-warning` déjà existants) n'apparaît que si la distribution
+  n'est pas `normal` — rien à signaler pour le cas courant.
 
 Commit à venir.

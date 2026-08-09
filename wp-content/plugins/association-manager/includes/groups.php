@@ -212,6 +212,69 @@ function amap_group_has_distribution_exception( $group_id, $distribution_date, $
     return (bool) $wpdb->get_var( $wpdb->prepare( $sql, $params ) );
 }
 
+/**
+ * Exception d'une distribution précise (couple group_id/distribution_date), ou null. Utilisée par
+ * amap_get_group_next_distribution() pour savoir si la prochaine distribution calculée est
+ * concernée par une annulation/un déplacement.
+ */
+function amap_get_group_distribution_exception_by_date( $group_id, $distribution_date ) {
+    global $wpdb;
+
+    return $wpdb->get_row(
+        $wpdb->prepare(
+            "SELECT * FROM {$wpdb->prefix}amap_distribution_exceptions WHERE group_id = %d AND distribution_date = %s",
+            $group_id,
+            $distribution_date
+        )
+    );
+}
+
+/**
+ * Prochaine distribution d'un groupe (aujourd'hui inclus), sur son jour fixe (`weekday`) — une
+ * seule distribution par semaine et par groupe, pas de fréquence bimensuelle à ce niveau
+ * (contrairement à un contrat basket_recurring, voir metier-producteurs.md). Utilisée pour
+ * l'onglet "Espace producteur" de l'espace membre (member-area-producer.php).
+ *
+ * Ne cherche pas la prochaine date NON annulée en cas d'exception "cancelled" sur la date
+ * calculée : une annulation reste un cas rare (metier-producteurs.md), simplement signalée sur la
+ * date qu'elle concerne plutôt que masquée derrière une recherche en avant.
+ */
+function amap_get_group_next_distribution( $group ) {
+    $today       = current_time( 'Y-m-d' );
+    $week_ahead  = ( new DateTime( $today ) )->modify( '+6 days' )->format( 'Y-m-d' );
+    $next_dates  = amap_get_weekday_dates_in_range( $today, $week_ahead, (int) $group->weekday );
+    $date        = $next_dates[0];
+    $exception   = amap_get_group_distribution_exception_by_date( $group->id, $date );
+
+    if ( $exception && 'cancelled' === $exception->exception_type ) {
+        return array(
+            'date'      => $date,
+            'status'    => 'cancelled',
+            'exception' => $exception,
+        );
+    }
+
+    if ( $exception && 'moved' === $exception->exception_type ) {
+        return array(
+            'date'       => $exception->new_date ?: $date,
+            'start_time' => $exception->new_start_time ?: $group->start_time,
+            'end_time'   => $exception->new_end_time ?: $group->end_time,
+            'place'      => $exception->new_place ?: $group->delivery_place,
+            'status'     => 'moved',
+            'exception'  => $exception,
+        );
+    }
+
+    return array(
+        'date'       => $date,
+        'start_time' => $group->start_time,
+        'end_time'   => $group->end_time,
+        'place'      => $group->delivery_place,
+        'status'     => 'normal',
+        'exception'  => null,
+    );
+}
+
 function amap_store_distribution_exception_form_data( array $data ) {
     set_transient( 'amap_distribution_exception_form_' . get_current_user_id(), $data, 60 );
 }
