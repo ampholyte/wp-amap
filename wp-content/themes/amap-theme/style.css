@@ -1,7 +1,7 @@
 /*
 Theme Name: AMAP Theme
 Description: Thème minimal développé sur mesure pour le site de l'AMAP.
-Version: 0.2.0
+Version: 0.3.4
 Author: Association AMAP
 Text Domain: amap-theme
 */
@@ -20,6 +20,7 @@ Text Domain: amap-theme
     --color-text: #2b2a26;
     --color-text-muted: #6b675c;
     --color-primary-bg: #eaf1ec;
+    --color-accent-bg: #fbf1e3;
 
     --color-success: #3f7d4a;
     --color-success-bg: #eaf3ec;
@@ -45,6 +46,19 @@ Text Domain: amap-theme
 /* Reset minimal */
 * {
     box-sizing: border-box;
+}
+
+/* Contenu réservé aux lecteurs d'écran (ex. équivalent textuel d'une icône décorative) */
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
 }
 
 body {
@@ -155,6 +169,36 @@ main {
     header {
         flex-direction: column;
         align-items: flex-start;
+    }
+
+    /* Espace membre : bandeau de contexte, plus long depuis l'ajout du jour/horaire/lieu et de
+       la prochaine distribution (étape 1) — passe sur plusieurs lignes plus souvent qu'avant. */
+    .amap-context-row {
+        align-items: flex-start;
+    }
+
+    .amap-next-distribution {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    /* Espace membre : cartes de contrat — le badge de statut passe sous le nom du producteur
+       plutôt que de se retrouver compressé à côté sur un écran étroit. */
+    .amap-contract-card__heading {
+        flex-direction: column;
+    }
+
+    /* Espace membre : boutons d'action (déclarer un congé, souscrire) en pleine largeur pour des
+       cibles tactiles confortables au doigt. */
+    .amap-actions .button-primary,
+    .amap-actions .button-secondary {
+        display: block;
+        width: 100%;
+        text-align: center;
+    }
+
+    .amap-nav-item {
+        padding: var(--space-3) var(--space-3);
     }
 }
 
@@ -362,6 +406,85 @@ main.amap-auth-main {
     padding-top: var(--space-6);
 }
 
+/* Espace membre : bandeau de contexte (point de retrait + prochaine distribution) */
+.amap-icon-sprite {
+    position: absolute;
+    width: 0;
+    height: 0;
+    overflow: hidden;
+}
+
+.icon {
+    width: 1.1em;
+    height: 1.1em;
+    flex-shrink: 0;
+    vertical-align: -0.15em;
+}
+
+.amap-context-card {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    padding: var(--space-3) var(--space-4);
+    margin-bottom: var(--space-4);
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+}
+
+.amap-context-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin: 0;
+}
+
+.amap-next-distribution {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius);
+    background: var(--color-primary-bg);
+}
+
+.amap-next-distribution--cancelled {
+    background: var(--color-error-bg);
+}
+
+.amap-next-distribution--moved {
+    background: var(--color-warning-bg);
+}
+
+.amap-next-distribution__text {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin: 0;
+    color: var(--color-primary-dark);
+}
+
+.amap-next-distribution--cancelled .amap-next-distribution__text {
+    color: var(--color-error);
+}
+
+.amap-next-distribution--moved .amap-next-distribution__text {
+    color: var(--color-warning);
+}
+
+.amap-chip {
+    flex-shrink: 0;
+    padding: 0.2rem 0.65rem;
+    border-radius: 999px;
+    background: var(--color-surface);
+    color: var(--color-primary-dark);
+    font-size: 0.75rem;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
 /* Espace membre : barre de navigation à onglets */
 .amap-nav {
     display: flex;
@@ -476,6 +599,228 @@ main.amap-auth-main {
 .amap-status-badge--moved {
     background: var(--color-warning-bg);
     color: var(--color-warning);
+}
+
+/* Espace membre : groupe replié des contrats terminés ("Mes contrats") */
+.amap-ended-group {
+    margin-top: var(--space-4);
+}
+
+.amap-ended-group > summary {
+    cursor: pointer;
+    padding: var(--space-2) 0;
+    font-weight: 600;
+    color: var(--color-text-muted);
+}
+
+.amap-ended-group > summary:hover {
+    color: var(--color-text);
+}
+
+.amap-ended-group[open] > summary {
+    margin-bottom: var(--space-2);
+}
+
+/* Espace membre : compteur à côté des titres "En cours" / "À venir" */
+h3.amap-section-title {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-2);
+}
+
+.amap-section-count {
+    color: var(--color-text-muted);
+    font-size: 0.85rem;
+    font-weight: 400;
+}
+
+/* Espace membre : cartes de contrat de "Mes contrats" (En cours / À venir / Terminés) */
+.amap-contract-list {
+    list-style: none;
+    padding-left: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+}
+
+.amap-contract-card {
+    padding: var(--space-3);
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    box-shadow: 0 1px 2px rgba(43, 42, 38, 0.05);
+}
+
+.amap-contract-card__top {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-3);
+}
+
+.amap-contract-card__type {
+    flex-shrink: 0;
+    width: 38px;
+    height: 38px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.amap-contract-card__type .icon {
+    width: 20px;
+    height: 20px;
+}
+
+.amap-contract-card--basket .amap-contract-card__type {
+    background: var(--color-primary-bg);
+    color: var(--color-primary-dark);
+}
+
+.amap-contract-card--grid .amap-contract-card__type {
+    background: var(--color-accent-bg);
+    color: var(--color-accent-dark);
+}
+
+.amap-contract-card__body {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.amap-contract-card__heading {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+}
+
+.amap-contract-card__producer {
+    font-weight: 600;
+}
+
+.amap-contract-card__label {
+    color: var(--color-text-muted);
+    font-size: 0.9rem;
+    margin-top: 0.1rem;
+}
+
+.amap-contract-card__facts {
+    color: var(--color-text-muted);
+    font-size: 0.85rem;
+    margin: var(--space-2) 0 0;
+}
+
+.amap-leave-tracker {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+    margin-top: var(--space-2);
+}
+
+.amap-leave-dots {
+    display: inline-flex;
+    gap: 0.25rem;
+}
+
+.amap-leave-dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--color-border);
+}
+
+.amap-leave-dot.is-used {
+    background: var(--color-primary);
+}
+
+.amap-leave-tracker__label {
+    font-size: 0.85rem;
+    color: var(--color-text-muted);
+}
+
+.amap-amount-row {
+    margin-top: var(--space-2);
+}
+
+.amap-amount-row .amount {
+    font-weight: 700;
+    font-size: 1.05rem;
+}
+
+.amap-amount-row .amount small {
+    font-weight: 500;
+    font-size: 0.78rem;
+    color: var(--color-text-muted);
+}
+
+.amap-actions {
+    margin-top: var(--space-2);
+}
+
+details.amap-detail {
+    margin-top: var(--space-2);
+}
+
+details.amap-detail > summary {
+    cursor: pointer;
+    list-style: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: var(--space-2) 0;
+    color: var(--color-primary-dark);
+    font-size: 0.85rem;
+    font-weight: 600;
+}
+
+details.amap-detail > summary::-webkit-details-marker {
+    display: none;
+}
+
+details.amap-detail > summary .icon {
+    width: 13px;
+    height: 13px;
+}
+
+details.amap-detail[open] > summary .icon {
+    transform: rotate(180deg);
+}
+
+.amap-detail-table-wrap {
+    overflow-x: auto;
+    margin-top: var(--space-2);
+}
+
+/* Espace membre : "Contrats disponibles", volontairement plus discret que "Mes contrats" —
+   même principe de carte que .amap-contract-card (un bloc distinct par contrat, bouton en
+   dessous des informations), mais avec une bordure en pointillés et un fond légèrement teinté
+   pour rester visuellement secondaire. */
+.amap-available-list {
+    list-style: none;
+    padding-left: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+}
+
+.amap-available-item {
+    padding: var(--space-3);
+    background: var(--color-bg-alt);
+    border: 1px dashed var(--color-border);
+    border-radius: var(--radius);
+}
+
+.amap-available-item__name {
+    font-weight: 600;
+}
+
+.amap-available-item__meta {
+    color: var(--color-text-muted);
+    font-size: 0.85rem;
+    margin-top: 0.1rem;
 }
 
 /* Formulaire de souscription : grille produits×dates (member-area-subscribe.php) */
