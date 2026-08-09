@@ -12,6 +12,10 @@
             }
         },
         {
+            "step": "setSiteLanguage",
+            "language": "fr_FR"
+        },
+        {
             "step": "installTheme",
             "themeData": {
                 "resource": "git:directory",
