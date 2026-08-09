@@ -1,6 +1,6 @@
 <?php
 /**
- * Envoi d'emails transactionnels (API Brevo) et action d'email de test depuis l'admin.
+ * Envoi d'emails transactionnels (API Brevo).
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -77,29 +77,3 @@ function amap_get_demo_last_email() {
     return AMAP_DEMO_MODE ? get_transient( 'amap_demo_last_email' ) : false;
 }
 
-add_action( 'admin_post_amap_send_test_email', 'amap_handle_send_test_email' );
-
-function amap_handle_send_test_email() {
-    if ( ! current_user_can( 'amap_manage_users' ) ) {
-        wp_die( esc_html__( 'Action non autorisée.', 'association-manager' ) );
-    }
-
-    check_admin_referer( 'amap_send_test_email' );
-
-    $admin   = wp_get_current_user();
-    $subject = __( 'Email de test AMAP', 'association-manager' );
-    $result  = amap_send_email(
-        $admin->user_email,
-        $subject,
-        amap_render_email( $subject, '<p>' . esc_html__( "Cet email confirme que l'envoi via Brevo fonctionne.", 'association-manager' ) . '</p>' )
-    );
-
-    if ( is_wp_error( $result ) ) {
-        set_transient( 'amap_test_email_error_' . get_current_user_id(), $result->get_error_message(), 60 );
-        wp_safe_redirect( admin_url( 'admin.php?page=amap-users&amap_notice=test_email_failed' ) );
-        exit;
-    }
-
-    wp_safe_redirect( admin_url( 'admin.php?page=amap-users&amap_notice=test_email_sent' ) );
-    exit;
-}

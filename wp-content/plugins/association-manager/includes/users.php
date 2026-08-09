@@ -61,14 +61,6 @@ function amap_render_users_page() {
 
     $notice = isset( $_GET['amap_notice'] ) ? sanitize_key( wp_unslash( $_GET['amap_notice'] ) ) : '';
 
-    // Détail de l'erreur d'envoi, posé par amap_handle_send_test_email() juste avant la
-    // redirection qui a mené à cette page (même mécanisme que $form_data plus bas).
-    $test_email_error_key = 'amap_test_email_error_' . get_current_user_id();
-    $test_email_error     = get_transient( $test_email_error_key );
-    if ( false !== $test_email_error ) {
-        delete_transient( $test_email_error_key );
-    }
-
     $magic_link_error_key = 'amap_magic_link_error_' . get_current_user_id();
     $magic_link_error     = get_transient( $magic_link_error_key );
     if ( false !== $magic_link_error ) {
@@ -130,17 +122,6 @@ function amap_render_users_page() {
             <div class="notice notice-error"><p><?php esc_html_e( "Le compte a été créé ou mis à jour mais l'enregistrement du téléphone/adresse a échoué.", 'association-manager' ); ?></p></div>
         <?php elseif ( 'email_taken' === $notice ) : ?>
             <div class="notice notice-error"><p><?php esc_html_e( 'Cet email est déjà utilisé par un autre compte WordPress.', 'association-manager' ); ?></p></div>
-        <?php elseif ( 'test_email_sent' === $notice ) : ?>
-            <div class="notice notice-success"><p><?php esc_html_e( 'Email de test envoyé.', 'association-manager' ); ?></p></div>
-        <?php elseif ( 'test_email_failed' === $notice ) : ?>
-            <div class="notice notice-error">
-                <p>
-                    <?php esc_html_e( "Échec de l'envoi de l'email de test.", 'association-manager' ); ?>
-                    <?php if ( $test_email_error ) : ?>
-                        <?php echo esc_html( $test_email_error ); ?>
-                    <?php endif; ?>
-                </p>
-            </div>
         <?php elseif ( 'magic_link_sent' === $notice ) : ?>
             <div class="notice notice-success"><p><?php esc_html_e( 'Lien de connexion envoyé.', 'association-manager' ); ?></p></div>
         <?php elseif ( 'magic_link_failed' === $notice ) : ?>
@@ -153,14 +134,6 @@ function amap_render_users_page() {
                 </p>
             </div>
         <?php endif; ?>
-
-        <p>
-            <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
-                <?php wp_nonce_field( 'amap_send_test_email' ); ?>
-                <input type="hidden" name="action" value="amap_send_test_email">
-                <?php submit_button( __( 'Envoyer un email de test', 'association-manager' ), 'secondary', 'submit', false ); ?>
-            </form>
-        </p>
 
         <?php if ( ! $editing_id ) : ?>
             <p>
