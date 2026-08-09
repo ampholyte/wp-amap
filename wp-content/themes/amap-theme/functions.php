@@ -22,5 +22,18 @@ function amap_theme_setup() {
     );
 
     add_theme_support( 'post-thumbnails' );
+
+    // Permet de configurer un logo dans Apparence > Personnaliser > Identité du site ;
+    // affiché via the_custom_logo() (header.php, auth.php). flex-width/flex-height : n'impose
+    // aucune dimension exacte à l'image uploadée, WordPress adapte juste son affichage.
+    add_theme_support(
+        'custom-logo',
+        array(
+            'height'      => 60,
+            'width'       => 200,
+            'flex-height' => true,
+            'flex-width'  => true,
+        )
+    );
 }
 add_action( 'after_setup_theme', 'amap_theme_setup' );

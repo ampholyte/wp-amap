@@ -14,6 +14,7 @@ Text Domain: amap-theme
     --color-accent-dark: #b8721f;
 
     --color-bg: #faf8f4;
+    --color-bg-alt: #f1ebe0;
     --color-surface: #ffffff;
     --color-border: #e2ddd0;
     --color-text: #2b2a26;
@@ -55,7 +56,7 @@ body {
     font-size: 1rem;
     line-height: 1.6;
     color: var(--color-text);
-    background: var(--color-bg);
+    background: linear-gradient(180deg, var(--color-bg) 0%, var(--color-bg-alt) 100%);
 }
 
 h1,
@@ -123,6 +124,14 @@ header a {
     text-decoration: none;
 }
 
+/* .custom-logo-link/.custom-logo : classes générées par the_custom_logo() (WordPress core)
+   quand un logo est configuré dans Apparence > Personnaliser > Identité du site. */
+header .custom-logo {
+    display: block;
+    max-height: 48px;
+    width: auto;
+}
+
 footer {
     border-bottom: none;
     border-top: 1px solid var(--color-border);
@@ -136,7 +145,8 @@ footer p {
 
 main {
     flex: 1 0 auto;
-    max-width: 800px;
+    width: 100%;
+    max-width: 960px;
     margin: 0 auto;
     padding: var(--space-5) var(--space-3);
 }
@@ -185,7 +195,7 @@ label {
     font-weight: 600;
 }
 
-input:not([type="submit"]):not([type="checkbox"]):not([type="radio"]),
+input:not([type="submit"]):not([type="checkbox"]):not([type="radio"]):not(.amap-item-quantity),
 textarea,
 select {
     width: 100%;
@@ -303,11 +313,53 @@ input[type="submit"]:hover,
     background: var(--color-surface);
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
+    box-shadow: 0 1px 2px rgba(43, 42, 38, 0.06), 0 4px 10px rgba(43, 42, 38, 0.05);
 }
 
 .amap-card ul {
     padding-left: 0;
     list-style: none;
+}
+
+/* Écrans de connexion (step-email, step-password, etc.) : carte .amap-card centrée et de
+   largeur modérée, plutôt qu'un formulaire flottant seul dans un <main> large. */
+.amap-auth-card {
+    max-width: 480px;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+.amap-auth-card .custom-logo-link {
+    display: block;
+    margin-bottom: var(--space-3);
+    text-align: center;
+}
+
+.amap-auth-card .custom-logo {
+    display: inline-block;
+    max-height: 64px;
+    width: auto;
+}
+
+/* Boutons/liens-boutons de la carte de connexion : même largeur que les champs de saisie
+   (width:100%, max-width:400px) plutôt qu'une largeur calée sur la longueur du texte — sinon
+   "Se connecter" et "Mot de passe oublié ?" empilés n'ont pas la même largeur. */
+.amap-auth-card button,
+.amap-auth-card input[type="submit"],
+.amap-auth-card .button-primary,
+.amap-auth-card .button-secondary {
+    display: block;
+    width: 100%;
+    max-width: 400px;
+    text-align: center;
+}
+
+/* main.amap-auth-main : marge haute plus généreuse que le <main> standard, pour aérer l'écran de
+   connexion sans pour autant centrer la carte sur toute la hauteur (qui l'isole dans un vide
+   d'autant plus grand que l'écran est haut) — seulement pour les écrans de connexion, jamais
+   pour l'accueil/les articles qui doivent rester alignés en haut. */
+main.amap-auth-main {
+    padding-top: var(--space-6);
 }
 
 /* Espace membre : barre de navigation à onglets */
@@ -433,6 +485,7 @@ input[type="submit"]:hover,
 }
 
 table.amap-items-grid {
+    width: auto;
     border-collapse: collapse;
     margin-top: var(--space-2);
 }
@@ -459,7 +512,14 @@ table.amap-items-grid tbody th {
 .amap-item-quantity {
     width: 4em;
     max-width: 4em;
+    padding: var(--space-2);
     margin-bottom: 0;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    background: var(--color-surface);
+    color: var(--color-text);
+    font-family: inherit;
+    font-size: 1rem;
     text-align: center;
 }
 

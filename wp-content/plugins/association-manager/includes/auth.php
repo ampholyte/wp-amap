@@ -256,7 +256,11 @@ function amap_maybe_render_magic_link_confirmation() {
 
     get_header();
     ?>
-    <main>
+    <main class="amap-auth-main">
+    <div class="amap-card amap-auth-card">
+    <?php if ( has_custom_logo() ) : ?>
+        <?php the_custom_logo(); ?>
+    <?php endif; ?>
     <?php
     get_template_part(
         'template-parts/login/step',
@@ -267,6 +271,7 @@ function amap_maybe_render_magic_link_confirmation() {
         )
     );
     ?>
+    </div>
     </main>
     <?php
     get_footer();
@@ -346,7 +351,11 @@ function amap_maybe_render_new_password_form() {
 
     get_header();
     ?>
-    <main>
+    <main class="amap-auth-main">
+    <div class="amap-card amap-auth-card">
+    <?php if ( has_custom_logo() ) : ?>
+        <?php the_custom_logo(); ?>
+    <?php endif; ?>
     <?php
     get_template_part(
         'template-parts/login/step',
@@ -357,6 +366,7 @@ function amap_maybe_render_new_password_form() {
         )
     );
     ?>
+    </div>
     </main>
     <?php
     get_footer();
@@ -449,10 +459,15 @@ function amap_maybe_render_login_email_step() {
 
     get_header();
     ?>
-    <main>
+    <main class="amap-auth-main">
+    <div class="amap-card amap-auth-card">
+    <?php if ( has_custom_logo() ) : ?>
+        <?php the_custom_logo(); ?>
+    <?php endif; ?>
     <?php
     get_template_part( 'template-parts/login/step', 'email', array( 'has_error' => ( 'invalid_email' === $step ) ) );
     ?>
+    </div>
     </main>
     <?php
     get_footer();
@@ -512,7 +527,11 @@ function amap_maybe_render_login_password_step() {
 
     get_header();
     ?>
-    <main>
+    <main class="amap-auth-main">
+    <div class="amap-card amap-auth-card">
+    <?php if ( has_custom_logo() ) : ?>
+        <?php the_custom_logo(); ?>
+    <?php endif; ?>
     <?php
     get_template_part(
         'template-parts/login/step',
@@ -523,6 +542,7 @@ function amap_maybe_render_login_password_step() {
         )
     );
     ?>
+    </div>
     </main>
     <?php
     get_footer();
@@ -559,7 +579,11 @@ function amap_maybe_render_login_message_step() {
 
     get_header();
     ?>
-    <main>
+    <main class="amap-auth-main">
+    <div class="amap-card amap-auth-card">
+    <?php if ( has_custom_logo() ) : ?>
+        <?php the_custom_logo(); ?>
+    <?php endif; ?>
     <?php
     get_template_part(
         'template-parts/login/step',
@@ -571,6 +595,7 @@ function amap_maybe_render_login_message_step() {
         )
     );
     ?>
+    </div>
     </main>
     <?php
     get_footer();
