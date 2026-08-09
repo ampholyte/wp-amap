@@ -358,7 +358,7 @@ function amap_notify_distribution_exception( $exception, $group, $event ) {
         }
     }
 
-    amap_send_email( $group->notification_email, $subject, $html_body );
+    amap_send_email( $group->notification_email, $subject, amap_render_email( $subject, $html_body ) );
 
     return true;
 }

@@ -501,7 +501,7 @@ function amap_send_subscription_confirmation_email( $subscription_id ) {
     // translators: %s: libellé du contrat.
     $subject = sprintf( __( 'Confirmation de votre souscription — %s', 'association-manager' ), $contract->label );
 
-    amap_send_email( $member->user_email, $subject, $html_body );
+    amap_send_email( $member->user_email, $subject, amap_render_email( $subject, $html_body ) );
 }
 
 /**

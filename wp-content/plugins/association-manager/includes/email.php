@@ -86,11 +86,12 @@ function amap_handle_send_test_email() {
 
     check_admin_referer( 'amap_send_test_email' );
 
-    $admin  = wp_get_current_user();
-    $result = amap_send_email(
+    $admin   = wp_get_current_user();
+    $subject = __( 'Email de test AMAP', 'association-manager' );
+    $result  = amap_send_email(
         $admin->user_email,
-        __( 'Email de test AMAP', 'association-manager' ),
-        '<p>' . esc_html__( "Cet email confirme que l'envoi via Brevo fonctionne.", 'association-manager' ) . '</p>'
+        $subject,
+        amap_render_email( $subject, '<p>' . esc_html__( "Cet email confirme que l'envoi via Brevo fonctionne.", 'association-manager' ) . '</p>' )
     );
 
     if ( is_wp_error( $result ) ) {

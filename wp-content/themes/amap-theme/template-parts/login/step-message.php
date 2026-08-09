@@ -20,9 +20,17 @@
         <p><strong><?php esc_html_e( "Mode démo : l'email ci-dessous n'a pas été réellement envoyé.", 'association-manager' ); ?></strong></p>
         <p><?php echo esc_html( $args['demo_email']['subject'] ); ?></p>
         <?php
-        // Contenu déjà échappé au moment de sa construction (amap_send_login_link() /
-        // amap_send_password_reset_link()), comme il le serait dans un vrai email.
-        echo $args['demo_email']['body'];
+        /**
+         * Le corps est un document HTML complet (amap_render_email()), avec son propre <style> :
+         * on l'affiche dans un iframe pour éviter que ces styles ne s'appliquent à la page de
+         * connexion elle-même. srcdoc attend le HTML échappé comme attribut, d'où esc_attr()
+         * plutôt que esc_html() utilisé ailleurs pour du texte.
+         */
         ?>
+        <iframe
+            title="<?php esc_attr_e( "Aperçu de l'email", 'association-manager' ); ?>"
+            srcdoc="<?php echo esc_attr( $args['demo_email']['body'] ); ?>"
+            style="width:100%; max-width:480px; height:420px; border:1px solid var(--color-border); border-radius:var(--radius); background:#fff;"
+        ></iframe>
     </div>
 <?php endif; ?>

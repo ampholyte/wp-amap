@@ -22,6 +22,7 @@ if ( ! defined( 'AMAP_DEMO_MODE' ) ) {
 }
 
 require_once __DIR__ . '/includes/schema.php';
+require_once __DIR__ . '/includes/email-template.php';
 require_once __DIR__ . '/includes/email.php';
 require_once __DIR__ . '/includes/auth.php';
 require_once __DIR__ . '/includes/member-area.php';

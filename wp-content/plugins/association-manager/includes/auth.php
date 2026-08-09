@@ -171,14 +171,11 @@ function amap_send_login_link( $user ) {
     $token = amap_create_magic_link_token( $user->ID );
     $link  = amap_get_magic_link_url( $token );
 
-    $html_body = sprintf(
-        '<p>%s</p><p><a href="%s">%s</a></p>',
-        esc_html__( 'Cliquez sur le lien ci-dessous pour vous connecter à votre espace.', 'association-manager' ),
-        esc_url( $link ),
-        esc_html__( 'Cliquez ici pour vous connecter', 'association-manager' )
-    );
+    $subject   = __( 'Votre lien de connexion AMAP', 'association-manager' );
+    $body_html = '<p>' . esc_html__( 'Cliquez sur le bouton ci-dessous pour vous connecter à votre espace.', 'association-manager' ) . '</p>';
+    $html_body = amap_render_email( $subject, $body_html, $link, __( 'Se connecter', 'association-manager' ) );
 
-    return amap_send_email( $user->user_email, __( 'Votre lien de connexion AMAP', 'association-manager' ), $html_body );
+    return amap_send_email( $user->user_email, $subject, $html_body );
 }
 
 /**
@@ -190,14 +187,11 @@ function amap_send_password_reset_link( $user ) {
     $token = amap_create_magic_link_token( $user->ID, 'password_reset' );
     $link  = amap_get_magic_link_url( $token );
 
-    $html_body = sprintf(
-        '<p>%s</p><p><a href="%s">%s</a></p>',
-        esc_html__( 'Cliquez sur le lien ci-dessous pour choisir un nouveau mot de passe.', 'association-manager' ),
-        esc_url( $link ),
-        esc_html__( 'Choisir un nouveau mot de passe', 'association-manager' )
-    );
+    $subject   = __( 'Réinitialisation de votre mot de passe AMAP', 'association-manager' );
+    $body_html = '<p>' . esc_html__( 'Cliquez sur le bouton ci-dessous pour choisir un nouveau mot de passe.', 'association-manager' ) . '</p>';
+    $html_body = amap_render_email( $subject, $body_html, $link, __( 'Choisir un nouveau mot de passe', 'association-manager' ) );
 
-    return amap_send_email( $user->user_email, __( 'Réinitialisation de votre mot de passe AMAP', 'association-manager' ), $html_body );
+    return amap_send_email( $user->user_email, $subject, $html_body );
 }
 
 add_action( 'admin_post_amap_send_magic_link', 'amap_handle_send_magic_link' );
