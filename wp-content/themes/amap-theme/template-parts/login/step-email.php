@@ -22,3 +22,17 @@
     </p>
     <p><button type="submit"><?php esc_html_e( 'Continuer', 'association-manager' ); ?></button></p>
 </form>
+
+<?php if ( AMAP_DEMO_MODE ) : ?>
+    <!-- Identifiants fixes d'un environnement de démo (Playground) : pas de __()/_e(), cette
+         section ne s'affiche jamais en production et n'a pas vocation à être traduite. -->
+    <div class="amap-notice amap-notice--info">
+        <p><strong>Comptes de démonstration</strong></p>
+        <ul>
+            <li>Administrateur : <a href="<?php echo esc_url( admin_url() ); ?>">wp-admin</a>, identifiant <code>admin</code> / mot de passe <code>password</code></li>
+            <li>Bureau : <code>bureau-demo@example.com</code> / mot de passe <code>demo1234</code></li>
+            <li>Producteur : <code>producteur-demo@example.com</code> / mot de passe <code>demo1234</code></li>
+            <li>Adhérent : <code>adherent-demo@example.com</code> (pas de mot de passe, uniquement un lien de connexion)</li>
+        </ul>
+    </div>
+<?php endif; ?>

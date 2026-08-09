@@ -12,6 +12,15 @@ if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
+/**
+ * Mode démo (ex. WordPress Playground) : aucun email n'est réellement envoyé (amap_send_email()),
+ * son contenu est affiché à l'écran à la place. Faux par défaut ; à définir à true uniquement via
+ * wp-config.php d'un environnement de démonstration, jamais en production.
+ */
+if ( ! defined( 'AMAP_DEMO_MODE' ) ) {
+    define( 'AMAP_DEMO_MODE', false );
+}
+
 require_once __DIR__ . '/includes/schema.php';
 require_once __DIR__ . '/includes/email.php';
 require_once __DIR__ . '/includes/auth.php';

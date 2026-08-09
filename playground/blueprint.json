@@ -1,0 +1,67 @@
+{
+    "$schema": "https://playground.wordpress.net/blueprint-schema.json",
+    "landingPage": "/espace-adherent/",
+    "steps": [
+        {
+            "step": "defineWpConfigConsts",
+            "consts": {
+                "AMAP_DEMO_MODE": true,
+                "AMAP_BREVO_API_KEY": "",
+                "AMAP_EMAIL_FROM_ADDRESS": "",
+                "AMAP_EMAIL_FROM_NAME": "AMAP"
+            }
+        },
+        {
+            "step": "installTheme",
+            "themeData": {
+                "resource": "git:directory",
+                "url": "https://github.com/ampholyte/wp-amap",
+                "ref": "main",
+                "refType": "branch",
+                "path": "wp-content/themes/amap-theme"
+            },
+            "options": {
+                "activate": true,
+                "targetFolderName": "amap-theme"
+            }
+        },
+        {
+            "step": "installPlugin",
+            "pluginData": {
+                "resource": "git:directory",
+                "url": "https://github.com/ampholyte/wp-amap",
+                "ref": "main",
+                "refType": "branch",
+                "path": "wp-content/plugins/association-manager"
+            },
+            "options": {
+                "activate": true,
+                "targetFolderName": "association-manager"
+            }
+        },
+        {
+            "step": "wp-cli",
+            "command": "wp rewrite structure '/%postname%/'"
+        },
+        {
+            "step": "wp-cli",
+            "command": "wp rewrite flush"
+        },
+        {
+            "step": "wp-cli",
+            "command": "wp post create --post_type=page --post_title='Espace adhérent' --post_name=espace-adherent --post_status=publish"
+        },
+        {
+            "step": "wp-cli",
+            "command": "wp user create bureau-demo bureau-demo@example.com --role=amap_board --user_pass=demo1234 --display_name='Bureau (démo)'"
+        },
+        {
+            "step": "wp-cli",
+            "command": "wp user create producteur-demo producteur-demo@example.com --role=amap_producer --user_pass=demo1234 --display_name='Producteur (démo)'"
+        },
+        {
+            "step": "wp-cli",
+            "command": "wp user create adherent-demo adherent-demo@example.com --role=amap_member --user_pass=demo1234 --display_name='Adhérent (démo)'"
+        }
+    ]
+}

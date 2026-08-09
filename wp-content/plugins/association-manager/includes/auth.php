@@ -538,6 +538,9 @@ function amap_maybe_render_login_message_step() {
         return;
     }
 
+    $demo_steps = array( 'magic_link_sent', 'password_reset_sent' );
+    $demo_email = in_array( $step, $demo_steps, true ) ? amap_get_demo_last_email() : false;
+
     get_header();
     ?>
     <main>
@@ -548,6 +551,7 @@ function amap_maybe_render_login_message_step() {
         array(
             'message'          => $messages[ $step ],
             'show_login_link'  => ( 'password_reset_done' === $step ),
+            'demo_email'       => $demo_email,
         )
     );
     ?>

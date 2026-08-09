@@ -14,6 +14,20 @@ if ( ! defined( 'ABSPATH' ) ) {
  * mutualisé visé en production.
  */
 function amap_send_email( $to, $subject, $html_body ) {
+    if ( AMAP_DEMO_MODE ) {
+        set_transient(
+            'amap_demo_last_email',
+            array(
+                'to'      => $to,
+                'subject' => $subject,
+                'body'    => $html_body,
+            ),
+            5 * MINUTE_IN_SECONDS
+        );
+
+        return true;
+    }
+
     if ( '' === AMAP_BREVO_API_KEY ) {
         return new WP_Error( 'amap_email_not_configured', __( 'Clé API Brevo non configurée.', 'association-manager' ) );
     }
@@ -53,6 +67,14 @@ function amap_send_email( $to, $subject, $html_body ) {
     }
 
     return true;
+}
+
+/**
+ * Contenu du dernier email intercepté en mode démo (voir amap_send_email()), utilisé par les
+ * écrans front-end pour afficher le lien magique à la place d'un envoi réel.
+ */
+function amap_get_demo_last_email() {
+    return AMAP_DEMO_MODE ? get_transient( 'amap_demo_last_email' ) : false;
 }
 
 add_action( 'admin_post_amap_send_test_email', 'amap_handle_send_test_email' );
