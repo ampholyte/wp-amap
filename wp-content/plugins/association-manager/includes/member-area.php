@@ -61,10 +61,15 @@ function amap_maybe_render_member_area() {
         $leave_form_data = amap_get_member_leave_form_data( $user );
     }
 
-    // Export CSV : jamais de page à rendre, amap_handle_export_contract_roster() envoie le
-    // fichier et termine la requête elle-même — doit donc s'exécuter avant get_header().
+    // Export CSV : jamais de page à rendre, amap_handle_export_contract_roster() /
+    // amap_handle_export_contract_products() envoient le fichier et terminent la requête
+    // elles-mêmes — doit donc s'exécuter avant get_header().
     if ( $is_producer && 'export_contract_roster' === $action ) {
         amap_handle_export_contract_roster( $user );
+    }
+
+    if ( $is_producer && 'export_contract_products' === $action ) {
+        amap_handle_export_contract_products( $user );
     }
 
     get_header();
@@ -315,6 +320,101 @@ function amap_handle_export_contract_roster( $producer ) {
             array_merge(
                 array( $row['name'], $row['phone'], $row['leaves_count'], $row['done_count'] ),
                 $row['statuses'],
+                array( '' )
+            ),
+            ';'
+        );
+    }
+
+    fclose( $output );
+    exit;
+}
+
+/**
+ * Valide ?amap_member_action=export_contract_products&contract_id=X&group_id=Y&distribution_date=Z
+ * (bouton "Détail (CSV)" de la carte "Produits à livrer" pour un contrat product_grid) et envoie
+ * directement le fichier CSV nominatif des commandes de cette distribution — même principe que
+ * amap_handle_export_contract_roster(), mais un fichier par distribution (une seule date, pas de
+ * fenêtre glissante) et des colonnes produits plutôt que des colonnes dates. wp_die() sur un
+ * contrat/groupe/date trafiqué, non product_grid, n'appartenant pas au producteur connecté, ou ne
+ * correspondant à aucune date de livraison enregistrée (amap_get_contract_product_subscribers()
+ * retourne alors null) : l'UI ne propose jamais un tel lien.
+ */
+function amap_handle_export_contract_products( $producer ) {
+    $contract_id       = isset( $_GET['contract_id'] ) ? absint( $_GET['contract_id'] ) : 0;
+    $group_id          = isset( $_GET['group_id'] ) ? absint( $_GET['group_id'] ) : 0;
+    $distribution_date = isset( $_GET['distribution_date'] ) ? sanitize_text_field( wp_unslash( $_GET['distribution_date'] ) ) : '';
+
+    $contract = $contract_id ? amap_get_contract( $contract_id ) : null;
+    $group    = $group_id ? amap_get_group( $group_id ) : null;
+
+    if ( ! $contract || ! $group
+        || 'product_grid' !== $contract->contract_type
+        || (int) $contract->producer_user_id !== $producer->ID
+        || ! in_array( $group_id, array_map( 'intval', wp_list_pluck( amap_get_producer_groups( $producer->ID ), 'id' ) ), true )
+        || ! amap_is_valid_date( $distribution_date )
+    ) {
+        wp_die( esc_html__( 'Export non autorisé.', 'association-manager' ) );
+    }
+
+    $subscribers = amap_get_contract_product_subscribers( $contract, $group, $distribution_date );
+    if ( null === $subscribers ) {
+        wp_die( esc_html__( 'Export non autorisé.', 'association-manager' ) );
+    }
+
+    // Une colonne par produit effectivement commandé à cette date, pas tout le catalogue du
+    // contrat — ordonnées par première apparition (même logique que
+    // amap_get_contract_products_to_deliver()).
+    $products = array();
+    foreach ( $subscribers as $entry ) {
+        foreach ( $entry['items'] as $item ) {
+            $products[ $item['product']->id ] = $item['product'];
+        }
+    }
+
+    nocache_headers();
+    header( 'Content-Type: text/csv; charset=UTF-8' );
+    header( 'Content-Disposition: attachment; filename="' . sanitize_file_name( $contract->label . '-' . $group->name . '-' . $distribution_date . '.csv' ) . '"' );
+
+    $output = fopen( 'php://output', 'w' );
+    // BOM UTF-8 : sans lui, Excel affiche les accents mal encodés à l'ouverture directe du fichier.
+    fwrite( $output, "\xEF\xBB\xBF" );
+
+    fputcsv(
+        $output,
+        array_merge(
+            array( __( 'Nom Prénom', 'association-manager' ), __( 'Téléphone', 'association-manager' ) ),
+            wp_list_pluck( $products, 'label' ),
+            array( __( 'Commentaire', 'association-manager' ) )
+        ),
+        ';'
+    );
+
+    foreach ( $subscribers as $entry ) {
+        if ( ! $entry['member'] ) {
+            continue;
+        }
+
+        $quantities = array();
+        foreach ( $entry['items'] as $item ) {
+            $quantities[ $item['product']->id ] = $item['quantity'];
+        }
+
+        $contact = amap_get_user_contact( $entry['member']->ID );
+
+        fputcsv(
+            $output,
+            array_merge(
+                array(
+                    trim( $entry['member']->last_name . ' ' . $entry['member']->first_name ),
+                    $contact->phone ?? '',
+                ),
+                array_map(
+                    static function ( $product_id ) use ( $quantities ) {
+                        return $quantities[ $product_id ] ?? '—';
+                    },
+                    array_keys( $products )
+                ),
                 array( '' )
             ),
             ';'
