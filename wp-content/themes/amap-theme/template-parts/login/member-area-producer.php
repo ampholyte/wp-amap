@@ -1,9 +1,10 @@
 <?php
 /**
- * Onglet "Espace producteur" : contrats du producteur connecté, groupes qu'il livre, prochaine
- * distribution de chacun et produits/paniers à y livrer (étapes 12.1/12.2/12.3, lecture seule).
- * Les adhérents par groupe viendront dans une étape ultérieure (voir
- * docs/plan-contrats-distributions.md).
+ * Onglet "Espace producteur" (lecture seule, voir docs/plan-contrats-distributions.md) : contrats
+ * du producteur connecté, groupes qu'il livre, prochaine distribution de chacun et
+ * produits/paniers à y livrer (étapes 12.1/12.2/12.3). Pour un contrat basket_recurring, un bouton
+ * "Détail (CSV)" télécharge le pointage nominatif des adhérents (étape 12.4,
+ * amap_handle_export_contract_roster()) plutôt que de l'afficher en page.
  */
 $contracts             = amap_get_producer_contracts( $args['current_user']->ID );
 $groups                = amap_get_producer_groups( $args['current_user']->ID );
@@ -136,7 +137,14 @@ foreach ( $groups as $group ) {
                             <p><?php esc_html_e( 'Rien à livrer pour cette distribution.', 'association-manager' ); ?></p>
                         <?php else : ?>
                             <?php foreach ( $deliveries as $delivery ) : ?>
-                                <p class="amap-delivery-contract-label"><?php echo esc_html( $delivery['contract']->label ); ?></p>
+                                <div class="amap-delivery-contract-header">
+                                    <p class="amap-delivery-contract-label"><?php echo esc_html( $delivery['contract']->label ); ?></p>
+                                    <?php if ( 'basket_recurring' === $delivery['contract']->contract_type ) : ?>
+                                        <a class="button-secondary" href="<?php echo esc_url( amap_get_contract_roster_export_url( $delivery['contract']->id, $group->id ) ); ?>">
+                                            <?php esc_html_e( 'Détail (CSV)', 'association-manager' ); ?>
+                                        </a>
+                                    <?php endif; ?>
+                                </div>
                                 <ul>
                                     <?php foreach ( $delivery['items'] as $item ) : ?>
                                         <li><?php echo esc_html( $item['label'] . ' × ' . $item['quantity'] ); ?></li>

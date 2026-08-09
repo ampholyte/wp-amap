@@ -117,9 +117,9 @@ préfixées `amap_`, réutilisant le pattern CRUD déjà en place pour "Utilisat
 12. Restitution du bloc producteur (espace membre), dépend de 1-6, 9, 10 — scindée en sous-
     étapes, voir note ci-dessous :
     12.1 Mes contrats + mes groupes (lecture seule)                  ✅ fait
-    12.2 Prochaine distribution (jour fixe du groupe + exceptions éventuelles)
-    12.3 Produits à livrer pour la prochaine distribution
-    12.4 Adhérents disponibles par groupe
+    12.2 Prochaine distribution (jour fixe du groupe + exceptions éventuelles)   ✅ fait
+    12.3 Produits à livrer pour la prochaine distribution            ✅ fait
+    12.4 Adhérents disponibles par groupe                            ✅ fait
 ```
 
 Point ouvert acté en conversation le 2026-08-08, à traiter à l'étape 7 : la page admin
@@ -785,7 +785,7 @@ séparément, sur le même principe que la souscription en ligne (étape 7) :
 12.1 Mes contrats + mes groupes (lecture seule)                      ✅ fait
 12.2 Prochaine distribution (jour fixe du groupe + exceptions éventuelles) ✅ fait
 12.3 Produits à livrer pour la prochaine distribution              ✅ fait
-12.4 Adhérents disponibles par groupe
+12.4 Adhérents disponibles par groupe                              ✅ fait
 ```
 
 ### Étape 12.1 (fait) — "Mes contrats" + "Mes groupes" (lecture seule)
@@ -898,5 +898,60 @@ techniques tranchées en conversation avant codage (2026-08-09) :
 - CSS : deux nouvelles classes, `.amap-subscription-item__meta` (texte secondaire discret, ex. la
   date dans l'en-tête d'une carte) et `.amap-delivery-contract-label` (sous-titre de contrat dans
   la liste des produits à livrer).
+
+Commit à venir.
+
+### Étape 12.4 (fait) — Adhérents disponibles par groupe
+
+**Pivot décidé en conversation** (2026-08-09) : la version initialement codée (liste nominative
+affichée en page, sous chaque agrégat de "Produits à livrer" — nom + commande + téléphone,
+construite sur deux nouvelles fonctions `amap_get_contract_basket_subscribers()`/
+`amap_get_contract_product_subscribers()`, variantes de `amap_get_contract_baskets_to_deliver()`/
+`amap_get_contract_products_to_deliver()` gardant le détail par adhérent) a été remplacée avant
+tout commit par un export CSV : une liste in-page devient vite illisible, et l'utilisateur a
+préféré un vrai outil de pointage papier/tableur plutôt qu'un simple affichage. Les deux fonctions
+`*_subscribers()` sont conservées (12.3 s'appuie dessus pour ses agrégats), la fonction
+d'orchestration nominative (`amap_get_group_delivery_members()`) a été supprimée, jamais commitée.
+
+- **Périmètre limité aux contrats `basket_recurring`** : "congés déposés" n'existe que pour ce
+  type de contrat, et sa cadence hebdomadaire/bimensuelle se prête naturellement à des colonnes
+  par date — un contrat `product_grid` a ses propres dates de livraison arbitraires par trimestre,
+  sans notion de congé, hors périmètre de cet export.
+- **Fenêtre de 30 jours glissants à partir d'aujourd'hui**, plutôt que le mois calendaire strict
+  suggéré initialement : toujours ~4 distributions visibles quel que soit le jour d'export,
+  contrairement au mois calendaire qui peut ne laisser que 2-3 jours utiles en fin de mois.
+- **`amap_get_contract_roster_rows( $contract, $group, $window_start, $window_end )`** (nouvelle
+  fonction, `subscriptions.php`) — une ligne par adhérent souscrit au contrat sur ce groupe : nom,
+  téléphone (`amap_get_user_contact()`), nombre total de congés déjà déclarés, nombre de
+  distributions déjà faites depuis le début du contrat (dates passées hors congé), puis un statut
+  par date de la fenêtre :
+  - `—` si le contrat ne livre pas ce jour-là (semaine creuse d'un contrat bimensuel, même logique
+    que `amap_get_contract_baskets_to_deliver()`) ;
+  - `ABS` si un congé est déclaré pour cette date précise ;
+  - **case vide sinon** (pas de "Présent" pré-rempli), décidé en conversation après un premier jet :
+    c'est cette case que le bénévole/producteur coche à la main pendant la distribution pour
+    valider que l'adhérent est effectivement passé, l'outil ne pouvant pas connaître cette
+    information à l'avance.
+- **`amap_handle_export_contract_roster( $producer )`** (nouvelle fonction, `member-area.php`) —
+  intercepte `?amap_member_action=export_contract_roster&contract_id=X&group_id=Y` avant tout
+  rendu de page (même emplacement que la validation de `subscribe`/`declare_leave`, mais celle-ci
+  ne rend jamais de template : elle envoie directement le fichier CSV puis termine la requête).
+  Revalide que le contrat est `basket_recurring`, appartient au producteur connecté, et que le
+  groupe lui est bien rattaché (`amap_get_producer_groups()`) avant de générer le fichier — sinon
+  `wp_die()`, l'UI ne proposant jamais un tel lien. CSV avec séparateur `;` et BOM UTF-8, pour
+  s'ouvrir correctement dans un Excel français.
+- **Bug corrigé après premier test réel** : la vérification d'appartenance du groupe comparait un
+  entier (`$group_id`, `absint()`) à des ids de groupe renvoyés en chaînes par `$wpdb` via
+  `wp_list_pluck()`, en comparaison stricte (`in_array( ..., true )`) — toujours `false`, donc
+  toujours rejeté. Corrigé avec `array_map( 'intval', ... )` avant la comparaison, même pattern
+  déjà utilisé pour la validation de `subscribe` (`amap_get_member_subscribe_form_data()`,
+  `member-area.php`).
+- **`amap_get_contract_roster_export_url( $contract_id, $group_id )`** (nouvelle fonction,
+  `auth.php`) — même principe que `amap_get_member_subscribe_url()`/`amap_get_member_leave_url()`.
+- **`member-area-producer.php`** : la liste nominative en page est retirée ; chaque contrat
+  `basket_recurring` de "Produits à livrer" affiche désormais un bouton "Détail (CSV)"
+  (`.button-secondary`, déjà utilisé pour "Déclarer un congé") à côté de son libellé, dans un
+  nouvel en-tête flex (`.amap-delivery-contract-header`). Un contrat `product_grid` garde
+  uniquement ses totaux agrégés, sans bouton.
 
 Commit à venir.

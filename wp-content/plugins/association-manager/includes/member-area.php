@@ -61,6 +61,12 @@ function amap_maybe_render_member_area() {
         $leave_form_data = amap_get_member_leave_form_data( $user );
     }
 
+    // Export CSV : jamais de page à rendre, amap_handle_export_contract_roster() envoie le
+    // fichier et termine la requête elle-même — doit donc s'exécuter avant get_header().
+    if ( $is_producer && 'export_contract_roster' === $action ) {
+        amap_handle_export_contract_roster( $user );
+    }
+
     get_header();
     ?>
     <main>
@@ -243,6 +249,80 @@ function amap_get_member_leave_form_data( $user ) {
         'leaves'           => $leaves,
         'available_dates'  => $available_dates,
     );
+}
+
+/**
+ * Valide ?amap_member_action=export_contract_roster&contract_id=X&group_id=Y (bouton "Détail" de
+ * la carte "Produits à livrer", onglet "Espace producteur") et envoie directement le fichier CSV
+ * de pointage — jamais de page rendue, contrairement aux autres actions de ce fichier. wp_die()
+ * sur un contrat/groupe trafiqué, non basket_recurring, ou n'appartenant pas au producteur
+ * connecté : l'UI ne propose jamais un tel lien.
+ *
+ * Fenêtre glissante de 30 jours à partir d'aujourd'hui plutôt que le mois calendaire strict, pour
+ * ne pas se retrouver avec seulement 2-3 jours utiles en fin de mois.
+ */
+function amap_handle_export_contract_roster( $producer ) {
+    $contract_id = isset( $_GET['contract_id'] ) ? absint( $_GET['contract_id'] ) : 0;
+    $group_id    = isset( $_GET['group_id'] ) ? absint( $_GET['group_id'] ) : 0;
+
+    $contract = $contract_id ? amap_get_contract( $contract_id ) : null;
+    $group    = $group_id ? amap_get_group( $group_id ) : null;
+
+    if ( ! $contract || ! $group
+        || 'basket_recurring' !== $contract->contract_type
+        || (int) $contract->producer_user_id !== $producer->ID
+        || ! in_array( $group_id, array_map( 'intval', wp_list_pluck( amap_get_producer_groups( $producer->ID ), 'id' ) ), true )
+    ) {
+        wp_die( esc_html__( 'Export non autorisé.', 'association-manager' ) );
+    }
+
+    $window_start = current_time( 'Y-m-d' );
+    $window_end   = ( new DateTime( $window_start ) )->modify( '+29 days' )->format( 'Y-m-d' );
+    $window_dates = amap_get_weekday_dates_in_range( $window_start, $window_end, (int) $group->weekday );
+    $rows         = amap_get_contract_roster_rows( $contract, $group, $window_start, $window_end );
+
+    nocache_headers();
+    header( 'Content-Type: text/csv; charset=UTF-8' );
+    header( 'Content-Disposition: attachment; filename="' . sanitize_file_name( $contract->label . '-' . $group->name . '.csv' ) . '"' );
+
+    $output = fopen( 'php://output', 'w' );
+    // BOM UTF-8 : sans lui, Excel affiche les accents mal encodés à l'ouverture directe du fichier.
+    fwrite( $output, "\xEF\xBB\xBF" );
+
+    fputcsv(
+        $output,
+        array_merge(
+            array(
+                __( 'Nom Prénom', 'association-manager' ),
+                __( 'Téléphone', 'association-manager' ),
+                __( 'Congés déposés', 'association-manager' ),
+                __( 'Distributions faites', 'association-manager' ),
+            ),
+            array_map(
+                static function ( $date ) {
+                    return date_i18n( 'd/m', strtotime( $date ) );
+                },
+                $window_dates
+            ),
+            array( __( 'Commentaire', 'association-manager' ) )
+        ),
+        ';'
+    );
+
+    foreach ( $rows as $row ) {
+        fputcsv(
+            $output,
+            array_merge(
+                array( $row['name'], $row['phone'], $row['leaves_count'], $row['done_count'] ),
+                $row['statuses'],
+                array( '' )
+            ),
+            ';'
+        );
+    }
+
+    fclose( $output );
+    exit;
 }
 
 /**

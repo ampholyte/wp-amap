@@ -86,15 +86,16 @@ function amap_subscription_has_leave( $subscription_id, $leave_date ) {
 }
 
 /**
- * Paniers à livrer par un contrat basket_recurring, pour un groupe et une date de distribution
- * donnés (date "brute" du jour fixe du groupe — amap_get_group_next_distribution(), étape 12.2).
- * Retourne null si cette date ne fait pas partie de l'échéancier du contrat (contrat bimensuel
- * hors semaine de livraison) : amap_get_weekday_dates_in_range() revalidée avec
- * frequency_weeks, même principe que les congés (étape 8c). Sinon, un tableau (potentiellement
- * vide) d'entrées { basket_size, count }, un adhérent en congé ce jour-là étant exclu du
- * décompte.
+ * Souscriptions basket_recurring attendues à une distribution, pour un groupe et une date de
+ * distribution donnés (date "brute" du jour fixe du groupe —
+ * amap_get_group_next_distribution(), étape 12.2). Retourne null si cette date ne fait pas partie
+ * de l'échéancier du contrat (contrat bimensuel hors semaine de livraison) :
+ * amap_get_weekday_dates_in_range() revalidée avec frequency_weeks, même principe que les congés
+ * (étape 8c). Sinon, un tableau (potentiellement vide) d'entrées { member, basket_size,
+ * subscription }, un adhérent en congé ce jour-là étant exclu. Sert de base à l'agrégat
+ * (amap_get_contract_baskets_to_deliver()) affiché dans "Produits à livrer".
  */
-function amap_get_contract_baskets_to_deliver( $contract, $group, $distribution_date ) {
+function amap_get_contract_basket_subscribers( $contract, $group, $distribution_date ) {
     global $wpdb;
 
     $delivery_dates = amap_get_weekday_dates_in_range(
@@ -115,37 +116,59 @@ function amap_get_contract_baskets_to_deliver( $contract, $group, $distribution_
         )
     );
 
-    $counts = array();
+    $result = array();
     foreach ( $subscriptions as $subscription ) {
         if ( amap_subscription_has_leave( $subscription->id, $distribution_date ) ) {
             continue;
         }
-        $size_id            = (int) $subscription->basket_size_id;
-        $counts[ $size_id ] = ( $counts[ $size_id ] ?? 0 ) + 1;
-    }
-
-    $result = array();
-    foreach ( $counts as $size_id => $count ) {
-        $basket_size = amap_get_contract_basket_size( $size_id );
-        if ( $basket_size ) {
-            $result[] = array(
-                'basket_size' => $basket_size,
-                'count'       => $count,
-            );
-        }
+        $result[] = array(
+            'member'       => get_user_by( 'id', $subscription->member_user_id ),
+            'basket_size'  => amap_get_contract_basket_size( $subscription->basket_size_id ),
+            'subscription' => $subscription,
+        );
     }
 
     return $result;
 }
 
 /**
- * Produits à livrer par un contrat product_grid, pour un groupe et une date de distribution
- * donnés (date "brute", voir amap_get_contract_baskets_to_deliver() ci-dessus). Retourne null si
- * aucune date de livraison n'est enregistrée pour ce couple (contrat, groupe) à cette date exacte
- * (amap_get_contract_delivery_date_by_date()). Sinon, un tableau (potentiellement vide) d'entrées
- * { product, quantity }, quantités agrégées tous adhérents confondus.
+ * Paniers à livrer par un contrat basket_recurring, agrégés par taille — voir
+ * amap_get_contract_basket_subscribers() pour le détail des règles (échéancier, congés).
  */
-function amap_get_contract_products_to_deliver( $contract, $group, $distribution_date ) {
+function amap_get_contract_baskets_to_deliver( $contract, $group, $distribution_date ) {
+    $subscribers = amap_get_contract_basket_subscribers( $contract, $group, $distribution_date );
+    if ( null === $subscribers ) {
+        return null;
+    }
+
+    $counts = array();
+    foreach ( $subscribers as $entry ) {
+        if ( ! $entry['basket_size'] ) {
+            continue;
+        }
+        $size_id = $entry['basket_size']->id;
+        if ( ! isset( $counts[ $size_id ] ) ) {
+            $counts[ $size_id ] = array(
+                'basket_size' => $entry['basket_size'],
+                'count'       => 0,
+            );
+        }
+        ++$counts[ $size_id ]['count'];
+    }
+
+    return array_values( $counts );
+}
+
+/**
+ * Souscriptions product_grid attendues à une distribution, pour un groupe et une date de
+ * distribution donnés (date "brute", voir amap_get_contract_basket_subscribers() ci-dessus).
+ * Retourne null si aucune date de livraison n'est enregistrée pour ce couple (contrat, groupe) à
+ * cette date exacte (amap_get_contract_delivery_date_by_date()). Sinon, un tableau
+ * (potentiellement vide) d'entrées { member, items: [{ product, quantity }], subscription } — une
+ * entrée par adhérent ayant au moins une commande sur cette date. Sert de base à l'agrégat
+ * (amap_get_contract_products_to_deliver()) affiché dans "Produits à livrer".
+ */
+function amap_get_contract_product_subscribers( $contract, $group, $distribution_date ) {
     global $wpdb;
 
     $delivery_date_row = amap_get_contract_delivery_date_by_date( $contract->id, $group->id, $distribution_date );
@@ -155,29 +178,74 @@ function amap_get_contract_products_to_deliver( $contract, $group, $distribution
 
     $rows = $wpdb->get_results(
         $wpdb->prepare(
-            "SELECT si.contract_product_id, SUM(si.quantity) AS total_quantity
+            "SELECT si.subscription_id, si.contract_product_id, si.quantity
              FROM {$wpdb->prefix}amap_subscription_items si
              INNER JOIN {$wpdb->prefix}amap_subscriptions s ON s.id = si.subscription_id
              WHERE s.contract_id = %d AND s.group_id = %d AND si.contract_delivery_date_id = %d
-             GROUP BY si.contract_product_id",
+             ORDER BY si.subscription_id",
             $contract->id,
             $group->id,
             $delivery_date_row->id
         )
     );
 
-    $result = array();
+    $by_subscription = array();
     foreach ( $rows as $row ) {
         $product = amap_get_contract_product( (int) $row->contract_product_id );
-        if ( $product && (int) $row->total_quantity > 0 ) {
-            $result[] = array(
-                'product'  => $product,
-                'quantity' => (int) $row->total_quantity,
+        if ( ! $product ) {
+            continue;
+        }
+
+        $subscription_id = (int) $row->subscription_id;
+        if ( ! isset( $by_subscription[ $subscription_id ] ) ) {
+            $by_subscription[ $subscription_id ] = array(
+                'subscription' => amap_get_subscription( $subscription_id ),
+                'items'        => array(),
             );
         }
+        $by_subscription[ $subscription_id ]['items'][] = array(
+            'product'  => $product,
+            'quantity' => (int) $row->quantity,
+        );
+    }
+
+    $result = array();
+    foreach ( $by_subscription as $entry ) {
+        $result[] = array(
+            'member'       => get_user_by( 'id', $entry['subscription']->member_user_id ),
+            'items'        => $entry['items'],
+            'subscription' => $entry['subscription'],
+        );
     }
 
     return $result;
+}
+
+/**
+ * Produits à livrer par un contrat product_grid, agrégés tous adhérents confondus — voir
+ * amap_get_contract_product_subscribers() pour le détail des règles.
+ */
+function amap_get_contract_products_to_deliver( $contract, $group, $distribution_date ) {
+    $subscribers = amap_get_contract_product_subscribers( $contract, $group, $distribution_date );
+    if ( null === $subscribers ) {
+        return null;
+    }
+
+    $totals = array();
+    foreach ( $subscribers as $entry ) {
+        foreach ( $entry['items'] as $item ) {
+            $product_id = $item['product']->id;
+            if ( ! isset( $totals[ $product_id ] ) ) {
+                $totals[ $product_id ] = array(
+                    'product'  => $item['product'],
+                    'quantity' => 0,
+                );
+            }
+            $totals[ $product_id ]['quantity'] += $item['quantity'];
+        }
+    }
+
+    return array_values( $totals );
 }
 
 /**
@@ -230,6 +298,79 @@ function amap_get_group_deliveries( $group, array $producer_contracts, $distribu
     }
 
     return $deliveries;
+}
+
+/**
+ * Lignes de pointage des adhérents d'un contrat basket_recurring sur un groupe, pour une fenêtre
+ * de dates donnée — export CSV "Détail" de la carte "Produits à livrer" (étape 12.4). Une ligne
+ * par adhérent souscrit à ce contrat sur ce groupe : nom, téléphone, nombre total de congés
+ * déjà déclarés, nombre de distributions déjà faites depuis le début du contrat (dates passées
+ * hors congé), puis un statut par date de la fenêtre — "—" si le contrat ne livre pas ce jour-là
+ * (ex. semaine creuse d'un contrat bimensuel, même logique que amap_get_contract_baskets_to_deliver()),
+ * "ABS" si un congé est déclaré pour cette date précise, case vide sinon (cochée à la main pendant
+ * la distribution pour valider que l'adhérent est passé — volontairement pas pré-rempli).
+ */
+function amap_get_contract_roster_rows( $contract, $group, $window_start, $window_end ) {
+    global $wpdb;
+
+    $window_dates   = amap_get_weekday_dates_in_range( $window_start, $window_end, (int) $group->weekday );
+    $contract_dates = amap_get_weekday_dates_in_range(
+        $contract->start_date,
+        $contract->end_date,
+        (int) $group->weekday,
+        (int) $contract->frequency_weeks
+    );
+
+    $today      = current_time( 'Y-m-d' );
+    $past_dates = array_filter(
+        $contract_dates,
+        static function ( $date ) use ( $today ) {
+            return $date < $today;
+        }
+    );
+
+    $subscriptions = $wpdb->get_results(
+        $wpdb->prepare(
+            "SELECT * FROM {$wpdb->prefix}amap_subscriptions WHERE contract_id = %d AND group_id = %d",
+            $contract->id,
+            $group->id
+        )
+    );
+
+    $rows = array();
+    foreach ( $subscriptions as $subscription ) {
+        $member = get_user_by( 'id', $subscription->member_user_id );
+        if ( ! $member ) {
+            continue;
+        }
+
+        $leave_dates = wp_list_pluck( amap_get_leaves( $subscription->id ), 'leave_date' );
+        $contact     = amap_get_user_contact( $subscription->member_user_id );
+
+        $statuses = array();
+        foreach ( $window_dates as $date ) {
+            if ( ! in_array( $date, $contract_dates, true ) ) {
+                $statuses[] = '—';
+            } elseif ( in_array( $date, $leave_dates, true ) ) {
+                $statuses[] = 'ABS';
+            } else {
+                // Case vide plutôt qu'un "Présent" pré-rempli : c'est cette case que le
+                // bénévole/producteur coche à la main pendant la distribution pour valider que
+                // l'adhérent est effectivement passé.
+                $statuses[] = '';
+            }
+        }
+
+        $rows[] = array(
+            'name'         => trim( $member->last_name . ' ' . $member->first_name ),
+            'phone'        => $contact->phone ?? '',
+            'leaves_count' => count( $leave_dates ),
+            'done_count'   => count( array_diff( $past_dates, $leave_dates ) ),
+            'statuses'     => $statuses,
+        );
+    }
+
+    return $rows;
 }
 
 /**

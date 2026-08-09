@@ -123,6 +123,22 @@ function amap_get_member_leave_url( $subscription_id ) {
     );
 }
 
+/**
+ * URL de l'export CSV du pointage des adhérents d'un contrat basket_recurring sur un groupe
+ * donné (bouton "Détail" de la carte "Produits à livrer", onglet "Espace producteur", étape
+ * 12.4) — amap_handle_export_contract_roster() envoie directement le fichier, jamais de page.
+ */
+function amap_get_contract_roster_export_url( $contract_id, $group_id ) {
+    return add_query_arg(
+        array(
+            'amap_member_action' => 'export_contract_roster',
+            'contract_id'        => $contract_id,
+            'group_id'           => $group_id,
+        ),
+        amap_get_member_area_url()
+    );
+}
+
 function amap_get_magic_link_url( $token ) {
     return add_query_arg(
         array(
