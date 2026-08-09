@@ -84,12 +84,16 @@ l'association, sans code associé — aucune donnée de forfait/compensation dan
 `wp_amap_leaves`. Le point reste non tranché côté association, mais n'a plus d'impact sur ce
 chantier.
 
-Point ouvert non tranché (soulevé en conversation le 2026-08-06, à l'étape 4b) : certains
-produits du catalogue (`wp_amap_contract_products`) peuvent bénéficier d'une remise par
-quantité (ex. 6 unités achetées, 5 facturées), mais pas systématiquement selon le produit. La
-table `wp_amap_contract_products` créée en 4b ne modélise volontairement que le prix unitaire
-(label + price), sans règle de remise : à traiter plus tard, probablement à l'étape 5/6
-(souscriptions), quand les quantités réellement commandées par un adhérent seront connues.
+Point ouvert tranché (soulevé en conversation le 2026-08-06, à l'étape 4b ; conçu et implémenté
+le 2026-08-09) : certains produits du catalogue (`wp_amap_contract_products`) peuvent bénéficier
+d'une remise par quantité, mais pas systématiquement selon le produit, et pas forcément produit
+par produit — ex. 6 yaourts achetés toutes variétés confondues, facturés 5. Modélisé par une
+nouvelle table `wp_amap_contract_discount_groups` (famille de remise : libellé, prix unitaire
+commun à tous ses produits, seuil « achetés → facturés ») et une colonne `discount_group_id`
+(nullable) sur `wp_amap_contract_products` — le prix d'un produit rattaché à une famille est un
+simple miroir du prix de la famille, synchronisé côté admin. Le montant dû est calculé sur
+l'ensemble de la souscription (toutes dates de livraison confondues, pas par date) et affiché à
+la confirmation de souscription, dans l'espace adhérent et sur la fiche souscription en admin.
 
 Aucune de ces étapes n'introduit de fichiers séparés, namespaces, classes ou couche
 Repository/Service : tout reste dans `association-manager.php`, fonctions procédurales

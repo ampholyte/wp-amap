@@ -143,6 +143,35 @@ function amap_store_contract_product_form_data( array $data ) {
     set_transient( 'amap_contract_product_form_' . get_current_user_id(), $data, 60 );
 }
 
+function amap_get_contract_discount_groups( $contract_id ) {
+    global $wpdb;
+
+    return $wpdb->get_results(
+        $wpdb->prepare(
+            "SELECT * FROM {$wpdb->prefix}amap_contract_discount_groups WHERE contract_id = %d ORDER BY id ASC",
+            $contract_id
+        )
+    );
+}
+
+function amap_get_contract_discount_group( $id ) {
+    global $wpdb;
+
+    return $wpdb->get_row(
+        $wpdb->prepare( "SELECT * FROM {$wpdb->prefix}amap_contract_discount_groups WHERE id = %d", $id )
+    );
+}
+
+// Le seuil doit représenter une vraie remise : la quantité facturée doit être strictement
+// inférieure à la quantité achetée (voir le point ouvert dans docs/plan-contrats-distributions.md).
+function amap_is_valid_discount_ratio( $bought_quantity, $billed_quantity ) {
+    return $bought_quantity > 0 && $billed_quantity > 0 && $billed_quantity < $bought_quantity;
+}
+
+function amap_store_contract_discount_group_form_data( array $data ) {
+    set_transient( 'amap_contract_discount_group_form_' . get_current_user_id(), $data, 60 );
+}
+
 function amap_get_contract_delivery_dates( $contract_id ) {
     global $wpdb;
 
@@ -340,11 +369,39 @@ function amap_render_contracts_page() {
         delete_transient( $contract_product_transient_key );
     } elseif ( $product_editing ) {
         $contract_product_form_data = array(
-            'label' => $product_editing->label,
-            'price' => (string) $product_editing->price,
+            'label'             => $product_editing->label,
+            'price'             => (string) $product_editing->price,
+            'discount_group_id' => $product_editing->discount_group_id ? (string) $product_editing->discount_group_id : '',
         );
     } else {
         $contract_product_form_data = array();
+    }
+
+    // Mode édition d'une famille de remise : ?discount_action=edit&discount_id=Y en plus de
+    // ?action=edit&id=X sur cette même page (X = contrat, Y = famille de ce contrat).
+    $discount_group_editing_id = 0;
+    if ( isset( $_GET['discount_action'], $_GET['discount_id'] ) && 'edit' === $_GET['discount_action'] ) {
+        $discount_group_editing_id = absint( $_GET['discount_id'] );
+    }
+    $discount_group_editing = $discount_group_editing_id ? amap_get_contract_discount_group( $discount_group_editing_id ) : null;
+    if ( $discount_group_editing_id && ( ! $discount_group_editing || (int) $discount_group_editing->contract_id !== $editing_id ) ) {
+        $discount_group_editing_id = 0;
+        $discount_group_editing    = null;
+    }
+
+    $contract_discount_group_transient_key = 'amap_contract_discount_group_form_' . get_current_user_id();
+    $contract_discount_group_form_data     = get_transient( $contract_discount_group_transient_key );
+    if ( false !== $contract_discount_group_form_data ) {
+        delete_transient( $contract_discount_group_transient_key );
+    } elseif ( $discount_group_editing ) {
+        $contract_discount_group_form_data = array(
+            'label'           => $discount_group_editing->label,
+            'price'           => (string) $discount_group_editing->price,
+            'bought_quantity' => (string) $discount_group_editing->bought_quantity,
+            'billed_quantity' => (string) $discount_group_editing->billed_quantity,
+        );
+    } else {
+        $contract_discount_group_form_data = array();
     }
 
     // Mode édition d'une date de livraison : ?date_action=edit&date_id=Y en plus de
@@ -427,7 +484,7 @@ function amap_render_contracts_page() {
     $active_contract_tab  = 'amap-contract-form-wrapper';
     if ( 'sizes' === $requested_tab || $size_editing_id ) {
         $active_contract_tab = 'amap-tab-sizes';
-    } elseif ( 'products' === $requested_tab || $product_editing_id ) {
+    } elseif ( 'products' === $requested_tab || $product_editing_id || $discount_group_editing_id ) {
         $active_contract_tab = 'amap-tab-products';
     } elseif ( 'dates' === $requested_tab || $delivery_date_editing_id || $generate_group_id ) {
         $active_contract_tab = 'amap-tab-dates';
@@ -830,9 +887,148 @@ function amap_render_contracts_page() {
         <?php endif; ?>
 
         <?php if ( $editing_id && $editing_contract && 'product_grid' === $editing_contract->contract_type ) : ?>
-            <?php $contract_products = amap_get_contract_products( $editing_id ); ?>
+            <?php
+            $contract_products = amap_get_contract_products( $editing_id );
+            $discount_groups   = amap_get_contract_discount_groups( $editing_id );
+            ?>
             <div class="postbox amap-tab-panel" id="amap-tab-products"<?php echo ( 'amap-tab-products' === $active_contract_tab ) ? '' : ' hidden'; ?>>
             <div class="inside">
+            <h2><?php esc_html_e( 'Familles de remise', 'association-manager' ); ?></h2>
+            <p class="description">
+                <?php esc_html_e( "Un groupe de produits qui partagent un même prix et une remise par quantité : ex. « 6 achetés, 5 facturés », tous produits de la famille confondus sur toute la souscription.", 'association-manager' ); ?>
+            </p>
+            <?php if ( 'contract_discount_group_invalid' === $notice ) : ?>
+                <div class="notice notice-error"><p><?php esc_html_e( 'Libellé, prix ou seuils invalides : la quantité facturée doit être strictement inférieure à la quantité achetée.', 'association-manager' ); ?></p></div>
+            <?php elseif ( 'contract_discount_group_saved' === $notice ) : ?>
+                <div class="notice notice-success"><p><?php esc_html_e( 'Famille de remise enregistrée.', 'association-manager' ); ?></p></div>
+            <?php elseif ( 'contract_discount_group_deleted' === $notice ) : ?>
+                <div class="notice notice-success"><p><?php esc_html_e( 'Famille de remise supprimée.', 'association-manager' ); ?></p></div>
+            <?php endif; ?>
+
+            <?php if ( empty( $discount_groups ) ) : ?>
+                <p><?php esc_html_e( 'Aucune famille de remise pour le moment.', 'association-manager' ); ?></p>
+            <?php else : ?>
+                <table class="widefat">
+                    <thead>
+                        <tr>
+                            <th><?php esc_html_e( 'Libellé', 'association-manager' ); ?></th>
+                            <th><?php esc_html_e( 'Prix', 'association-manager' ); ?></th>
+                            <th><?php esc_html_e( 'Remise', 'association-manager' ); ?></th>
+                            <th><?php esc_html_e( 'Actions', 'association-manager' ); ?></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ( $discount_groups as $discount_group ) : ?>
+                            <tr>
+                                <td><?php echo esc_html( $discount_group->label ); ?></td>
+                                <td><?php echo esc_html( number_format_i18n( (float) $discount_group->price, 2 ) ); ?> €</td>
+                                <td>
+                                    <?php
+                                    printf(
+                                        /* translators: 1: quantité achetée, 2: quantité facturée. */
+                                        esc_html__( '%1$d achetés → %2$d facturés', 'association-manager' ),
+                                        (int) $discount_group->bought_quantity,
+                                        (int) $discount_group->billed_quantity
+                                    );
+                                    ?>
+                                </td>
+                                <td>
+                                    <a href="<?php echo esc_url( admin_url( 'admin.php?page=amap-contracts&action=edit&id=' . $editing_id . '&discount_action=edit&discount_id=' . $discount_group->id ) ); ?>">
+                                        <?php esc_html_e( 'Modifier', 'association-manager' ); ?>
+                                    </a>
+                                    |
+                                    <?php
+                                    $delete_discount_group_url = wp_nonce_url(
+                                        admin_url( 'admin-post.php?action=amap_delete_contract_discount_group&id=' . $discount_group->id ),
+                                        'amap_delete_contract_discount_group_' . $discount_group->id
+                                    );
+                                    // translators: %s: libellé de la famille de remise.
+                                    $confirm_discount_group_message = sprintf( __( 'Supprimer définitivement la famille %s ? Les produits qui en faisaient partie repasseront en prix libre.', 'association-manager' ), $discount_group->label );
+                                    ?>
+                                    <a href="<?php echo esc_url( $delete_discount_group_url ); ?>" onclick="return confirm( '<?php echo esc_js( $confirm_discount_group_message ); ?>' );">
+                                        <?php esc_html_e( 'Supprimer', 'association-manager' ); ?>
+                                    </a>
+                                </td>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            <?php endif; ?>
+
+            <?php if ( ! $discount_group_editing_id ) : ?>
+                <p>
+                    <button type="button" class="button button-primary" id="amap-discount-group-add-toggle"><?php esc_html_e( '+ Ajouter une famille de remise', 'association-manager' ); ?></button>
+                </p>
+            <?php endif; ?>
+            <div id="amap-discount-group-form-wrapper"<?php echo $discount_group_editing_id ? '' : ' hidden'; ?>>
+            <h3>
+                <?php echo $discount_group_editing_id
+                    ? esc_html__( 'Modifier une famille de remise', 'association-manager' )
+                    : esc_html__( 'Ajouter une famille de remise', 'association-manager' ); ?>
+            </h3>
+            <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+                <?php if ( $discount_group_editing_id ) : ?>
+                    <?php wp_nonce_field( 'amap_edit_contract_discount_group_' . $discount_group_editing_id ); ?>
+                    <input type="hidden" name="action" value="amap_update_contract_discount_group">
+                    <input type="hidden" name="id" value="<?php echo esc_attr( $discount_group_editing_id ); ?>">
+                <?php else : ?>
+                    <?php wp_nonce_field( 'amap_add_contract_discount_group_' . $editing_id ); ?>
+                    <input type="hidden" name="action" value="amap_add_contract_discount_group">
+                    <input type="hidden" name="contract_id" value="<?php echo esc_attr( $editing_id ); ?>">
+                <?php endif; ?>
+                <table class="form-table">
+                    <tr>
+                        <th><label for="amap-discount-group-label"><?php esc_html_e( 'Libellé', 'association-manager' ); ?></label></th>
+                        <td><input type="text" id="amap-discount-group-label" name="label" value="<?php echo esc_attr( $contract_discount_group_form_data['label'] ?? '' ); ?>" required></td>
+                    </tr>
+                    <tr>
+                        <th><label for="amap-discount-group-price"><?php esc_html_e( 'Prix unitaire (€)', 'association-manager' ); ?></label></th>
+                        <td><input type="number" id="amap-discount-group-price" name="price" min="0.01" step="0.01" value="<?php echo esc_attr( $contract_discount_group_form_data['price'] ?? '' ); ?>" required></td>
+                    </tr>
+                    <tr>
+                        <th><label for="amap-discount-group-bought-quantity"><?php esc_html_e( 'Quantité achetée', 'association-manager' ); ?></label></th>
+                        <td><input type="number" id="amap-discount-group-bought-quantity" name="bought_quantity" min="2" step="1" value="<?php echo esc_attr( $contract_discount_group_form_data['bought_quantity'] ?? '' ); ?>" required></td>
+                    </tr>
+                    <tr>
+                        <th><label for="amap-discount-group-billed-quantity"><?php esc_html_e( 'Quantité facturée', 'association-manager' ); ?></label></th>
+                        <td><input type="number" id="amap-discount-group-billed-quantity" name="billed_quantity" min="1" step="1" value="<?php echo esc_attr( $contract_discount_group_form_data['billed_quantity'] ?? '' ); ?>" required></td>
+                    </tr>
+                </table>
+                <p>
+                    <?php submit_button( $discount_group_editing_id ? __( 'Enregistrer', 'association-manager' ) : __( 'Ajouter', 'association-manager' ), 'primary', 'submit', false ); ?>
+                    <?php if ( $discount_group_editing_id ) : ?>
+                        <a href="<?php echo esc_url( admin_url( 'admin.php?page=amap-contracts&action=edit&id=' . $editing_id . '&active_tab=products' ) ); ?>" class="button">
+                            <?php esc_html_e( 'Annuler', 'association-manager' ); ?>
+                        </a>
+                    <?php else : ?>
+                        <button type="button" class="button" id="amap-discount-group-add-cancel"><?php esc_html_e( 'Annuler', 'association-manager' ); ?></button>
+                    <?php endif; ?>
+                </p>
+            </form>
+            </div>
+            <script>
+            ( function () {
+                var toggle  = document.getElementById( 'amap-discount-group-add-toggle' );
+                var wrapper = document.getElementById( 'amap-discount-group-form-wrapper' );
+                var cancel  = document.getElementById( 'amap-discount-group-add-cancel' );
+                if ( toggle ) {
+                    toggle.addEventListener( 'click', function () {
+                        wrapper.hidden = false;
+                        toggle.hidden  = true;
+                    } );
+                }
+                if ( cancel ) {
+                    cancel.addEventListener( 'click', function () {
+                        wrapper.hidden = true;
+                        toggle.hidden  = false;
+                    } );
+                }
+            } )();
+            </script>
+
+            <hr>
+
+            <h2><?php esc_html_e( 'Catalogue produits', 'association-manager' ); ?></h2>
             <?php if ( 'contract_product_invalid' === $notice ) : ?>
                 <div class="notice notice-error"><p><?php esc_html_e( 'Libellé ou prix invalide.', 'association-manager' ); ?></p></div>
             <?php elseif ( 'contract_product_saved' === $notice ) : ?>
@@ -844,11 +1040,13 @@ function amap_render_contracts_page() {
             <?php if ( empty( $contract_products ) ) : ?>
                 <p><?php esc_html_e( 'Aucun produit pour le moment.', 'association-manager' ); ?></p>
             <?php else : ?>
+                <?php $discount_group_labels = wp_list_pluck( $discount_groups, 'label', 'id' ); ?>
                 <table class="widefat">
                     <thead>
                         <tr>
                             <th><?php esc_html_e( 'Libellé', 'association-manager' ); ?></th>
                             <th><?php esc_html_e( 'Prix', 'association-manager' ); ?></th>
+                            <th><?php esc_html_e( 'Famille de remise', 'association-manager' ); ?></th>
                             <th><?php esc_html_e( 'Actions', 'association-manager' ); ?></th>
                         </tr>
                     </thead>
@@ -857,6 +1055,7 @@ function amap_render_contracts_page() {
                             <tr>
                                 <td><?php echo esc_html( $contract_product->label ); ?></td>
                                 <td><?php echo esc_html( number_format_i18n( (float) $contract_product->price, 2 ) ); ?> €</td>
+                                <td><?php echo esc_html( $discount_group_labels[ (int) $contract_product->discount_group_id ] ?? '—' ); ?></td>
                                 <td>
                                     <a href="<?php echo esc_url( admin_url( 'admin.php?page=amap-contracts&action=edit&id=' . $editing_id . '&product_action=edit&product_id=' . $contract_product->id ) ); ?>">
                                         <?php esc_html_e( 'Modifier', 'association-manager' ); ?>
@@ -907,8 +1106,29 @@ function amap_render_contracts_page() {
                         <td><input type="text" id="amap-contract-product-label" name="label" value="<?php echo esc_attr( $contract_product_form_data['label'] ?? '' ); ?>" required></td>
                     </tr>
                     <tr>
+                        <th><label for="amap-contract-product-discount-group"><?php esc_html_e( 'Famille de remise', 'association-manager' ); ?></label></th>
+                        <td>
+                            <select id="amap-contract-product-discount-group" name="discount_group_id">
+                                <option value=""><?php esc_html_e( 'Aucune (prix libre)', 'association-manager' ); ?></option>
+                                <?php foreach ( $discount_groups as $discount_group ) : ?>
+                                    <option
+                                        value="<?php echo esc_attr( $discount_group->id ); ?>"
+                                        data-price="<?php echo esc_attr( number_format( (float) $discount_group->price, 2, '.', '' ) ); ?>"
+                                        <?php selected( $contract_product_form_data['discount_group_id'] ?? '', (string) $discount_group->id ); ?>
+                                    ><?php echo esc_html( $discount_group->label ); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </td>
+                    </tr>
+                    <tr>
                         <th><label for="amap-contract-product-price"><?php esc_html_e( 'Prix (€)', 'association-manager' ); ?></label></th>
-                        <td><input type="number" id="amap-contract-product-price" name="price" min="0.01" step="0.01" value="<?php echo esc_attr( $contract_product_form_data['price'] ?? '' ); ?>" required></td>
+                        <td>
+                            <input type="number" id="amap-contract-product-price" name="price" min="0.01" step="0.01" value="<?php echo esc_attr( $contract_product_form_data['price'] ?? '' ); ?>">
+                            <p class="description" id="amap-contract-product-price-hint" hidden>
+                                <?php esc_html_e( 'Prix défini par la famille :', 'association-manager' ); ?>
+                                <strong id="amap-contract-product-price-hint-value"></strong> €
+                            </p>
+                        </td>
                     </tr>
                 </table>
                 <p>
@@ -941,6 +1161,33 @@ function amap_render_contracts_page() {
                         wrapper.hidden = true;
                         toggle.hidden  = false;
                     } );
+                }
+
+                // Le prix d'un produit rattaché à une famille de remise est celui de la famille
+                // (voir amap_handle_add_contract_product()) : le champ prix est alors masqué et
+                // remplacé par un rappel de ce prix, plutôt que de laisser saisir une valeur
+                // ignorée à l'enregistrement.
+                var groupSelect    = document.getElementById( 'amap-contract-product-discount-group' );
+                var priceInput     = document.getElementById( 'amap-contract-product-price' );
+                var priceHint      = document.getElementById( 'amap-contract-product-price-hint' );
+                var priceHintValue = document.getElementById( 'amap-contract-product-price-hint-value' );
+
+                function updateProductPriceField() {
+                    var option  = groupSelect.options[ groupSelect.selectedIndex ];
+                    var grouped = !! ( option && option.value !== '' );
+
+                    priceInput.hidden   = grouped;
+                    priceInput.required = ! grouped;
+                    priceHint.hidden    = ! grouped;
+
+                    if ( grouped ) {
+                        priceHintValue.textContent = option.dataset.price;
+                    }
+                }
+
+                if ( groupSelect ) {
+                    groupSelect.addEventListener( 'change', updateProductPriceField );
+                    updateProductPriceField();
                 }
             } )();
             </script>
@@ -1662,11 +1909,22 @@ function amap_handle_add_contract_product() {
 
     $edit_url = admin_url( 'admin.php?page=amap-contracts&action=edit&id=' . $contract_id . '&active_tab=products' );
 
-    $label     = isset( $_POST['label'] ) ? sanitize_text_field( wp_unslash( $_POST['label'] ) ) : '';
-    $price     = isset( $_POST['price'] ) ? sanitize_text_field( wp_unslash( $_POST['price'] ) ) : '';
-    $submitted = compact( 'label', 'price' );
+    $label             = isset( $_POST['label'] ) ? sanitize_text_field( wp_unslash( $_POST['label'] ) ) : '';
+    $price             = isset( $_POST['price'] ) ? sanitize_text_field( wp_unslash( $_POST['price'] ) ) : '';
+    $discount_group_id = isset( $_POST['discount_group_id'] ) ? absint( $_POST['discount_group_id'] ) : 0;
+    $submitted         = compact( 'label', 'price', 'discount_group_id' );
 
-    if ( '' === $label || ! amap_is_valid_price( $price ) ) {
+    // Un produit rattaché à une famille de remise n'a pas de prix propre : celui de la famille
+    // s'applique (voir amap_handle_update_contract_discount_group() pour le cas symétrique où
+    // c'est le prix de la famille qui change).
+    $discount_group       = $discount_group_id ? amap_get_contract_discount_group( $discount_group_id ) : null;
+    $discount_group_valid = ! $discount_group_id || ( $discount_group && (int) $discount_group->contract_id === $contract_id );
+
+    if ( $discount_group ) {
+        $price = $discount_group->price;
+    }
+
+    if ( '' === $label || ! $discount_group_valid || ( ! $discount_group && ! amap_is_valid_price( $price ) ) ) {
         amap_store_contract_product_form_data( $submitted );
         wp_safe_redirect( $edit_url . '&amap_notice=contract_product_invalid' );
         exit;
@@ -1676,9 +1934,10 @@ function amap_handle_add_contract_product() {
     $wpdb->insert(
         $wpdb->prefix . 'amap_contract_products',
         array(
-            'contract_id' => $contract_id,
-            'label'       => $label,
-            'price'       => (float) $price,
+            'contract_id'       => $contract_id,
+            'label'             => $label,
+            'price'             => (float) $price,
+            'discount_group_id' => $discount_group_id ?: null,
         )
     );
 
@@ -1703,11 +1962,19 @@ function amap_handle_update_contract_product() {
 
     $edit_url = admin_url( 'admin.php?page=amap-contracts&action=edit&id=' . $product->contract_id . '&active_tab=products' );
 
-    $label     = isset( $_POST['label'] ) ? sanitize_text_field( wp_unslash( $_POST['label'] ) ) : '';
-    $price     = isset( $_POST['price'] ) ? sanitize_text_field( wp_unslash( $_POST['price'] ) ) : '';
-    $submitted = compact( 'label', 'price' );
+    $label             = isset( $_POST['label'] ) ? sanitize_text_field( wp_unslash( $_POST['label'] ) ) : '';
+    $price             = isset( $_POST['price'] ) ? sanitize_text_field( wp_unslash( $_POST['price'] ) ) : '';
+    $discount_group_id = isset( $_POST['discount_group_id'] ) ? absint( $_POST['discount_group_id'] ) : 0;
+    $submitted         = compact( 'label', 'price', 'discount_group_id' );
 
-    if ( '' === $label || ! amap_is_valid_price( $price ) ) {
+    $discount_group       = $discount_group_id ? amap_get_contract_discount_group( $discount_group_id ) : null;
+    $discount_group_valid = ! $discount_group_id || ( $discount_group && (int) $discount_group->contract_id === (int) $product->contract_id );
+
+    if ( $discount_group ) {
+        $price = $discount_group->price;
+    }
+
+    if ( '' === $label || ! $discount_group_valid || ( ! $discount_group && ! amap_is_valid_price( $price ) ) ) {
         amap_store_contract_product_form_data( $submitted );
         wp_safe_redirect( $edit_url . '&product_action=edit&product_id=' . $id . '&amap_notice=contract_product_invalid' );
         exit;
@@ -1717,8 +1984,9 @@ function amap_handle_update_contract_product() {
     $wpdb->update(
         $wpdb->prefix . 'amap_contract_products',
         array(
-            'label' => $label,
-            'price' => (float) $price,
+            'label'             => $label,
+            'price'             => (float) $price,
+            'discount_group_id' => $discount_group_id ?: null,
         ),
         array( 'id' => $id )
     );
@@ -1747,6 +2015,137 @@ function amap_handle_delete_contract_product() {
 
     wp_safe_redirect(
         admin_url( 'admin.php?page=amap-contracts&action=edit&id=' . $product->contract_id . '&active_tab=products&amap_notice=contract_product_deleted' )
+    );
+    exit;
+}
+
+add_action( 'admin_post_amap_add_contract_discount_group', 'amap_handle_add_contract_discount_group' );
+
+function amap_handle_add_contract_discount_group() {
+    if ( ! current_user_can( 'amap_manage_contracts' ) ) {
+        wp_die( esc_html__( 'Action non autorisée.', 'association-manager' ) );
+    }
+
+    $contract_id = isset( $_POST['contract_id'] ) ? absint( $_POST['contract_id'] ) : 0;
+    $contract    = $contract_id ? amap_get_contract( $contract_id ) : null;
+    if ( ! $contract || 'product_grid' !== $contract->contract_type ) {
+        wp_die( esc_html__( 'Contrat introuvable ou non concerné par le catalogue produits.', 'association-manager' ) );
+    }
+
+    check_admin_referer( 'amap_add_contract_discount_group_' . $contract_id );
+
+    $edit_url = admin_url( 'admin.php?page=amap-contracts&action=edit&id=' . $contract_id . '&active_tab=products' );
+
+    $label           = isset( $_POST['label'] ) ? sanitize_text_field( wp_unslash( $_POST['label'] ) ) : '';
+    $price           = isset( $_POST['price'] ) ? sanitize_text_field( wp_unslash( $_POST['price'] ) ) : '';
+    $bought_quantity = isset( $_POST['bought_quantity'] ) ? absint( $_POST['bought_quantity'] ) : 0;
+    $billed_quantity = isset( $_POST['billed_quantity'] ) ? absint( $_POST['billed_quantity'] ) : 0;
+    $submitted       = compact( 'label', 'price', 'bought_quantity', 'billed_quantity' );
+
+    if ( '' === $label || ! amap_is_valid_price( $price ) || ! amap_is_valid_discount_ratio( $bought_quantity, $billed_quantity ) ) {
+        amap_store_contract_discount_group_form_data( $submitted );
+        wp_safe_redirect( $edit_url . '&amap_notice=contract_discount_group_invalid' );
+        exit;
+    }
+
+    global $wpdb;
+    $wpdb->insert(
+        $wpdb->prefix . 'amap_contract_discount_groups',
+        array(
+            'contract_id'     => $contract_id,
+            'label'           => $label,
+            'price'           => (float) $price,
+            'bought_quantity' => $bought_quantity,
+            'billed_quantity' => $billed_quantity,
+        )
+    );
+
+    wp_safe_redirect( $edit_url . '&amap_notice=contract_discount_group_saved' );
+    exit;
+}
+
+add_action( 'admin_post_amap_update_contract_discount_group', 'amap_handle_update_contract_discount_group' );
+
+function amap_handle_update_contract_discount_group() {
+    if ( ! current_user_can( 'amap_manage_contracts' ) ) {
+        wp_die( esc_html__( 'Action non autorisée.', 'association-manager' ) );
+    }
+
+    $id             = isset( $_POST['id'] ) ? absint( $_POST['id'] ) : 0;
+    $discount_group = $id ? amap_get_contract_discount_group( $id ) : null;
+    if ( ! $discount_group ) {
+        wp_die( esc_html__( 'Famille de remise introuvable.', 'association-manager' ) );
+    }
+
+    check_admin_referer( 'amap_edit_contract_discount_group_' . $id );
+
+    $edit_url = admin_url( 'admin.php?page=amap-contracts&action=edit&id=' . $discount_group->contract_id . '&active_tab=products' );
+
+    $label           = isset( $_POST['label'] ) ? sanitize_text_field( wp_unslash( $_POST['label'] ) ) : '';
+    $price           = isset( $_POST['price'] ) ? sanitize_text_field( wp_unslash( $_POST['price'] ) ) : '';
+    $bought_quantity = isset( $_POST['bought_quantity'] ) ? absint( $_POST['bought_quantity'] ) : 0;
+    $billed_quantity = isset( $_POST['billed_quantity'] ) ? absint( $_POST['billed_quantity'] ) : 0;
+    $submitted       = compact( 'label', 'price', 'bought_quantity', 'billed_quantity' );
+
+    if ( '' === $label || ! amap_is_valid_price( $price ) || ! amap_is_valid_discount_ratio( $bought_quantity, $billed_quantity ) ) {
+        amap_store_contract_discount_group_form_data( $submitted );
+        wp_safe_redirect( $edit_url . '&discount_action=edit&discount_id=' . $id . '&amap_notice=contract_discount_group_invalid' );
+        exit;
+    }
+
+    global $wpdb;
+    $wpdb->update(
+        $wpdb->prefix . 'amap_contract_discount_groups',
+        array(
+            'label'           => $label,
+            'price'           => (float) $price,
+            'bought_quantity' => $bought_quantity,
+            'billed_quantity' => $billed_quantity,
+        ),
+        array( 'id' => $id )
+    );
+
+    // Le prix d'un produit rattaché à cette famille n'est qu'un miroir du prix ci-dessus (voir
+    // amap_handle_add_contract_product()) : le mettre à jour partout où il a été copié, plutôt
+    // que d'exiger que le bureau modifie chaque produit un par un.
+    $wpdb->update(
+        $wpdb->prefix . 'amap_contract_products',
+        array( 'price' => (float) $price ),
+        array( 'discount_group_id' => $id )
+    );
+
+    wp_safe_redirect( $edit_url . '&amap_notice=contract_discount_group_saved' );
+    exit;
+}
+
+add_action( 'admin_post_amap_delete_contract_discount_group', 'amap_handle_delete_contract_discount_group' );
+
+function amap_handle_delete_contract_discount_group() {
+    if ( ! current_user_can( 'amap_manage_contracts' ) ) {
+        wp_die( esc_html__( 'Action non autorisée.', 'association-manager' ) );
+    }
+
+    $id             = isset( $_GET['id'] ) ? absint( $_GET['id'] ) : 0;
+    $discount_group = $id ? amap_get_contract_discount_group( $id ) : null;
+    if ( ! $discount_group ) {
+        wp_die( esc_html__( 'Famille de remise introuvable.', 'association-manager' ) );
+    }
+
+    check_admin_referer( 'amap_delete_contract_discount_group_' . $id );
+
+    global $wpdb;
+    // Les produits qui en faisaient partie repassent en prix libre (voir le message de
+    // confirmation affiché avant suppression) plutôt que de rester rattachés à une famille qui
+    // n'existe plus.
+    $wpdb->update(
+        $wpdb->prefix . 'amap_contract_products',
+        array( 'discount_group_id' => null ),
+        array( 'discount_group_id' => $id )
+    );
+    $wpdb->delete( $wpdb->prefix . 'amap_contract_discount_groups', array( 'id' => $id ) );
+
+    wp_safe_redirect(
+        admin_url( 'admin.php?page=amap-contracts&action=edit&id=' . $discount_group->contract_id . '&active_tab=products&amap_notice=contract_discount_group_deleted' )
     );
     exit;
 }

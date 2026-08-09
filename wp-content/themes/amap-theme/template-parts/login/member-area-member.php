@@ -85,6 +85,12 @@ $contract_types      = amap_get_contract_types();
                                 </a>
                             </p>
                         <?php endif; ?>
+                    <?php elseif ( 'product_grid' === $item['contract']->contract_type ) : ?>
+                        <?php $item_price_summary_html = amap_get_subscription_price_summary_html( $item['subscription']->id ); ?>
+                        <?php if ( $item_price_summary_html ) : ?>
+                            <p class="description"><?php esc_html_e( 'Montant dû (sur toute la saison) :', 'association-manager' ); ?></p>
+                            <?php echo $item_price_summary_html; ?>
+                        <?php endif; ?>
                     <?php endif; ?>
                 </li>
             <?php endforeach; ?>

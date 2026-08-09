@@ -496,6 +496,7 @@ function amap_send_subscription_confirmation_email( $subscription_id ) {
     if ( 'product_grid' === $contract->contract_type ) {
         $html_body .= '<h3>' . esc_html__( 'Produits commandés', 'association-manager' ) . '</h3>';
         $html_body .= amap_get_subscription_recap_html( $subscription_id );
+        $html_body .= amap_get_subscription_price_summary_html( $subscription_id );
     }
 
     // translators: %s: libellé du contrat.
@@ -547,6 +548,135 @@ function amap_get_subscription_recap_html( $subscription_id ) {
     ksort( $recaps_by_date );
 
     return '<ul>' . implode( '', $recaps_by_date ) . '</ul>';
+}
+
+/**
+ * Montant dû d'une souscription product_grid, sur l'ensemble de la saison (toutes dates de
+ * livraison confondues, voir le point ouvert dans docs/plan-contrats-distributions.md) : une
+ * ligne par produit hors famille de remise (quantité × prix), une ligne par famille de remise
+ * dont au moins un produit a été commandé (quantités de tous ses produits additionnées, seuil
+ * "achetés → facturés" appliqué, reliquat hors palier facturé normalement). Retourne un tableau
+ * vide si la souscription n'a aucune ligne (basket_recurring, ou product_grid sans quantité
+ * commandée).
+ */
+function amap_get_subscription_price_summary( $subscription_id ) {
+    $quantity_by_product = array();
+    foreach ( amap_get_subscription_items( $subscription_id ) as $item ) {
+        $product_id = (int) $item->contract_product_id;
+        $quantity_by_product[ $product_id ] = ( $quantity_by_product[ $product_id ] ?? 0 ) + (int) $item->quantity;
+    }
+
+    $lines             = array();
+    $total             = 0.0;
+    $quantity_by_group = array();
+
+    foreach ( $quantity_by_product as $product_id => $quantity ) {
+        $product = amap_get_contract_product( $product_id );
+        if ( ! $product ) {
+            continue;
+        }
+
+        if ( $product->discount_group_id ) {
+            $group_id = (int) $product->discount_group_id;
+            $quantity_by_group[ $group_id ] = ( $quantity_by_group[ $group_id ] ?? 0 ) + $quantity;
+            continue;
+        }
+
+        $amount  = $quantity * (float) $product->price;
+        $total  += $amount;
+        $lines[] = array(
+            'label'           => $product->label,
+            'bought_quantity' => $quantity,
+            'billed_quantity' => $quantity,
+            'unit_price'      => (float) $product->price,
+            'amount'          => $amount,
+        );
+    }
+
+    foreach ( $quantity_by_group as $group_id => $quantity ) {
+        $group = amap_get_contract_discount_group( $group_id );
+        if ( ! $group ) {
+            continue;
+        }
+
+        $full_batches    = (int) floor( $quantity / (int) $group->bought_quantity );
+        $billed_quantity = $full_batches * (int) $group->billed_quantity + ( $quantity % (int) $group->bought_quantity );
+        $amount          = $billed_quantity * (float) $group->price;
+        $total          += $amount;
+        $lines[]         = array(
+            'label'           => $group->label,
+            'bought_quantity' => $quantity,
+            'billed_quantity' => $billed_quantity,
+            'unit_price'      => (float) $group->price,
+            'amount'          => $amount,
+        );
+    }
+
+    return array(
+        'lines' => $lines,
+        'total' => $total,
+    );
+}
+
+/**
+ * Rendu HTML du montant dû (amap_get_subscription_price_summary()), réutilisé tel quel dans
+ * l'email de confirmation, l'espace adhérent et la fiche souscription en admin : un tableau
+ * suffisamment simple (styles en attributs, comme amap_render_email()) pour s'afficher
+ * correctement dans les trois contextes sans dépendre d'une feuille de style particulière.
+ * Chaîne vide si la souscription n'a aucune ligne à facturer.
+ */
+function amap_get_subscription_price_summary_html( $subscription_id ) {
+    $summary = amap_get_subscription_price_summary( $subscription_id );
+
+    if ( empty( $summary['lines'] ) ) {
+        return '';
+    }
+
+    ob_start();
+    ?>
+    <table style="width:100%; border-collapse:collapse; margin-top:8px;">
+        <tbody>
+            <?php foreach ( $summary['lines'] as $line ) : ?>
+                <tr>
+                    <td style="padding:4px 8px 4px 0; border-bottom:1px solid #ddd;">
+                        <?php echo esc_html( $line['label'] ); ?><br>
+                        <small>
+                            <?php if ( $line['bought_quantity'] !== $line['billed_quantity'] ) : ?>
+                                <?php
+                                // translators: 1: quantité achetée, 2: quantité facturée.
+                                printf(
+                                    esc_html__( '%1$d achetés → %2$d facturés', 'association-manager' ),
+                                    $line['bought_quantity'],
+                                    $line['billed_quantity']
+                                );
+                                ?>
+                            <?php else : ?>
+                                <?php
+                                // translators: 1: quantité commandée, 2: prix unitaire.
+                                printf(
+                                    esc_html__( '%1$d × %2$s €', 'association-manager' ),
+                                    $line['bought_quantity'],
+                                    esc_html( number_format_i18n( $line['unit_price'], 2 ) )
+                                );
+                                ?>
+                            <?php endif; ?>
+                        </small>
+                    </td>
+                    <td style="padding:4px 0 4px 8px; border-bottom:1px solid #ddd; text-align:right; white-space:nowrap;">
+                        <?php echo esc_html( number_format_i18n( $line['amount'], 2 ) ); ?> €
+                    </td>
+                </tr>
+            <?php endforeach; ?>
+            <tr>
+                <td style="padding:8px 8px 4px 0; font-weight:600;"><?php esc_html_e( 'Total', 'association-manager' ); ?></td>
+                <td style="padding:8px 0 4px 8px; font-weight:600; text-align:right; white-space:nowrap;">
+                    <?php echo esc_html( number_format_i18n( $summary['total'], 2 ) ); ?> €
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    <?php
+    return ob_get_clean();
 }
 
 add_action( 'admin_post_amap_add_member_subscription', 'amap_handle_add_member_subscription' );
@@ -1018,6 +1148,12 @@ function amap_render_subscriptions_page() {
                                     </tbody>
                                 </table>
                             </div>
+                        <?php endif; ?>
+
+                        <?php $subscription_price_summary_html = amap_get_subscription_price_summary_html( $editing_subscription->id ); ?>
+                        <?php if ( $subscription_price_summary_html ) : ?>
+                            <h3><?php esc_html_e( 'Montant dû', 'association-manager' ); ?></h3>
+                            <?php echo $subscription_price_summary_html; ?>
                         <?php endif; ?>
                     <?php endif; ?>
 

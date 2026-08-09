@@ -10,7 +10,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 function amap_activate() {
     // update_option() (et non plus add_option()) : la version doit refléter le schéma du
     // code à chaque activation. dbDelta() est idempotent, le rappeler ne pose pas de problème.
-    update_option( 'amap_db_version', '3.19' );
+    update_option( 'amap_db_version', '3.20' );
     amap_create_tables();
     amap_drop_obsolete_tables();
 
@@ -204,20 +204,48 @@ function amap_create_tables() {
 
     dbDelta( $sql_contract_basket_sizes );
 
+    $contract_discount_groups_table = $wpdb->prefix . 'amap_contract_discount_groups';
+
+    // Famille de remise par quantité (product_grid uniquement, point ouvert depuis l'étape 4b —
+    // voir docs/plan-contrats-distributions.md) : regroupe plusieurs produits du catalogue (ex.
+    // les 10 variétés de yaourts) qui partagent un même prix unitaire et un même seuil "achetées
+    // → facturées" (ex. 6 achetées, tous produits du groupe confondus, facturées 5). Le reliquat
+    // hors palier plein est facturé normalement (calcul fait à l'étape 3, pas ici). Pas de
+    // contrainte FOREIGN KEY SQL sur contract_id, comme le reste du plugin.
+    $sql_contract_discount_groups = "CREATE TABLE $contract_discount_groups_table (
+        id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+        contract_id bigint(20) unsigned NOT NULL,
+        label varchar(60) NOT NULL,
+        price decimal(6,2) unsigned NOT NULL,
+        bought_quantity smallint(5) unsigned NOT NULL,
+        billed_quantity smallint(5) unsigned NOT NULL,
+        created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY  (id),
+        KEY contract_id (contract_id)
+    ) $charset_collate;";
+
+    dbDelta( $sql_contract_discount_groups );
+
     $contract_products_table = $wpdb->prefix . 'amap_contract_products';
 
     // Table fille du catalogue produits, uniquement pour un contrat product_grid (ex. yaourt,
     // lait, fromage blanc pour la productrice laitière). Un contrat basket_recurring n'a aucune
     // ligne ici. Même structure que wp_amap_contract_basket_sizes (label+prix) : pas de
-    // contrainte FOREIGN KEY SQL sur contract_id, comme le reste du plugin.
+    // contrainte FOREIGN KEY SQL sur contract_id, comme le reste du plugin. discount_group_id
+    // NULL : produit hors famille de remise, prix libre (colonne price ci-dessous) ; sinon le
+    // prix utilisé est celui de la famille (wp_amap_contract_discount_groups.price), price
+    // reste renseignée mais n'est alors plus la valeur de facturation (étape 2 pour l'UI qui
+    // masque ce cas).
     $sql_contract_products = "CREATE TABLE $contract_products_table (
         id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
         contract_id bigint(20) unsigned NOT NULL,
         label varchar(60) NOT NULL,
         price decimal(6,2) unsigned NOT NULL,
+        discount_group_id bigint(20) unsigned DEFAULT NULL,
         created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
         PRIMARY KEY  (id),
-        KEY contract_id (contract_id)
+        KEY contract_id (contract_id),
+        KEY discount_group_id (discount_group_id)
     ) $charset_collate;";
 
     dbDelta( $sql_contract_products );
