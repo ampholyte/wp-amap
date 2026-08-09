@@ -2,9 +2,12 @@
 /**
  * Onglet "Espace producteur" (lecture seule, voir docs/plan-contrats-distributions.md) : contrats
  * du producteur connecté, groupes qu'il livre, prochaine distribution de chacun et
- * produits/paniers à y livrer (étapes 12.1/12.2/12.3). Un bouton "Détail (CSV)" télécharge le
- * détail nominatif des adhérents plutôt que de l'afficher en page : pointage sur une fenêtre de
- * 30 jours pour un contrat basket_recurring (amap_handle_export_contract_roster()), commandes de
+ * produits/paniers à y livrer (étapes 12.1/12.2/12.3). "Mes prochaines livraisons" regroupe par
+ * groupe (plutôt que trois listes séparées groupes/contrats/produits) car c'est le point de vue
+ * qui compte pour le producteur : à quoi ressemble la prochaine distribution de CE groupe, tous
+ * contrats confondus. Le bouton d'export CSV télécharge le détail nominatif des adhérents plutôt
+ * que de l'afficher en page : "Feuille de présence" = pointage sur une fenêtre de 30 jours pour un
+ * contrat basket_recurring (amap_handle_export_contract_roster()), "Commandes" = commandes de
  * cette seule distribution pour un contrat product_grid (amap_handle_export_contract_products()).
  */
 $contracts             = amap_get_producer_contracts( $args['current_user']->ID );
@@ -14,152 +17,226 @@ $contract_types        = amap_get_contract_types();
 $weekday_labels        = amap_get_weekday_labels();
 $exception_type_labels = amap_get_distribution_exception_type_labels();
 
-// Calculée une seule fois par groupe, réutilisée par les cartes "Mes groupes" et "Produits à
-// livrer" ci-dessous.
+// Calculés une seule fois par groupe, réutilisés par la carte de chaque groupe ci-dessous.
 $group_next_distributions = array();
+$group_member_counts      = array();
 foreach ( $groups as $group ) {
     $group_next_distributions[ $group->id ] = amap_get_group_next_distribution( $group );
+    $group_member_counts[ $group->id ]      = count( amap_get_group_member_users( $group->id ) );
 }
 ?>
 
-<div class="amap-card">
-    <h2><?php esc_html_e( 'Mes contrats', 'association-manager' ); ?></h2>
+<h2><?php esc_html_e( 'Mes prochaines livraisons', 'association-manager' ); ?></h2>
 
-    <?php if ( empty( $contracts ) ) : ?>
-        <p><?php esc_html_e( "Vous n'avez pour l'instant aucun contrat.", 'association-manager' ); ?></p>
-    <?php else : ?>
-        <ul class="amap-subscription-list">
-            <?php foreach ( $contracts as $contract ) : ?>
-                <li class="amap-subscription-item">
-                    <div class="amap-subscription-item__header">
-                        <span class="amap-subscription-item__label"><?php echo esc_html( $contract->label ); ?></span>
-                        <?php $status = amap_get_contract_period_status( $contract ); ?>
-                        <span class="amap-status-badge amap-status-badge--<?php echo esc_attr( $status ); ?>">
-                            <?php echo esc_html( $status_labels[ $status ] ); ?>
-                        </span>
-                    </div>
-                    <ul>
-                        <li><?php esc_html_e( 'Type', 'association-manager' ); ?> : <?php echo esc_html( $contract_types[ $contract->contract_type ] ?? '—' ); ?></li>
-                        <li><?php esc_html_e( 'Période', 'association-manager' ); ?> : <?php echo esc_html( $contract->start_date . ' – ' . $contract->end_date ); ?></li>
-                    </ul>
-                </li>
-            <?php endforeach; ?>
-        </ul>
-    <?php endif; ?>
-</div>
+<?php if ( empty( $groups ) ) : ?>
+    <p><?php esc_html_e( "Vous n'êtes pour l'instant rattaché à aucun groupe de distribution. Contactez le bureau.", 'association-manager' ); ?></p>
+<?php else : ?>
+    <?php foreach ( $groups as $group ) : ?>
+        <?php $next = $group_next_distributions[ $group->id ]; ?>
+        <div class="amap-context-card">
+            <p class="amap-context-row">
+                <svg class="icon" aria-hidden="true"><use href="#amap-icon-pin"></use></svg>
+                <?php
+                printf(
+                    /* translators: 1: nom du groupe. 2: jour de la semaine. 3: horaire. 4: lieu de livraison. */
+                    esc_html__( '%1$s — %2$s, %3$s (%4$s)', 'association-manager' ),
+                    esc_html( $group->name ),
+                    esc_html( $weekday_labels[ (int) $group->weekday ] ?? '' ),
+                    esc_html( amap_format_time( $group->start_time ) . '–' . amap_format_time( $group->end_time ) ),
+                    esc_html( $group->delivery_place )
+                );
+                ?>
+            </p>
 
-<div class="amap-card">
-    <h2><?php esc_html_e( 'Mes groupes', 'association-manager' ); ?></h2>
+            <p>
+                <span class="amap-badge">
+                    <?php
+                    echo esc_html(
+                        sprintf(
+                            /* translators: %d : nombre d'adhérents rattachés à ce groupe comme point de retrait. */
+                            _n( '%d adhérent rattaché', '%d adhérents rattachés', $group_member_counts[ $group->id ], 'association-manager' ),
+                            $group_member_counts[ $group->id ]
+                        )
+                    );
+                    ?>
+                </span>
+            </p>
 
-    <?php if ( empty( $groups ) ) : ?>
-        <p><?php esc_html_e( "Vous n'êtes pour l'instant rattaché à aucun groupe de distribution. Contactez le bureau.", 'association-manager' ); ?></p>
-    <?php else : ?>
-        <ul class="amap-subscription-list">
-            <?php foreach ( $groups as $group ) : ?>
-                <?php $next = $group_next_distributions[ $group->id ]; ?>
-                <li class="amap-subscription-item">
-                    <div class="amap-subscription-item__header">
-                        <span class="amap-subscription-item__label"><?php echo esc_html( $group->name ); ?></span>
-                        <?php if ( 'normal' !== $next['status'] ) : ?>
-                            <span class="amap-status-badge amap-status-badge--<?php echo esc_attr( $next['status'] ); ?>">
-                                <?php echo esc_html( $exception_type_labels[ $next['status'] ] ); ?>
-                            </span>
-                        <?php endif; ?>
-                    </div>
-                    <ul>
-                        <li>
-                            <?php
-                            printf(
-                                /* translators: 1: jour de la semaine. 2: horaire. 3: lieu de livraison. */
-                                esc_html__( 'Jour de distribution : %1$s %2$s (%3$s)', 'association-manager' ),
-                                esc_html( $weekday_labels[ (int) $group->weekday ] ?? '' ),
-                                esc_html( amap_format_time( $group->start_time ) . '-' . amap_format_time( $group->end_time ) ),
-                                esc_html( $group->delivery_place )
-                            );
-                            ?>
-                        </li>
-                        <?php if ( 'cancelled' === $next['status'] ) : ?>
-                            <li>
-                                <?php
-                                printf(
-                                    /* translators: %s: date de la distribution annulée. */
-                                    esc_html__( 'Prochaine distribution : %s — annulée.', 'association-manager' ),
-                                    esc_html( date_i18n( 'j F Y', strtotime( $next['date'] ) ) )
-                                );
-                                ?>
-                                <?php if ( ! empty( $next['exception']->reason ) ) : ?>
-                                    <?php echo esc_html( sprintf( __( ' Motif : %s', 'association-manager' ), $next['exception']->reason ) ); ?>
-                                <?php endif; ?>
-                            </li>
-                        <?php else : ?>
-                            <li>
-                                <?php
-                                printf(
-                                    /* translators: 1: date. 2: horaire. 3: lieu de livraison. */
-                                    esc_html__( 'Prochaine distribution : %1$s, %2$s (%3$s)', 'association-manager' ),
-                                    esc_html( date_i18n( 'j F Y', strtotime( $next['date'] ) ) ),
-                                    esc_html( amap_format_time( $next['start_time'] ) . '-' . amap_format_time( $next['end_time'] ) ),
-                                    esc_html( $next['place'] )
-                                );
-                                ?>
-                                <?php if ( 'moved' === $next['status'] && ! empty( $next['exception']->reason ) ) : ?>
-                                    <?php echo esc_html( sprintf( __( ' Motif : %s', 'association-manager' ), $next['exception']->reason ) ); ?>
-                                <?php endif; ?>
-                            </li>
-                        <?php endif; ?>
-                    </ul>
-                </li>
-            <?php endforeach; ?>
-        </ul>
-    <?php endif; ?>
-</div>
-
-<div class="amap-card">
-    <h2><?php esc_html_e( 'Produits à livrer', 'association-manager' ); ?></h2>
-
-    <?php if ( empty( $groups ) ) : ?>
-        <p><?php esc_html_e( "Vous n'êtes pour l'instant rattaché à aucun groupe de distribution.", 'association-manager' ); ?></p>
-    <?php else : ?>
-        <ul class="amap-subscription-list">
-            <?php foreach ( $groups as $group ) : ?>
-                <?php $next = $group_next_distributions[ $group->id ]; ?>
-                <li class="amap-subscription-item">
-                    <div class="amap-subscription-item__header">
-                        <span class="amap-subscription-item__label"><?php echo esc_html( $group->name ); ?></span>
-                        <span class="amap-subscription-item__meta">
-                            <?php echo esc_html( date_i18n( 'j F Y', strtotime( $next['date'] ) ) ); ?>
-                        </span>
-                    </div>
+            <?php
+            if ( 'normal' === $next['status'] ) {
+                $days_until = (int) floor( ( strtotime( $next['date'] ) - strtotime( current_time( 'Y-m-d' ) ) ) / DAY_IN_SECONDS );
+                if ( 0 === $days_until ) {
+                    $relative_day_label = __( "Aujourd'hui", 'association-manager' );
+                } elseif ( 1 === $days_until ) {
+                    $relative_day_label = __( 'Demain', 'association-manager' );
+                } else {
+                    $relative_day_label = sprintf(
+                        /* translators: %d: nombre de jours avant la prochaine distribution. */
+                        __( 'Dans %d jours', 'association-manager' ),
+                        $days_until
+                    );
+                }
+            }
+            ?>
+            <div class="amap-next-distribution amap-next-distribution--<?php echo esc_attr( $next['status'] ); ?>">
+                <span class="amap-next-distribution__text">
+                    <svg class="icon" aria-hidden="true"><use href="#amap-icon-calendar"></use></svg>
                     <?php if ( 'cancelled' === $next['status'] ) : ?>
-                        <p><?php esc_html_e( 'Distribution annulée : rien à préparer.', 'association-manager' ); ?></p>
+                        <?php
+                        printf(
+                            /* translators: %s: date de la distribution annulée. Balise <strong> à conserver. */
+                            __( 'Prochaine distribution : <strong>%s</strong> — annulée.', 'association-manager' ),
+                            esc_html( date_i18n( 'j F Y', strtotime( $next['date'] ) ) )
+                        );
+                        ?>
                     <?php else : ?>
-                        <?php $deliveries = amap_get_group_deliveries( $group, $contracts, $next['original_date'] ); ?>
-                        <?php if ( empty( $deliveries ) ) : ?>
-                            <p><?php esc_html_e( 'Rien à livrer pour cette distribution.', 'association-manager' ); ?></p>
-                        <?php else : ?>
-                            <?php foreach ( $deliveries as $delivery ) : ?>
+                        <?php
+                        printf(
+                            /* translators: 1: date. 2: horaire. 3: lieu de livraison. Balise <strong> à conserver. */
+                            __( 'Prochaine distribution : <strong>%1$s</strong>, %2$s (%3$s)', 'association-manager' ),
+                            esc_html( date_i18n( 'j F Y', strtotime( $next['date'] ) ) ),
+                            esc_html( amap_format_time( $next['start_time'] ) . '–' . amap_format_time( $next['end_time'] ) ),
+                            esc_html( $next['place'] )
+                        );
+                        ?>
+                    <?php endif; ?>
+                    <?php if ( 'normal' !== $next['status'] && ! empty( $next['exception']->reason ) ) : ?>
+                        <?php echo esc_html( sprintf( __( '— Motif : %s', 'association-manager' ), $next['exception']->reason ) ); ?>
+                    <?php endif; ?>
+                </span>
+                <?php if ( 'normal' === $next['status'] ) : ?>
+                    <span class="amap-chip"><?php echo esc_html( $relative_day_label ); ?></span>
+                <?php else : ?>
+                    <span class="amap-status-badge amap-status-badge--<?php echo esc_attr( $next['status'] ); ?>">
+                        <?php echo esc_html( $exception_type_labels[ $next['status'] ] ); ?>
+                    </span>
+                <?php endif; ?>
+            </div>
+
+            <?php if ( 'cancelled' === $next['status'] ) : ?>
+                <p class="amap-contract-card__facts"><?php esc_html_e( 'Distribution annulée : rien à préparer.', 'association-manager' ); ?></p>
+            <?php else : ?>
+                <?php $deliveries = amap_get_group_deliveries( $group, $contracts, $next['original_date'] ); ?>
+                <?php if ( empty( $deliveries ) ) : ?>
+                    <p class="amap-contract-card__facts"><?php esc_html_e( 'Rien à livrer pour cette distribution.', 'association-manager' ); ?></p>
+                <?php else : ?>
+                    <div class="amap-group-deliveries">
+                        <?php foreach ( $deliveries as $delivery ) : ?>
+                            <?php
+                            $is_basket  = ( 'basket_recurring' === $delivery['contract']->contract_type );
+                            $type_icon  = $is_basket ? 'amap-icon-basket' : 'amap-icon-grid';
+                            $type_class = $is_basket ? 'amap-type-icon--basket' : 'amap-type-icon--grid';
+                            ?>
+                            <div class="amap-group-delivery">
                                 <div class="amap-delivery-contract-header">
-                                    <p class="amap-delivery-contract-label"><?php echo esc_html( $delivery['contract']->label ); ?></p>
-                                    <?php if ( 'basket_recurring' === $delivery['contract']->contract_type ) : ?>
+                                    <p class="amap-delivery-contract-label">
+                                        <span class="amap-contract-card__type <?php echo esc_attr( $type_class ); ?>">
+                                            <svg class="icon" aria-hidden="true"><use href="#<?php echo esc_attr( $type_icon ); ?>"></use></svg>
+                                        </span>
+                                        <?php echo esc_html( $delivery['contract']->label ); ?>
+                                        <?php if ( $is_basket ) : ?>
+                                            <?php $basket_total = array_sum( wp_list_pluck( $delivery['items'], 'quantity' ) ); ?>
+                                            <span class="amap-badge">
+                                                <?php
+                                                echo esc_html(
+                                                    sprintf(
+                                                        /* translators: %d : nombre total de paniers à livrer pour ce contrat sur ce groupe. */
+                                                        _n( '%d panier', '%d paniers', $basket_total, 'association-manager' ),
+                                                        $basket_total
+                                                    )
+                                                );
+                                                ?>
+                                            </span>
+                                        <?php endif; ?>
+                                    </p>
+                                    <?php if ( $is_basket ) : ?>
                                         <a class="button-secondary" href="<?php echo esc_url( amap_get_contract_roster_export_url( $delivery['contract']->id, $group->id ) ); ?>">
-                                            <?php esc_html_e( 'Détail (CSV)', 'association-manager' ); ?>
+                                            <?php esc_html_e( 'Feuille de présence (CSV)', 'association-manager' ); ?>
                                         </a>
                                     <?php else : ?>
                                         <a class="button-secondary" href="<?php echo esc_url( amap_get_contract_products_export_url( $delivery['contract']->id, $group->id, $next['original_date'] ) ); ?>">
-                                            <?php esc_html_e( 'Détail (CSV)', 'association-manager' ); ?>
+                                            <?php esc_html_e( 'Commandes (CSV)', 'association-manager' ); ?>
                                         </a>
                                     <?php endif; ?>
                                 </div>
-                                <ul>
+                                <ul class="amap-delivery-items">
                                     <?php foreach ( $delivery['items'] as $item ) : ?>
-                                        <li><?php echo esc_html( $item['label'] . ' × ' . $item['quantity'] ); ?></li>
+                                        <li><span><?php echo esc_html( $item['label'] ); ?></span><strong>× <?php echo esc_html( $item['quantity'] ); ?></strong></li>
                                     <?php endforeach; ?>
                                 </ul>
-                            <?php endforeach; ?>
-                        <?php endif; ?>
-                    <?php endif; ?>
-                </li>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                <?php endif; ?>
+            <?php endif; ?>
+        </div>
+    <?php endforeach; ?>
+<?php endif; ?>
+
+<h2><?php esc_html_e( 'Mes contrats', 'association-manager' ); ?></h2>
+
+<?php if ( empty( $contracts ) ) : ?>
+    <p><?php esc_html_e( "Vous n'avez pour l'instant aucun contrat.", 'association-manager' ); ?></p>
+<?php else : ?>
+    <?php
+    // Regroupement par pertinence plutôt que liste plate, même principe que "Mes contrats" côté
+    // adhérent : ce qui est en cours d'abord, ce qui arrive ensuite, l'historique replié en
+    // dernier.
+    $active_contracts   = array();
+    $upcoming_contracts = array();
+    $ended_contracts    = array();
+    foreach ( $contracts as $contract ) {
+        $status = amap_get_contract_period_status( $contract );
+        if ( 'upcoming' === $status ) {
+            $upcoming_contracts[] = $contract;
+        } elseif ( 'ended' === $status ) {
+            $ended_contracts[] = $contract;
+        } else {
+            $active_contracts[] = $contract;
+        }
+    }
+    ?>
+
+    <?php if ( ! empty( $active_contracts ) ) : ?>
+        <h3 class="amap-section-title">
+            <?php esc_html_e( 'En cours', 'association-manager' ); ?>
+            <span class="amap-section-count"><?php echo (int) count( $active_contracts ); ?></span>
+        </h3>
+        <ul class="amap-contract-list">
+            <?php foreach ( $active_contracts as $contract ) : ?>
+                <?php get_template_part( 'template-parts/login/member-area-producer-contract-item', null, array( 'contract' => $contract, 'status' => 'active', 'status_labels' => $status_labels, 'contract_types' => $contract_types ) ); ?>
             <?php endforeach; ?>
         </ul>
     <?php endif; ?>
-</div>
+
+    <?php if ( ! empty( $upcoming_contracts ) ) : ?>
+        <h3 class="amap-section-title">
+            <?php esc_html_e( 'À venir', 'association-manager' ); ?>
+            <span class="amap-section-count"><?php echo (int) count( $upcoming_contracts ); ?></span>
+        </h3>
+        <ul class="amap-contract-list">
+            <?php foreach ( $upcoming_contracts as $contract ) : ?>
+                <?php get_template_part( 'template-parts/login/member-area-producer-contract-item', null, array( 'contract' => $contract, 'status' => 'upcoming', 'status_labels' => $status_labels, 'contract_types' => $contract_types ) ); ?>
+            <?php endforeach; ?>
+        </ul>
+    <?php endif; ?>
+
+    <?php if ( ! empty( $ended_contracts ) ) : ?>
+        <details class="amap-ended-group">
+            <summary>
+                <?php
+                printf(
+                    /* translators: %d: nombre de contrats terminés. */
+                    esc_html__( 'Contrats terminés (%d)', 'association-manager' ),
+                    count( $ended_contracts )
+                );
+                ?>
+            </summary>
+            <ul class="amap-contract-list">
+                <?php foreach ( $ended_contracts as $contract ) : ?>
+                    <?php get_template_part( 'template-parts/login/member-area-producer-contract-item', null, array( 'contract' => $contract, 'status' => 'ended', 'status_labels' => $status_labels, 'contract_types' => $contract_types ) ); ?>
+                <?php endforeach; ?>
+            </ul>
+        </details>
+    <?php endif; ?>
+<?php endif; ?>

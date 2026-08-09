@@ -6,7 +6,7 @@
  * contract_types, status_labels. Pas de ligne "Groupe (point de retrait)" ici : elle est affichée
  * une seule fois en haut de page (bandeau de contexte), un adhérent n'ayant qu'un seul point de
  * retrait pour tous ses contrats. Les symboles SVG référencés (#amap-icon-*) sont définis une
- * seule fois dans member-area-member.php, qui inclut toujours ce template part avant lui.
+ * seule fois dans la coquille commune member-area.php, chargée avant l'onglet actif.
  */
 $item            = $args['item'];
 $is_basket       = ( 'basket_recurring' === $item['contract']->contract_type );

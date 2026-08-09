@@ -1,7 +1,7 @@
 /*
 Theme Name: AMAP Theme
 Description: Thème minimal développé sur mesure pour le site de l'AMAP.
-Version: 0.3.4
+Version: 0.3.5
 Author: Association AMAP
 Text Domain: amap-theme
 */
@@ -192,6 +192,14 @@ main {
        cibles tactiles confortables au doigt. */
     .amap-actions .button-primary,
     .amap-actions .button-secondary {
+        display: block;
+        width: 100%;
+        text-align: center;
+    }
+
+    /* Espace producteur : bouton d'export CSV d'une livraison — même traitement pleine largeur
+       que .amap-actions ci-dessus, alors qu'il ne vit pas dans ce conteneur. */
+    .amap-delivery-contract-header .button-secondary {
         display: block;
         width: 100%;
         text-align: center;
@@ -562,8 +570,73 @@ main.amap-auth-main {
 }
 
 .amap-delivery-contract-label {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    flex-wrap: wrap;
     font-weight: 600;
     margin: 0;
+}
+
+/* Pastille de type de contrat (panier/grille) réutilisée en dehors d'une .amap-contract-card,
+   dans l'en-tête d'une livraison ("Mes prochaines livraisons" côté producteur) : même forme que
+   .amap-contract-card__type (dimensions/rayon définis plus bas), mais la couleur est portée par
+   une classe autonome plutôt qu'un sélecteur descendant lié à un parent .amap-contract-card--x. */
+.amap-delivery-contract-label .amap-contract-card__type {
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+}
+
+.amap-delivery-contract-label .amap-contract-card__type .icon {
+    width: 16px;
+    height: 16px;
+}
+
+.amap-type-icon--basket {
+    background: var(--color-primary-bg);
+    color: var(--color-primary-dark);
+}
+
+.amap-type-icon--grid {
+    background: var(--color-accent-bg);
+    color: var(--color-accent-dark);
+}
+
+/* Une carte par groupe ("Mes prochaines livraisons" côté producteur) peut livrer plusieurs
+   contrats à la fois (ex. panier récurrent + grille produits) : un bloc par contrat, séparé par
+   un filet plutôt qu'empilé dans une nouvelle carte blanche (déjà dans .amap-context-card). */
+.amap-group-deliveries {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    margin-top: var(--space-1);
+}
+
+.amap-group-delivery {
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--color-border);
+}
+
+.amap-group-delivery:first-child {
+    padding-top: 0;
+    border-top: none;
+}
+
+.amap-delivery-items {
+    list-style: none;
+    padding-left: 0;
+    margin: var(--space-2) 0 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+}
+
+.amap-delivery-items li {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--space-3);
+    font-size: 0.95rem;
 }
 
 .amap-status-badge {
