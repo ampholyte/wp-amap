@@ -54,8 +54,13 @@ function amap_render_email( $subject, $body_html, $cta_url = '', $cta_label = ''
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <!-- Ignoré par les clients mail ; permet aux liens de fonctionner normalement quand ce document
-     est affiché dans l'iframe d'aperçu du mode démo (voir step-message.php côté thème). -->
-<base target="_top">
+     est affiché dans l'iframe d'aperçu du mode démo (voir step-message.php côté thème). "_parent"
+     et non "_top" : ne remonte que d'un niveau (notre iframe d'aperçu), pas jusqu'au sommet —
+     sur WordPress Playground, ce sommet est la page playground.wordpress.net elle-même, dont
+     l'iframe interne n'autorise pas la navigation depuis un cadre imbriqué (d'où un lien bloqué
+     par le navigateur avec "_top"). Sans cadre englobant (email ouvert normalement), "_parent"
+     se comporte comme une navigation classique. -->
+<base target="_parent">
 <title><?php echo esc_html( $subject ); ?></title>
 <style>
     h3 { margin: 24px 0 8px; font-size: 16px; color: #2c4d35; }
