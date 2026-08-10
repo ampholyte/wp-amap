@@ -15,18 +15,20 @@ function amap_get_contract_types() {
 }
 
 /**
- * Statut d'un contrat par rapport à aujourd'hui, dérivé de ses dates — distinct de
- * `is_active` (qui ne dit qu'"ouvert à la souscription", indépendamment des dates). Utilisé
- * pour l'affichage de "Mes contrats" côté adhérent.
+ * Statut d'un contrat par rapport à $reference_date (aujourd'hui par défaut), dérivé de ses
+ * dates — distinct de `is_active` (qui ne dit qu'"ouvert à la souscription", indépendamment des
+ * dates). Utilisé pour l'affichage de "Mes contrats" côté adhérent (référence : aujourd'hui), et
+ * pour filtrer les livraisons à une date de distribution donnée (référence : cette date, qui peut
+ * être dans le futur — voir amap_get_member_deliveries()).
  */
-function amap_get_contract_period_status( $contract ) {
-    $today = current_time( 'Y-m-d' );
+function amap_get_contract_period_status( $contract, $reference_date = null ) {
+    $reference_date = $reference_date ?? current_time( 'Y-m-d' );
 
-    if ( $contract->start_date > $today ) {
+    if ( $contract->start_date > $reference_date ) {
         return 'upcoming';
     }
 
-    if ( $contract->end_date < $today ) {
+    if ( $contract->end_date < $reference_date ) {
         return 'ended';
     }
 

@@ -183,6 +183,13 @@ function amap_get_contract_product_subscribers( $contract, $group, $distribution
 
     $by_subscription = array();
     foreach ( $rows as $row ) {
+        // Même garde qu'amap_get_member_deliveries() : une ligne à quantité nulle ne compte pas
+        // comme un item à livrer (amap_insert_subscription_items() n'en persiste pas aujourd'hui,
+        // mais les deux lecteurs doivent rester d'accord sur l'invariant si ça change un jour).
+        if ( (int) $row->quantity <= 0 ) {
+            continue;
+        }
+
         $product = amap_get_contract_product( (int) $row->contract_product_id );
         if ( ! $product ) {
             continue;
@@ -244,8 +251,8 @@ function amap_get_contract_products_to_deliver( $contract, $group, $distribution
  * Paniers/produits à livrer par un producteur, pour un groupe et une date de distribution donnés
  * — une entrée par contrat concerné, jamais fusionnées entre contrats même en cas de libellés
  * identiques (aucun lien fiable entre tailles/produits de contrats différents en base). Seuls les
- * contrats dont la période est "en cours" aujourd'hui (amap_get_contract_period_status()) sont
- * pris en compte, et seulement s'ils ont effectivement quelque chose à livrer ce jour-là : un
+ * contrats dont la période est "en cours" à $distribution_date (amap_get_contract_period_status())
+ * sont pris en compte, et seulement s'ils ont effectivement quelque chose à livrer ce jour-là : un
  * contrat bimensuel hors semaine de livraison, ou sans aucune commande, est silencieusement
  * absent du résultat plutôt qu'affiché avec "0".
  */
@@ -253,7 +260,10 @@ function amap_get_group_deliveries( $group, array $producer_contracts, $distribu
     $deliveries = array();
 
     foreach ( $producer_contracts as $contract ) {
-        if ( 'active' !== amap_get_contract_period_status( $contract ) ) {
+        // Statut évalué à $distribution_date, pas à aujourd'hui : un contrat activé avant sa
+        // start_date doit quand même apparaître ici si cette date de distribution est déjà
+        // couverte (même correctif que amap_get_member_deliveries()).
+        if ( 'active' !== amap_get_contract_period_status( $contract, $distribution_date ) ) {
             continue;
         }
 
@@ -409,84 +419,88 @@ function amap_get_member_subscriptions( $member_user_id ) {
  * carte aux quantités cumulées, jamais une carte par souscription. $distribution_date doit être
  * la date calendaire brute de la distribution (`original_date` de amap_get_group_next_distribution(),
  * jamais `date` qui peut avoir été déplacée — voir le commentaire de cette fonction).
+ *
+ * Composée sur amap_get_contract_basket_subscribers()/amap_get_contract_product_subscribers()
+ * (les mêmes fonctions que la vue producteur, amap_get_group_deliveries()) plutôt que de retyper
+ * séparément les règles d'échéancier/congés/dates de livraison. Leur SQL filtre par
+ * subscription->group_id : une souscription dont le groupe n'a pas été migré depuis la dernière
+ * réaffectation de l'adhérent (amap_set_member_group() ne touche que wp_amap_group_members,
+ * jamais wp_amap_subscriptions) reste donc absente ici — cohérent avec le roster/export CSV du
+ * producteur, qui reposent sur les mêmes fonctions et la même colonne.
  */
 function amap_get_member_deliveries( array $subscriptions, $group, $distribution_date ) {
-    $by_contract = array();
+    $subscription_ids = array_map(
+        'intval',
+        wp_list_pluck( wp_list_pluck( $subscriptions, 'subscription' ), 'id' )
+    );
+
+    $deliveries             = array();
+    $processed_contract_ids = array();
 
     foreach ( $subscriptions as $entry ) {
-        $subscription = $entry['subscription'];
-        $contract     = $entry['contract'];
+        $contract    = $entry['contract'];
+        $contract_id = $contract->id;
 
-        if ( (int) $subscription->group_id !== (int) $group->id || 'active' !== $entry['status'] ) {
+        if ( in_array( $contract_id, $processed_contract_ids, true ) ) {
+            continue;
+        }
+        $processed_contract_ids[] = $contract_id;
+
+        if ( 'active' !== amap_get_contract_period_status( $contract, $distribution_date ) ) {
             continue;
         }
 
-        $contract_id = $contract->id;
-        if ( ! isset( $by_contract[ $contract_id ] ) ) {
-            $by_contract[ $contract_id ] = array(
-                'contract' => $contract,
-                'items'    => array(),
-            );
+        $is_basket   = ( 'basket_recurring' === $contract->contract_type );
+        $subscribers = $is_basket
+            ? amap_get_contract_basket_subscribers( $contract, $group, $distribution_date )
+            : amap_get_contract_product_subscribers( $contract, $group, $distribution_date );
+
+        if ( ! $subscribers ) {
+            continue;
         }
 
-        if ( 'basket_recurring' === $contract->contract_type ) {
-            $contract_dates = amap_get_weekday_dates_in_range(
-                $contract->start_date,
-                $contract->end_date,
-                (int) $group->weekday,
-                (int) $contract->frequency_weeks
-            );
-            if ( ! in_array( $distribution_date, $contract_dates, true )
-                || ! $entry['basket_size']
-                || amap_subscription_has_leave( $subscription->id, $distribution_date )
-            ) {
+        $items = array();
+        foreach ( $subscribers as $subscriber ) {
+            // amap_get_contract_basket_subscribers()/product_subscribers() renvoient TOUS les
+            // souscripteurs du groupe à ce contrat : on ne garde que les souscriptions DE CET
+            // ADHÉRENT (voir $subscription_ids), les autres appartiennent à d'autres adhérents du
+            // même groupe.
+            if ( ! in_array( (int) $subscriber['subscription']->id, $subscription_ids, true ) ) {
                 continue;
             }
 
-            $item_key = 'basket_' . $entry['basket_size']->id;
-            if ( ! isset( $by_contract[ $contract_id ]['items'][ $item_key ] ) ) {
-                $by_contract[ $contract_id ]['items'][ $item_key ] = array(
-                    'label'    => $entry['basket_size']->label,
-                    'quantity' => 0,
-                );
-            }
-            ++$by_contract[ $contract_id ]['items'][ $item_key ]['quantity'];
-        } else {
-            $delivery_date_row = amap_get_contract_delivery_date_by_date( $contract_id, $group->id, $distribution_date );
-            if ( ! $delivery_date_row ) {
-                continue;
-            }
-
-            foreach ( amap_get_subscription_items( $subscription->id ) as $item ) {
-                if ( (int) $item->contract_delivery_date_id !== (int) $delivery_date_row->id || (int) $item->quantity <= 0 ) {
+            if ( $is_basket ) {
+                if ( ! $subscriber['basket_size'] ) {
                     continue;
                 }
-                $product = amap_get_contract_product( (int) $item->contract_product_id );
-                if ( ! $product ) {
-                    continue;
-                }
-
-                $item_key = 'product_' . $product->id;
-                if ( ! isset( $by_contract[ $contract_id ]['items'][ $item_key ] ) ) {
-                    $by_contract[ $contract_id ]['items'][ $item_key ] = array(
-                        'label'    => $product->label,
+                $item_key = 'basket_' . $subscriber['basket_size']->id;
+                if ( ! isset( $items[ $item_key ] ) ) {
+                    $items[ $item_key ] = array(
+                        'label'    => $subscriber['basket_size']->label,
                         'quantity' => 0,
                     );
                 }
-                $by_contract[ $contract_id ]['items'][ $item_key ]['quantity'] += (int) $item->quantity;
+                ++$items[ $item_key ]['quantity'];
+            } else {
+                foreach ( $subscriber['items'] as $item ) {
+                    $item_key = 'product_' . $item['product']->id;
+                    if ( ! isset( $items[ $item_key ] ) ) {
+                        $items[ $item_key ] = array(
+                            'label'    => $item['product']->label,
+                            'quantity' => 0,
+                        );
+                    }
+                    $items[ $item_key ]['quantity'] += $item['quantity'];
+                }
             }
         }
-    }
 
-    $deliveries = array();
-    foreach ( $by_contract as $entry ) {
-        if ( empty( $entry['items'] ) ) {
-            continue;
+        if ( ! empty( $items ) ) {
+            $deliveries[] = array(
+                'contract' => $contract,
+                'items'    => array_values( $items ),
+            );
         }
-        $deliveries[] = array(
-            'contract' => $entry['contract'],
-            'items'    => array_values( $entry['items'] ),
-        );
     }
 
     return $deliveries;
