@@ -531,7 +531,7 @@ function amap_render_contracts_page() {
         <?php elseif ( 'invalid_frequency' === $notice ) : ?>
             <div class="notice notice-error"><p><?php esc_html_e( 'La fréquence (en semaines) est obligatoire et doit être un nombre positif pour un contrat de type panier récurrent.', 'association-manager' ); ?></p></div>
         <?php elseif ( 'invalid_max_leaves' === $notice ) : ?>
-            <div class="notice notice-error"><p><?php esc_html_e( 'Le nombre de congés maximum est obligatoire et doit être un nombre positif pour un contrat de type panier récurrent.', 'association-manager' ); ?></p></div>
+            <div class="notice notice-error"><p><?php esc_html_e( 'Le nombre de congés maximum est obligatoire et doit être un nombre entier positif ou nul (0 = aucun congé autorisé) pour un contrat de type panier récurrent.', 'association-manager' ); ?></p></div>
         <?php endif; ?>
 
         <?php if ( empty( $producers ) ) : ?>
@@ -663,7 +663,7 @@ function amap_render_contracts_page() {
                     <tr id="amap-contract-max-leaves-row">
                         <th><label for="amap-contract-max-leaves"><?php esc_html_e( 'Congés maximum autorisés', 'association-manager' ); ?></label></th>
                         <td>
-                            <input type="number" id="amap-contract-max-leaves" name="max_leaves" min="1" max="52" value="<?php echo esc_attr( $form_data['max_leaves'] ?? '' ); ?>">
+                            <input type="number" id="amap-contract-max-leaves" name="max_leaves" min="0" max="52" value="<?php echo esc_attr( $form_data['max_leaves'] ?? '' ); ?>">
                             <p class="description"><?php esc_html_e( 'Nombre de congés maraîcher qu\'un adhérent peut poser sur la durée de ce contrat. Uniquement pour un panier récurrent.', 'association-manager' ); ?></p>
                         </td>
                     </tr>
@@ -1460,7 +1460,7 @@ function amap_handle_add_contract() {
             wp_safe_redirect( admin_url( 'admin.php?page=amap-contracts&amap_notice=invalid_frequency' ) );
             exit;
         }
-        if ( '' === $max_leaves || ! ctype_digit( $max_leaves ) || (int) $max_leaves < 1 ) {
+        if ( '' === $max_leaves || ! ctype_digit( $max_leaves ) ) {
             amap_store_contract_form_data( $submitted );
             wp_safe_redirect( admin_url( 'admin.php?page=amap-contracts&amap_notice=invalid_max_leaves' ) );
             exit;
@@ -1548,7 +1548,7 @@ function amap_handle_update_contract() {
             wp_safe_redirect( $edit_url . '&amap_notice=invalid_frequency' );
             exit;
         }
-        if ( '' === $max_leaves || ! ctype_digit( $max_leaves ) || (int) $max_leaves < 1 ) {
+        if ( '' === $max_leaves || ! ctype_digit( $max_leaves ) ) {
             amap_store_contract_form_data( $submitted );
             wp_safe_redirect( $edit_url . '&amap_notice=invalid_max_leaves' );
             exit;
