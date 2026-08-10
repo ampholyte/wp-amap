@@ -121,11 +121,15 @@ class Amap_Users_List_Table extends WP_List_Table {
      * colonne "Actions" séparée du tableau fait main précédent.
      */
     protected function column_last_name( $user ) {
-        $edit_url = admin_url( 'admin.php?page=amap-users&action=edit&id=' . $user->ID );
+        $actions = array();
 
-        $actions = array(
-            'edit' => sprintf( '<a href="%s">%s</a>', esc_url( $edit_url ), esc_html__( 'Modifier', 'association-manager' ) ),
-        );
+        // Un compte administrateur ne peut pas être modifié depuis cette page (voir
+        // amap_handle_update_user()) : pas de lien "Modifier" qui mènerait de toute façon à un
+        // refus côté serveur.
+        if ( ! in_array( 'administrator', $user->roles, true ) ) {
+            $edit_url        = admin_url( 'admin.php?page=amap-users&action=edit&id=' . $user->ID );
+            $actions['edit'] = sprintf( '<a href="%s">%s</a>', esc_url( $edit_url ), esc_html__( 'Modifier', 'association-manager' ) );
+        }
 
         // Fiche agrégée (coordonnées + groupes + contrats) : n'a de sens que pour la casquette
         // producteur, les adhérents/bureau n'ayant ni groupe de livraison ni contrat à consulter.

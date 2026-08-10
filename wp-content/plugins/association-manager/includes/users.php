@@ -565,14 +565,23 @@ function amap_handle_update_user() {
         wp_die( esc_html__( 'Action non autorisée.', 'association-manager' ) );
     }
 
-    $id = isset( $_POST['id'] ) ? absint( $_POST['id'] ) : 0;
-    if ( ! $id || ! amap_get_amap_user( $id ) ) {
+    $id   = isset( $_POST['id'] ) ? absint( $_POST['id'] ) : 0;
+    $user = $id ? amap_get_amap_user( $id ) : null;
+    if ( ! $user ) {
         wp_die( esc_html__( 'Utilisateur introuvable.', 'association-manager' ) );
     }
 
     // La chaîne d'action du nonce inclut l'ID : un nonce généré pour le formulaire de
     // l'utilisateur 5 est rejeté si le champ caché "id" a été modifié pour viser un autre ID.
     check_admin_referer( 'amap_edit_user_' . $id );
+
+    // Même garde-fou que amap_handle_delete_user(), suite au même incident réel : un compte
+    // administrateur qui porte aussi une casquette AMAP ne doit pas pouvoir être modifié depuis
+    // cette page (changer son email permettrait de prendre le contrôle du compte administrateur
+    // via "mot de passe oublié" sur wp-login.php).
+    if ( in_array( 'administrator', $user->roles, true ) ) {
+        wp_die( esc_html__( 'Modification impossible : ce compte porte le rôle administrateur WordPress.', 'association-manager' ) );
+    }
 
     $edit_url = admin_url( 'admin.php?page=amap-users&action=edit&id=' . $id );
 
@@ -625,7 +634,6 @@ function amap_handle_update_user() {
 
     // Contrairement à l'ajout (qui cumule sans jamais retirer de casquette), l'édition
     // applique exactement l'ensemble de rôles coché : une casquette décochée est retirée.
-    $user = get_user_by( 'id', $id );
     foreach ( amap_get_available_roles() as $role_slug => $role_label ) {
         $has_role   = in_array( $role_slug, $user->roles, true );
         $wants_role = in_array( $role_slug, $roles, true );
