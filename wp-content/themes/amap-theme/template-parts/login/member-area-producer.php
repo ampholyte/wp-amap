@@ -123,48 +123,18 @@ foreach ( $groups as $group ) {
                     <div class="amap-group-deliveries">
                         <?php foreach ( $deliveries as $delivery ) : ?>
                             <?php
-                            $is_basket  = ( 'basket_recurring' === $delivery['contract']->contract_type );
-                            $type_icon  = $is_basket ? 'amap-icon-basket' : 'amap-icon-grid';
-                            $type_class = $is_basket ? 'amap-type-icon--basket' : 'amap-type-icon--grid';
+                            $is_basket        = ( 'basket_recurring' === $delivery['contract']->contract_type );
+                            $producer_actions = array(
+                                'export_url'   => $is_basket
+                                    ? amap_get_contract_roster_export_url( $delivery['contract']->id, $group->id )
+                                    : amap_get_contract_products_export_url( $delivery['contract']->id, $group->id, $next['original_date'] ),
+                                'export_label' => $is_basket
+                                    ? __( 'Feuille de présence (CSV)', 'association-manager' )
+                                    : __( 'Commandes (CSV)', 'association-manager' ),
+                                'basket_total' => $is_basket ? array_sum( wp_list_pluck( $delivery['items'], 'quantity' ) ) : null,
+                            );
                             ?>
-                            <div class="amap-group-delivery">
-                                <div class="amap-delivery-contract-header">
-                                    <p class="amap-delivery-contract-label">
-                                        <span class="amap-contract-card__type <?php echo esc_attr( $type_class ); ?>">
-                                            <svg class="icon" aria-hidden="true"><use href="#<?php echo esc_attr( $type_icon ); ?>"></use></svg>
-                                        </span>
-                                        <?php echo esc_html( $delivery['contract']->label ); ?>
-                                        <?php if ( $is_basket ) : ?>
-                                            <?php $basket_total = array_sum( wp_list_pluck( $delivery['items'], 'quantity' ) ); ?>
-                                            <span class="amap-badge">
-                                                <?php
-                                                echo esc_html(
-                                                    sprintf(
-                                                        /* translators: %d : nombre total de paniers à livrer pour ce contrat sur ce groupe. */
-                                                        _n( '%d panier', '%d paniers', $basket_total, 'association-manager' ),
-                                                        $basket_total
-                                                    )
-                                                );
-                                                ?>
-                                            </span>
-                                        <?php endif; ?>
-                                    </p>
-                                    <?php if ( $is_basket ) : ?>
-                                        <a class="button-secondary" href="<?php echo esc_url( amap_get_contract_roster_export_url( $delivery['contract']->id, $group->id ) ); ?>">
-                                            <?php esc_html_e( 'Feuille de présence (CSV)', 'association-manager' ); ?>
-                                        </a>
-                                    <?php else : ?>
-                                        <a class="button-secondary" href="<?php echo esc_url( amap_get_contract_products_export_url( $delivery['contract']->id, $group->id, $next['original_date'] ) ); ?>">
-                                            <?php esc_html_e( 'Commandes (CSV)', 'association-manager' ); ?>
-                                        </a>
-                                    <?php endif; ?>
-                                </div>
-                                <ul class="amap-delivery-items">
-                                    <?php foreach ( $delivery['items'] as $item ) : ?>
-                                        <li><span><?php echo esc_html( $item['label'] ); ?></span><strong>× <?php echo esc_html( $item['quantity'] ); ?></strong></li>
-                                    <?php endforeach; ?>
-                                </ul>
-                            </div>
+                            <?php get_template_part( 'template-parts/login/member-area-delivery-card', null, array( 'delivery' => $delivery, 'producer_actions' => $producer_actions ) ); ?>
                         <?php endforeach; ?>
                     </div>
                 <?php endif; ?>

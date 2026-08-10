@@ -89,32 +89,11 @@ $next_distribution     = $member_group ? amap_get_group_next_distribution( $memb
         <?php if ( $next_distribution && 'cancelled' !== $next_distribution['status'] ) : ?>
             <?php $member_deliveries = amap_get_member_deliveries( $subscriptions, $member_group, $next_distribution['original_date'] ); ?>
             <?php if ( empty( $member_deliveries ) ) : ?>
-                <div class="amap-notice amap-notice--info">
-                    <?php esc_html_e( 'Aucun produit à récupérer pour cette distribution.', 'association-manager' ); ?>
-                </div>
+                <p class="amap-contract-card__facts"><?php esc_html_e( 'Aucun produit à récupérer pour cette distribution.', 'association-manager' ); ?></p>
             <?php else : ?>
                 <div class="amap-group-deliveries">
                     <?php foreach ( $member_deliveries as $delivery ) : ?>
-                        <?php
-                        $is_basket  = ( 'basket_recurring' === $delivery['contract']->contract_type );
-                        $type_icon  = $is_basket ? 'amap-icon-basket' : 'amap-icon-grid';
-                        $type_class = $is_basket ? 'amap-type-icon--basket' : 'amap-type-icon--grid';
-                        ?>
-                        <div class="amap-group-delivery">
-                            <div class="amap-delivery-contract-header">
-                                <p class="amap-delivery-contract-label">
-                                    <span class="amap-contract-card__type <?php echo esc_attr( $type_class ); ?>">
-                                        <svg class="icon" aria-hidden="true"><use href="#<?php echo esc_attr( $type_icon ); ?>"></use></svg>
-                                    </span>
-                                    <?php echo esc_html( $delivery['contract']->label ); ?>
-                                </p>
-                            </div>
-                            <ul class="amap-delivery-items">
-                                <?php foreach ( $delivery['items'] as $item ) : ?>
-                                    <li><span><?php echo esc_html( $item['label'] ); ?></span><strong>× <?php echo esc_html( $item['quantity'] ); ?></strong></li>
-                                <?php endforeach; ?>
-                            </ul>
-                        </div>
+                        <?php get_template_part( 'template-parts/login/member-area-delivery-card', null, array( 'delivery' => $delivery ) ); ?>
                     <?php endforeach; ?>
                 </div>
             <?php endif; ?>
