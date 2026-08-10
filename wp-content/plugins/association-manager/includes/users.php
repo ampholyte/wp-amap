@@ -74,6 +74,12 @@ function amap_render_users_page() {
         $editing_id = absint( $_GET['id'] );
     }
     $editing_user = $editing_id ? amap_get_amap_user( $editing_id ) : null;
+    // Un compte administrateur ne peut pas être modifié depuis cette page (voir
+    // amap_handle_update_user()) : on retombe sur le formulaire d'ajout plutôt que d'afficher un
+    // formulaire d'édition dont la soumission serait de toute façon refusée côté serveur.
+    if ( $editing_user && in_array( 'administrator', $editing_user->roles, true ) ) {
+        $editing_user = null;
+    }
     if ( $editing_id && ! $editing_user ) {
         $editing_id = 0;
     }
@@ -571,10 +577,6 @@ function amap_handle_update_user() {
         wp_die( esc_html__( 'Utilisateur introuvable.', 'association-manager' ) );
     }
 
-    // La chaîne d'action du nonce inclut l'ID : un nonce généré pour le formulaire de
-    // l'utilisateur 5 est rejeté si le champ caché "id" a été modifié pour viser un autre ID.
-    check_admin_referer( 'amap_edit_user_' . $id );
-
     // Même garde-fou que amap_handle_delete_user(), suite au même incident réel : un compte
     // administrateur qui porte aussi une casquette AMAP ne doit pas pouvoir être modifié depuis
     // cette page (changer son email permettrait de prendre le contrôle du compte administrateur
@@ -582,6 +584,10 @@ function amap_handle_update_user() {
     if ( in_array( 'administrator', $user->roles, true ) ) {
         wp_die( esc_html__( 'Modification impossible : ce compte porte le rôle administrateur WordPress.', 'association-manager' ) );
     }
+
+    // La chaîne d'action du nonce inclut l'ID : un nonce généré pour le formulaire de
+    // l'utilisateur 5 est rejeté si le champ caché "id" a été modifié pour viser un autre ID.
+    check_admin_referer( 'amap_edit_user_' . $id );
 
     $edit_url = admin_url( 'admin.php?page=amap-users&action=edit&id=' . $id );
 
