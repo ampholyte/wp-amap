@@ -334,7 +334,7 @@ function amap_handle_confirm_magic_link() {
     wp_set_current_user( $link->user_id );
     wp_set_auth_cookie( $link->user_id );
 
-    wp_safe_redirect( home_url( '/' ) );
+    wp_safe_redirect( amap_get_member_area_url() );
     exit;
 }
 
