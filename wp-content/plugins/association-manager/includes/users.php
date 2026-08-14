@@ -559,6 +559,17 @@ function amap_handle_add_user() {
         exit;
     }
 
+    // Premier accès envoyé uniquement pour un compte réellement nouveau : réutiliser ce
+    // formulaire pour ajouter une casquette à un compte déjà existant ne doit pas renvoyer de
+    // lien à quelqu'un qui a déjà accès à son espace.
+    if ( ! $account_already_existed ) {
+        if ( amap_user_uses_magic_link( $user ) ) {
+            amap_send_login_link( $user );
+        } else {
+            amap_send_password_reset_link( $user );
+        }
+    }
+
     $redirect_notice = $account_already_existed ? '&amap_notice=reused' : '';
     wp_safe_redirect( admin_url( 'admin.php?page=amap-users' . $redirect_notice ) );
     exit;
