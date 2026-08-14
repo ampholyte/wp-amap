@@ -1623,6 +1623,14 @@ function amap_handle_delete_contract() {
 
     check_admin_referer( 'amap_delete_contract_' . $id );
 
+    // Bloque plutôt que de supprimer en cascade : un contrat ayant des souscriptions porte un
+    // historique (et, depuis le suivi de paiement, des montants payés/impayés) qu'une suppression
+    // silencieuse effacerait. Le bureau doit d'abord supprimer les souscriptions concernées depuis
+    // la page "Souscriptions".
+    if ( amap_contract_has_subscriptions( $id ) ) {
+        wp_die( esc_html__( 'Suppression impossible : ce contrat a des souscriptions enregistrées. Supprimez-les d\'abord depuis la page "Souscriptions".', 'association-manager' ) );
+    }
+
     global $wpdb;
     // Pas de contrainte FOREIGN KEY SQL sur contract_id (cohérent avec le reste du plugin) :
     // nettoyage explicite des tables filles orphelines (seules celles correspondant au
@@ -1630,6 +1638,7 @@ function amap_handle_delete_contract() {
     // ne font rien), comme les rattachements producteurs orphelins à la suppression d'un groupe.
     $wpdb->delete( $wpdb->prefix . 'amap_contract_basket_sizes', array( 'contract_id' => $id ) );
     $wpdb->delete( $wpdb->prefix . 'amap_contract_products', array( 'contract_id' => $id ) );
+    $wpdb->delete( $wpdb->prefix . 'amap_contract_discount_groups', array( 'contract_id' => $id ) );
     $wpdb->delete( $wpdb->prefix . 'amap_contract_delivery_dates', array( 'contract_id' => $id ) );
     $wpdb->delete( $wpdb->prefix . 'amap_contracts', array( 'id' => $id ) );
 

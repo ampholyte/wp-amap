@@ -27,6 +27,36 @@ function amap_get_subscription( $id ) {
     );
 }
 
+/**
+ * Utilisées avant une suppression (contrat, groupe, compte) pour bloquer si elle laisserait des
+ * souscriptions orphelines (amap_handle_delete_contract(), amap_handle_delete_group(),
+ * amap_handle_delete_user()) : préserve l'historique et les données de paiement déjà enregistrées
+ * plutôt que de les effacer silencieusement en cascade.
+ */
+function amap_contract_has_subscriptions( $contract_id ) {
+    global $wpdb;
+
+    return (bool) $wpdb->get_var(
+        $wpdb->prepare( "SELECT COUNT(*) FROM {$wpdb->prefix}amap_subscriptions WHERE contract_id = %d", $contract_id )
+    );
+}
+
+function amap_group_has_subscriptions( $group_id ) {
+    global $wpdb;
+
+    return (bool) $wpdb->get_var(
+        $wpdb->prepare( "SELECT COUNT(*) FROM {$wpdb->prefix}amap_subscriptions WHERE group_id = %d", $group_id )
+    );
+}
+
+function amap_member_has_subscriptions( $member_user_id ) {
+    global $wpdb;
+
+    return (bool) $wpdb->get_var(
+        $wpdb->prepare( "SELECT COUNT(*) FROM {$wpdb->prefix}amap_subscriptions WHERE member_user_id = %d", $member_user_id )
+    );
+}
+
 function amap_store_subscription_form_data( array $data ) {
     set_transient( 'amap_subscription_form_' . get_current_user_id(), $data, 60 );
 }

@@ -1181,6 +1181,14 @@ function amap_handle_delete_group() {
 
     check_admin_referer( 'amap_delete_group_' . $id );
 
+    // Bloque plutôt que de supprimer en cascade : une souscription porte le group_id de son point
+    // de retrait au moment de la signature (voir amap_create_tables()) — le supprimer laisserait
+    // cette référence orpheline. Le bureau doit d'abord supprimer les souscriptions concernées
+    // depuis la page "Souscriptions".
+    if ( amap_group_has_subscriptions( $id ) ) {
+        wp_die( esc_html__( 'Suppression impossible : des souscriptions ont ce groupe comme point de retrait. Supprimez-les d\'abord depuis la page "Souscriptions".', 'association-manager' ) );
+    }
+
     global $wpdb;
     // Pas de contrainte FOREIGN KEY SQL sur group_id (cohérent avec le reste du plugin) : le
     // nettoyage des rattachements producteurs et adhérents orphelins, des dates de livraison de

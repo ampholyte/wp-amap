@@ -697,6 +697,17 @@ function amap_handle_delete_user() {
         wp_die( esc_html__( 'Suppression impossible : ce compte porte le rôle administrateur WordPress.', 'association-manager' ) );
     }
 
+    // Bloque plutôt que de supprimer en cascade : un producteur avec des contrats, ou un adhérent
+    // avec des souscriptions, porte un historique (et, depuis le suivi de paiement, des montants
+    // payés/impayés) qu'une suppression de compte effacerait ou laisserait orphelin.
+    if ( in_array( 'amap_producer', $user->roles, true ) && amap_get_producer_contracts( $id ) ) {
+        wp_die( esc_html__( 'Suppression impossible : ce producteur a des contrats enregistrés.', 'association-manager' ) );
+    }
+
+    if ( in_array( 'amap_member', $user->roles, true ) && amap_member_has_subscriptions( $id ) ) {
+        wp_die( esc_html__( 'Suppression impossible : cet adhérent a des souscriptions enregistrées.', 'association-manager' ) );
+    }
+
     // check_admin_referer() lit aussi bien $_GET que $_POST : ici le nonce arrive en query
     // string via wp_nonce_url(), pas dans un champ de formulaire.
     check_admin_referer( 'amap_delete_user_' . $id );
@@ -715,6 +726,7 @@ function amap_handle_delete_user() {
     global $wpdb;
     $wpdb->delete( $wpdb->prefix . 'amap_users', array( 'user_id' => $id ) );
     $wpdb->delete( $wpdb->prefix . 'amap_group_members', array( 'member_user_id' => $id ) );
+    $wpdb->delete( $wpdb->prefix . 'amap_magic_links', array( 'user_id' => $id ) );
 
     wp_safe_redirect( admin_url( 'admin.php?page=amap-users' ) );
     exit;
