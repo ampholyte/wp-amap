@@ -22,6 +22,30 @@ function amap_get_magic_link_ttl_seconds() {
 }
 
 /**
+ * Limite le nombre d'envois d'email déclenchés par un visiteur non authentifié à partir d'une
+ * simple adresse email saisie (amap_handle_login_email_step(),
+ * amap_handle_request_password_reset()) : ces deux actions sont volontairement publiques, sans
+ * nonce (voir leur documentation), donc sans autre garde-fou contre un envoi en masse vers une
+ * adresse arbitraire. Compteur par fenêtre fixe (pas une fenêtre glissante exacte) : $key doit
+ * déjà inclure l'action et l'email pour ne pas mélanger les deux compteurs. Volontairement par
+ * email seul, pas par IP : protège chaque adhérent d'un spam ciblé sur sa propre adresse, sans
+ * risquer de bloquer plusieurs adhérents partageant une même IP (réseau associatif, box
+ * familiale).
+ */
+function amap_is_rate_limited( $key, $max_attempts, $window_seconds ) {
+    $transient_key = 'amap_rate_limit_' . md5( $key );
+    $attempts      = (int) get_transient( $transient_key );
+
+    if ( $attempts >= $max_attempts ) {
+        return true;
+    }
+
+    set_transient( $transient_key, $attempts + 1, $window_seconds );
+
+    return false;
+}
+
+/**
  * Génère un jeton de lien magique et l'enregistre en base. Seul le hachage est stocké (voir
  * amap_create_tables()) ; le jeton en clair n'existe qu'ici et dans l'email envoyé à l'adhérent.
  */
@@ -504,8 +528,13 @@ function amap_handle_login_email_step() {
     }
 
     if ( 'magic_link' === amap_get_login_mode_for_email( $email ) ) {
-        $user = get_user_by( 'email', $email );
-        amap_send_magic_link( $user );
+        // Rate-limité par email (amap_is_rate_limited()) : au-delà du seuil, l'envoi est
+        // silencieusement sauté mais la redirection reste identique, pour ne rien laisser
+        // deviner côté visiteur.
+        if ( ! amap_is_rate_limited( 'login_email:' . $email, 3, 15 * MINUTE_IN_SECONDS ) ) {
+            $user = get_user_by( 'email', $email );
+            amap_send_magic_link( $user );
+        }
         wp_safe_redirect( add_query_arg( 'amap_login_step', 'magic_link_sent', amap_get_member_area_url() ) );
         exit;
     }
@@ -661,7 +690,10 @@ add_action( 'admin_post_amap_request_password_reset', 'amap_handle_request_passw
 function amap_handle_request_password_reset() {
     $email = isset( $_POST['email'] ) ? sanitize_email( wp_unslash( $_POST['email'] ) ) : '';
 
-    if ( '' !== $email && is_email( $email ) ) {
+    // Rate-limité par email (amap_is_rate_limited()), même principe que
+    // amap_handle_login_email_step() : au-delà du seuil, l'envoi est silencieusement sauté sans
+    // changer la redirection.
+    if ( '' !== $email && is_email( $email ) && ! amap_is_rate_limited( 'password_reset:' . $email, 3, 15 * MINUTE_IN_SECONDS ) ) {
         $user = get_user_by( 'email', $email );
 
         if ( $user && ! amap_user_uses_magic_link( $user ) ) {
