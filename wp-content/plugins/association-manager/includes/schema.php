@@ -10,7 +10,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 function amap_activate() {
     // update_option() (et non plus add_option()) : la version doit refléter le schéma du
     // code à chaque activation. dbDelta() est idempotent, le rappeler ne pose pas de problème.
-    update_option( 'amap_db_version', '3.20' );
+    update_option( 'amap_db_version', '3.21' );
     amap_create_tables();
     amap_drop_obsolete_tables();
 
@@ -286,6 +286,8 @@ function amap_create_tables() {
     // adhérent représente parfois un foyer entier, qui doit pouvoir souscrire plusieurs fois au
     // même contrat sous des lignes séparées (ex. 2 grands paniers + 1 petit) — l'index reste en
     // KEY simple, seulement pour les performances des lectures par (contract_id, member_user_id).
+    // is_paid/paid_at : statut de paiement saisi manuellement par le bureau (relances non
+    // gérées à ce stade) ; paid_at NULL tant que is_paid vaut 0.
     $sql_subscriptions = "CREATE TABLE $subscriptions_table (
         id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
         contract_id bigint(20) unsigned NOT NULL,
@@ -293,6 +295,8 @@ function amap_create_tables() {
         group_id bigint(20) unsigned NOT NULL,
         basket_size_id bigint(20) unsigned DEFAULT NULL,
         signed_at date NOT NULL,
+        is_paid tinyint(1) unsigned NOT NULL DEFAULT 0,
+        paid_at date DEFAULT NULL,
         created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
         PRIMARY KEY  (id),
         KEY contract_member (contract_id, member_user_id)

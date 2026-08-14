@@ -86,24 +86,24 @@ $type_label      = $args['contract_types'][ $item['contract']->contract_type ] ?
                         </a>
                     </div>
                 <?php endif; ?>
-            <?php else : ?>
-                <?php $item_price_summary_html = amap_get_subscription_price_summary_html( $item['subscription']->id ); ?>
-                <?php if ( $item_price_summary_html ) : ?>
-                    <?php $item_price_summary = amap_get_subscription_price_summary( $item['subscription']->id ); ?>
-                    <div class="amap-amount-row">
-                        <span class="amount">
-                            <?php echo esc_html( number_format_i18n( $item_price_summary['total'], 2 ) ); ?> €
-                            <small><?php esc_html_e( 'dû sur la saison', 'association-manager' ); ?></small>
-                        </span>
-                    </div>
-                    <details class="amap-detail">
-                        <summary>
-                            <?php esc_html_e( 'Voir le détail de la commande', 'association-manager' ); ?>
-                            <svg class="icon" aria-hidden="true"><use href="#amap-icon-chevron"></use></svg>
-                        </summary>
-                        <div class="amap-detail-table-wrap"><?php echo $item_price_summary_html; ?></div>
-                    </details>
-                <?php endif; ?>
+            <?php endif; ?>
+
+            <?php $item_price_summary_html = amap_get_subscription_price_summary_html( $item['subscription']->id ); ?>
+            <?php if ( $item_price_summary_html ) : ?>
+                <?php $item_price_summary = amap_get_subscription_price_summary( $item['subscription']->id ); ?>
+                <div class="amap-amount-row">
+                    <span class="amount">
+                        <?php echo esc_html( number_format_i18n( $item_price_summary['total'], 2 ) ); ?> €
+                        <small><?php esc_html_e( 'dû sur la saison', 'association-manager' ); ?></small>
+                    </span>
+                </div>
+                <details class="amap-detail">
+                    <summary>
+                        <?php esc_html_e( 'Voir le détail de la commande', 'association-manager' ); ?>
+                        <svg class="icon" aria-hidden="true"><use href="#amap-icon-chevron"></use></svg>
+                    </summary>
+                    <div class="amap-detail-table-wrap"><?php echo $item_price_summary_html; ?></div>
+                </details>
             <?php endif; ?>
 
             <?php if ( 'upcoming' === $item['status'] ) : ?>

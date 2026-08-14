@@ -45,6 +45,7 @@ class Amap_Subscriptions_List_Table extends WP_List_Table {
             'group_id'       => __( 'Groupe', 'association-manager' ),
             'basket_size_id' => __( 'Taille de panier', 'association-manager' ),
             'signed_at'      => __( 'Signée le', 'association-manager' ),
+            'is_paid'        => __( 'Payé', 'association-manager' ),
         );
     }
 
@@ -117,6 +118,8 @@ class Amap_Subscriptions_List_Table extends WP_List_Table {
                 return esc_html( $basket_size ? $basket_size->label : '—' );
             case 'signed_at':
                 return esc_html( $subscription->signed_at );
+            case 'is_paid':
+                return $subscription->is_paid ? esc_html__( 'Oui', 'association-manager' ) : esc_html__( 'Non', 'association-manager' );
             default:
                 return '';
         }

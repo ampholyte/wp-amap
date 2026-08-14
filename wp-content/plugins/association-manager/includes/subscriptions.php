@@ -593,7 +593,12 @@ function amap_send_subscription_confirmation_email( $subscription_id ) {
     if ( 'product_grid' === $contract->contract_type ) {
         $html_body .= '<h3>' . esc_html__( 'Produits commandés', 'association-manager' ) . '</h3>';
         $html_body .= amap_get_subscription_recap_html( $subscription_id );
-        $html_body .= amap_get_subscription_price_summary_html( $subscription_id );
+    }
+
+    $price_summary_html = amap_get_subscription_price_summary_html( $subscription_id );
+    if ( $price_summary_html ) {
+        $html_body .= '<h3>' . esc_html__( 'Montant dû', 'association-manager' ) . '</h3>';
+        $html_body .= $price_summary_html;
     }
 
     // translators: %s: libellé du contrat.
@@ -648,15 +653,31 @@ function amap_get_subscription_recap_html( $subscription_id ) {
 }
 
 /**
- * Montant dû d'une souscription product_grid, sur l'ensemble de la saison (toutes dates de
- * livraison confondues, voir le point ouvert dans docs/plan-contrats-distributions.md) : une
- * ligne par produit hors famille de remise (quantité × prix), une ligne par famille de remise
- * dont au moins un produit a été commandé (quantités de tous ses produits additionnées, seuil
- * "achetés → facturés" appliqué, reliquat hors palier facturé normalement). Retourne un tableau
- * vide si la souscription n'a aucune ligne (basket_recurring, ou product_grid sans quantité
- * commandée).
+ * Montant dû d'une souscription, sur l'ensemble de la saison : une seule ligne pour un contrat
+ * basket_recurring (amap_get_basket_subscription_price_summary()), ou pour un contrat
+ * product_grid une ligne par produit hors famille de remise (quantité × prix) plus une ligne par
+ * famille de remise dont au moins un produit a été commandé (quantités de tous ses produits
+ * additionnées, seuil "achetés → facturés" appliqué, reliquat hors palier facturé normalement).
+ * Retourne un tableau vide si la souscription n'a aucune ligne à facturer (contrat introuvable,
+ * ou product_grid sans quantité commandée). Ne tient pas compte des exceptions de distribution
+ * (wp_amap_distribution_exceptions) : une distribution annulée reste comptée comme facturable,
+ * cas jugé assez rare ailleurs dans le plugin pour ne pas complexifier ce calcul.
  */
 function amap_get_subscription_price_summary( $subscription_id ) {
+    $subscription = amap_get_subscription( $subscription_id );
+    $contract     = $subscription ? amap_get_contract( $subscription->contract_id ) : null;
+
+    if ( ! $contract ) {
+        return array(
+            'lines' => array(),
+            'total' => 0.0,
+        );
+    }
+
+    if ( 'basket_recurring' === $contract->contract_type ) {
+        return amap_get_basket_subscription_price_summary( $subscription, $contract );
+    }
+
     $quantity_by_product = array();
     foreach ( amap_get_subscription_items( $subscription_id ) as $item ) {
         $product_id = (int) $item->contract_product_id;
@@ -712,6 +733,55 @@ function amap_get_subscription_price_summary( $subscription_id ) {
     return array(
         'lines' => $lines,
         'total' => $total,
+    );
+}
+
+/**
+ * Détail de amap_get_subscription_price_summary() pour un contrat basket_recurring : une seule
+ * ligne, quantité facturable = nombre de distributions de la période du contrat
+ * (amap_get_weekday_dates_in_range(), ancré sur le jour fixe du groupe de retrait et le pas
+ * frequency_weeks du contrat) moins le nombre de congés déjà déclarés — le quota max_leaves est
+ * déjà appliqué à la déclaration (amap_handle_add_leave()/amap_handle_add_member_leave()), pas
+ * besoin de le revérifier ici.
+ */
+function amap_get_basket_subscription_price_summary( $subscription, $contract ) {
+    $empty = array(
+        'lines' => array(),
+        'total' => 0.0,
+    );
+
+    if ( ! $subscription->basket_size_id ) {
+        return $empty;
+    }
+
+    $group       = amap_get_group( $subscription->group_id );
+    $basket_size = amap_get_contract_basket_size( $subscription->basket_size_id );
+    if ( ! $group || ! $basket_size ) {
+        return $empty;
+    }
+
+    $distribution_dates = amap_get_weekday_dates_in_range(
+        $contract->start_date,
+        $contract->end_date,
+        (int) $group->weekday,
+        (int) $contract->frequency_weeks
+    );
+
+    $leaves_count    = count( amap_get_leaves( $subscription->id ) );
+    $billed_quantity = max( 0, count( $distribution_dates ) - $leaves_count );
+    $amount          = $billed_quantity * (float) $basket_size->price;
+
+    return array(
+        'lines' => array(
+            array(
+                'label'           => $basket_size->label,
+                'bought_quantity' => count( $distribution_dates ),
+                'billed_quantity' => $billed_quantity,
+                'unit_price'      => (float) $basket_size->price,
+                'amount'          => $amount,
+            ),
+        ),
+        'total' => $amount,
     );
 }
 
@@ -983,6 +1053,8 @@ function amap_render_subscriptions_page() {
             'group_id'       => (string) $editing_subscription->group_id,
             'basket_size_id' => null !== $editing_subscription->basket_size_id ? (string) $editing_subscription->basket_size_id : '',
             'signed_at'      => $editing_subscription->signed_at,
+            'is_paid'        => (bool) $editing_subscription->is_paid,
+            'paid_at'        => $editing_subscription->paid_at,
             'quantities'     => $prefill_quantities,
         );
     } else {
@@ -1192,6 +1264,22 @@ function amap_render_subscriptions_page() {
                                 <th><?php esc_html_e( 'Date de signature', 'association-manager' ); ?></th>
                                 <td><?php echo esc_html( $editing_subscription->signed_at ); ?></td>
                             </tr>
+                            <tr>
+                                <th><?php esc_html_e( 'Payé', 'association-manager' ); ?></th>
+                                <td>
+                                    <?php if ( $editing_subscription->is_paid ) : ?>
+                                        <?php
+                                        printf(
+                                            /* translators: %s: date de paiement. */
+                                            esc_html__( 'Oui, le %s', 'association-manager' ),
+                                            esc_html( $editing_subscription->paid_at )
+                                        );
+                                        ?>
+                                    <?php else : ?>
+                                        <?php esc_html_e( 'Non', 'association-manager' ); ?>
+                                    <?php endif; ?>
+                                </td>
+                            </tr>
                         </tbody>
                     </table>
 
@@ -1244,12 +1332,12 @@ function amap_render_subscriptions_page() {
                                 </table>
                             </div>
                         <?php endif; ?>
+                    <?php endif; ?>
 
-                        <?php $subscription_price_summary_html = amap_get_subscription_price_summary_html( $editing_subscription->id ); ?>
-                        <?php if ( $subscription_price_summary_html ) : ?>
-                            <h3><?php esc_html_e( 'Montant dû', 'association-manager' ); ?></h3>
-                            <?php echo $subscription_price_summary_html; ?>
-                        <?php endif; ?>
+                    <?php $subscription_price_summary_html = amap_get_subscription_price_summary_html( $editing_subscription->id ); ?>
+                    <?php if ( $subscription_price_summary_html ) : ?>
+                        <h3><?php esc_html_e( 'Montant dû', 'association-manager' ); ?></h3>
+                        <?php echo $subscription_price_summary_html; ?>
                     <?php endif; ?>
 
                     <p>
@@ -1333,6 +1421,19 @@ function amap_render_subscriptions_page() {
                     <tr>
                         <th><label for="amap-subscription-signed-at"><?php esc_html_e( 'Date de signature', 'association-manager' ); ?></label></th>
                         <td><input type="date" id="amap-subscription-signed-at" name="signed_at" value="<?php echo esc_attr( $form_data['signed_at'] ?? '' ); ?>" required></td>
+                    </tr>
+                    <tr>
+                        <th><label for="amap-subscription-is-paid"><?php esc_html_e( 'Payé', 'association-manager' ); ?></label></th>
+                        <td>
+                            <label>
+                                <input type="checkbox" id="amap-subscription-is-paid" name="is_paid" value="1" <?php checked( ! empty( $form_data['is_paid'] ) ); ?>>
+                                <?php esc_html_e( 'Souscription payée', 'association-manager' ); ?>
+                            </label>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th><label for="amap-subscription-paid-at"><?php esc_html_e( 'Payé le', 'association-manager' ); ?></label></th>
+                        <td><input type="date" id="amap-subscription-paid-at" name="paid_at" value="<?php echo esc_attr( $form_data['paid_at'] ?? '' ); ?>"></td>
                     </tr>
                 </table>
 
@@ -1714,11 +1815,21 @@ function amap_handle_add_subscription() {
     $group_id       = isset( $_POST['group_id'] ) ? absint( $_POST['group_id'] ) : 0;
     $basket_size_id = isset( $_POST['basket_size_id'] ) ? absint( $_POST['basket_size_id'] ) : 0;
     $signed_at      = isset( $_POST['signed_at'] ) ? sanitize_text_field( wp_unslash( $_POST['signed_at'] ) ) : '';
+    // is_paid/paid_at : paid_at forcé à NULL si la case n'est pas cochée, ou à aujourd'hui si
+    // cochée sans date valide fournie — même principe que basket_size_id forcé à NULL plus bas
+    // selon le type de contrat.
+    $is_paid        = ! empty( $_POST['is_paid'] );
+    $paid_at        = isset( $_POST['paid_at'] ) ? sanitize_text_field( wp_unslash( $_POST['paid_at'] ) ) : '';
+    if ( ! $is_paid ) {
+        $paid_at = null;
+    } elseif ( ! amap_is_valid_date( $paid_at ) ) {
+        $paid_at = current_time( 'Y-m-d' );
+    }
     // quantities : grille produits×dates saisie pour un contrat product_grid, revalidée et
     // insérée après la création de la souscription (amap_insert_subscription_items()) ; stockée
     // dans $submitted comme les autres champs pour être restituée si le formulaire est invalide.
     $quantities     = isset( $_POST['quantity'] ) && is_array( $_POST['quantity'] ) ? wp_unslash( $_POST['quantity'] ) : array();
-    $submitted      = compact( 'contract_id', 'member_user_id', 'group_id', 'basket_size_id', 'signed_at', 'quantities' );
+    $submitted      = compact( 'contract_id', 'member_user_id', 'group_id', 'basket_size_id', 'signed_at', 'is_paid', 'paid_at', 'quantities' );
 
     $contract           = $contract_id ? amap_get_contract( $contract_id ) : null;
     $valid_member_ids   = wp_list_pluck( amap_get_member_users(), 'ID' );
@@ -1761,6 +1872,8 @@ function amap_handle_add_subscription() {
             'group_id'       => $group_id,
             'basket_size_id' => $basket_size_id,
             'signed_at'      => $signed_at,
+            'is_paid'        => $is_paid ? 1 : 0,
+            'paid_at'        => $paid_at,
         )
     );
 
@@ -1794,10 +1907,18 @@ function amap_handle_update_subscription() {
     $group_id       = isset( $_POST['group_id'] ) ? absint( $_POST['group_id'] ) : 0;
     $basket_size_id = isset( $_POST['basket_size_id'] ) ? absint( $_POST['basket_size_id'] ) : 0;
     $signed_at      = isset( $_POST['signed_at'] ) ? sanitize_text_field( wp_unslash( $_POST['signed_at'] ) ) : '';
+    // is_paid/paid_at : voir amap_handle_add_subscription(), même principe de dérivation.
+    $is_paid        = ! empty( $_POST['is_paid'] );
+    $paid_at        = isset( $_POST['paid_at'] ) ? sanitize_text_field( wp_unslash( $_POST['paid_at'] ) ) : '';
+    if ( ! $is_paid ) {
+        $paid_at = null;
+    } elseif ( ! amap_is_valid_date( $paid_at ) ) {
+        $paid_at = current_time( 'Y-m-d' );
+    }
     // quantities : voir amap_handle_add_subscription(), même principe de restitution en cas
     // d'erreur de validation plus bas dans le formulaire.
     $quantities     = isset( $_POST['quantity'] ) && is_array( $_POST['quantity'] ) ? wp_unslash( $_POST['quantity'] ) : array();
-    $submitted      = compact( 'contract_id', 'member_user_id', 'group_id', 'basket_size_id', 'signed_at', 'quantities' );
+    $submitted      = compact( 'contract_id', 'member_user_id', 'group_id', 'basket_size_id', 'signed_at', 'is_paid', 'paid_at', 'quantities' );
 
     $contract           = $contract_id ? amap_get_contract( $contract_id ) : null;
     $valid_member_ids   = wp_list_pluck( amap_get_member_users(), 'ID' );
@@ -1836,6 +1957,8 @@ function amap_handle_update_subscription() {
             'group_id'       => $group_id,
             'basket_size_id' => $basket_size_id,
             'signed_at'      => $signed_at,
+            'is_paid'        => $is_paid ? 1 : 0,
+            'paid_at'        => $paid_at,
         ),
         array( 'id' => $id )
     );

@@ -39,6 +39,13 @@ class Amap_Contracts_List_Table extends WP_List_Table {
      */
     private $subscription_counts = array();
 
+    /**
+     * Nombre de souscriptions payées par contract_id, même principe que $subscription_counts (une
+     * seule requête groupée plutôt qu'une requête par ligne) : sert de numérateur à la colonne
+     * "Paiements", $subscription_counts servant déjà de dénominateur.
+     */
+    private $paid_subscription_counts = array();
+
     public function get_columns() {
         return array(
             'label'            => __( 'Libellé', 'association-manager' ),
@@ -49,6 +56,7 @@ class Amap_Contracts_List_Table extends WP_List_Table {
             'max_leaves'       => __( 'Congés max', 'association-manager' ),
             'is_active'        => __( 'Actif', 'association-manager' ),
             'subscriptions'    => __( 'Souscriptions', 'association-manager' ),
+            'payment_status'   => __( 'Paiements', 'association-manager' ),
         );
     }
 
@@ -114,6 +122,7 @@ class Amap_Contracts_List_Table extends WP_List_Table {
         $this->_column_headers = array( $this->get_columns(), array(), $this->get_sortable_columns(), 'label' );
 
         $this->load_subscription_counts( $wpdb );
+        $this->load_paid_subscription_counts( $wpdb );
     }
 
     /**
@@ -140,6 +149,30 @@ class Amap_Contracts_List_Table extends WP_List_Table {
         }
     }
 
+    /**
+     * Même principe que load_subscription_counts(), restreint aux souscriptions payées
+     * (is_paid = 1) : sert de numérateur à la colonne "Paiements".
+     */
+    private function load_paid_subscription_counts( $wpdb ) {
+        $contract_ids = wp_list_pluck( $this->items, 'id' );
+
+        if ( ! $contract_ids ) {
+            return;
+        }
+
+        $placeholders = implode( ',', array_fill( 0, count( $contract_ids ), '%d' ) );
+
+        $rows = $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT contract_id, COUNT(*) AS cnt FROM {$wpdb->prefix}amap_subscriptions WHERE is_paid = 1 AND contract_id IN ({$placeholders}) GROUP BY contract_id",
+                $contract_ids
+            )
+        );
+        foreach ( $rows as $row ) {
+            $this->paid_subscription_counts[ (int) $row->contract_id ] = (int) $row->cnt;
+        }
+    }
+
     protected function column_default( $contract, $column_name ) {
         switch ( $column_name ) {
             case 'producer_user_id':
@@ -162,6 +195,10 @@ class Amap_Contracts_List_Table extends WP_List_Table {
                 return $contract->is_active ? esc_html__( 'Oui', 'association-manager' ) : esc_html__( 'Non', 'association-manager' );
             case 'subscriptions':
                 return esc_html( (string) ( $this->subscription_counts[ (int) $contract->id ] ?? 0 ) );
+            case 'payment_status':
+                $paid  = $this->paid_subscription_counts[ (int) $contract->id ] ?? 0;
+                $total = $this->subscription_counts[ (int) $contract->id ] ?? 0;
+                return esc_html( sprintf( '%1$d/%2$d', $paid, $total ) );
             default:
                 return '';
         }
