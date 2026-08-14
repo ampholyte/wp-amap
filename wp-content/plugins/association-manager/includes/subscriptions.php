@@ -608,6 +608,47 @@ function amap_send_subscription_confirmation_email( $subscription_id ) {
 }
 
 /**
+ * Notifie le producteur qu'un adhérent a déclaré un congé sur l'une de ses souscriptions —
+ * appelée uniquement depuis le parcours front (amap_handle_add_member_leave()) : la saisie de
+ * congé par le bureau ("admin est root", amap_handle_add_leave()) ne le concerne pas, le bureau
+ * étant déjà au courant de ce qu'il saisit lui-même.
+ */
+function amap_notify_producer_of_member_leave( $subscription_id, $leave_date ) {
+    $subscription = amap_get_subscription( $subscription_id );
+    if ( ! $subscription ) {
+        return;
+    }
+
+    $contract = amap_get_contract( $subscription->contract_id );
+    $member   = get_user_by( 'id', $subscription->member_user_id );
+    if ( ! $contract || ! $member ) {
+        return;
+    }
+
+    $producer = get_user_by( 'id', $contract->producer_user_id );
+    if ( ! $producer ) {
+        return;
+    }
+
+    $html_body  = '<p>' . sprintf(
+        /* translators: 1: nom affiché de l'adhérent. 2: libellé du contrat. */
+        esc_html__( '%1$s a déclaré un congé sur le contrat « %2$s ».', 'association-manager' ),
+        esc_html( $member->display_name ),
+        esc_html( $contract->label )
+    ) . '</p>';
+    $html_body .= '<p>' . sprintf(
+        /* translators: %s: date du congé. */
+        esc_html__( 'Date concernée : %s.', 'association-manager' ),
+        esc_html( date_i18n( 'j F Y', strtotime( $leave_date ) ) )
+    ) . '</p>';
+
+    // translators: %s: libellé du contrat.
+    $subject = sprintf( __( 'Congé déclaré — %s', 'association-manager' ), $contract->label );
+
+    amap_send_email( $producer->user_email, $subject, amap_render_email( $subject, $html_body ) );
+}
+
+/**
  * Grille produits×dates d'une souscription product_grid mise en forme pour l'email de
  * confirmation : une entrée par date de livraison ayant au moins une quantité commandée (grille
  * creuse, comme partout ailleurs dans le plugin), listant les produits commandés à cette date —
@@ -995,6 +1036,8 @@ function amap_handle_add_member_leave() {
             'declared_at'     => current_time( 'Y-m-d' ),
         )
     );
+
+    amap_notify_producer_of_member_leave( $subscription_id, $leave_date );
 
     wp_safe_redirect(
         add_query_arg(
