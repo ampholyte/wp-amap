@@ -62,14 +62,19 @@ function amap_maybe_render_member_area() {
     }
 
     // Export CSV : jamais de page à rendre, amap_handle_export_contract_roster() /
-    // amap_handle_export_contract_products() envoient le fichier et terminent la requête
-    // elles-mêmes — doit donc s'exécuter avant get_header().
+    // amap_handle_export_contract_products() / amap_handle_export_contract_season_summary()
+    // envoient le fichier et terminent la requête elles-mêmes — doit donc s'exécuter avant
+    // get_header().
     if ( $is_producer && 'export_contract_roster' === $action ) {
         amap_handle_export_contract_roster( $user );
     }
 
     if ( $is_producer && 'export_contract_products' === $action ) {
         amap_handle_export_contract_products( $user );
+    }
+
+    if ( $is_producer && 'export_contract_season_summary' === $action ) {
+        amap_handle_export_contract_season_summary( $user );
     }
 
     get_header();
@@ -422,6 +427,105 @@ function amap_handle_export_contract_products( $producer ) {
             ),
             ';'
         );
+    }
+
+    fclose( $output );
+    exit;
+}
+
+/**
+ * Valide ?amap_member_action=export_contract_season_summary&contract_id=X&group_id=Y (lien
+ * "Export saison" de la fiche contrat, onglet "Espace producteur") et envoie le fichier CSV
+ * consolidé sur toute la durée du contrat — une ligne par adhérent, quantités/paniers facturés et
+ * montant dû, contrairement aux exports "Feuille de présence"/"Commandes" limités à une fenêtre ou
+ * une seule distribution. Disponible pour les deux types de contrat (contrairement aux deux autres
+ * exports, chacun spécifique à un type). wp_die() sur un contrat/groupe trafiqué ou n'appartenant
+ * pas au producteur connecté : l'UI ne propose jamais un tel lien.
+ */
+function amap_handle_export_contract_season_summary( $producer ) {
+    $contract_id = isset( $_GET['contract_id'] ) ? absint( $_GET['contract_id'] ) : 0;
+    $group_id    = isset( $_GET['group_id'] ) ? absint( $_GET['group_id'] ) : 0;
+
+    $contract = $contract_id ? amap_get_contract( $contract_id ) : null;
+    $group    = $group_id ? amap_get_group( $group_id ) : null;
+
+    if ( ! $contract || ! $group
+        || (int) $contract->producer_user_id !== $producer->ID
+        || ! in_array( $group_id, array_map( 'intval', wp_list_pluck( amap_get_producer_groups( $producer->ID ), 'id' ) ), true )
+    ) {
+        wp_die( esc_html__( 'Export non autorisé.', 'association-manager' ) );
+    }
+
+    nocache_headers();
+    header( 'Content-Type: text/csv; charset=UTF-8' );
+    header( 'Content-Disposition: attachment; filename="' . sanitize_file_name( $contract->label . '-' . $group->name . '-saison.csv' ) . '"' );
+
+    $output = fopen( 'php://output', 'w' );
+    // BOM UTF-8 : sans lui, Excel affiche les accents mal encodés à l'ouverture directe du fichier.
+    fwrite( $output, "\xEF\xBB\xBF" );
+
+    if ( 'basket_recurring' === $contract->contract_type ) {
+        fputcsv(
+            $output,
+            array(
+                __( 'Nom Prénom', 'association-manager' ),
+                __( 'Téléphone', 'association-manager' ),
+                __( 'Taille de panier', 'association-manager' ),
+                __( 'Distributions prévues', 'association-manager' ),
+                __( 'Congés pris', 'association-manager' ),
+                __( 'Distributions facturées', 'association-manager' ),
+                __( 'Montant dû (€)', 'association-manager' ),
+            ),
+            ';'
+        );
+
+        foreach ( amap_get_contract_basket_season_rows( $contract, $group ) as $row ) {
+            fputcsv(
+                $output,
+                array(
+                    $row['name'],
+                    $row['phone'],
+                    $row['basket_size'],
+                    $row['total_distributions'],
+                    $row['leaves_count'],
+                    $row['billed_distributions'],
+                    number_format( $row['amount'], 2, ',', '' ),
+                ),
+                ';'
+            );
+        }
+    } else {
+        // Le catalogue complet du contrat sert de colonnes (pas seulement les produits
+        // effectivement commandés, contrairement à amap_handle_export_contract_products()) : les
+        // colonnes restent ainsi identiques d'une ligne à l'autre sur toute la saison.
+        $products = amap_get_contract_products( $contract->id );
+
+        fputcsv(
+            $output,
+            array_merge(
+                array( __( 'Nom Prénom', 'association-manager' ), __( 'Téléphone', 'association-manager' ) ),
+                wp_list_pluck( $products, 'label' ),
+                array( __( 'Montant dû (€)', 'association-manager' ) )
+            ),
+            ';'
+        );
+
+        foreach ( amap_get_contract_product_season_rows( $contract, $group ) as $row ) {
+            fputcsv(
+                $output,
+                array_merge(
+                    array( $row['name'], $row['phone'] ),
+                    array_map(
+                        static function ( $product ) use ( $row ) {
+                            return $row['quantities'][ $product->id ] ?? 0;
+                        },
+                        $products
+                    ),
+                    array( number_format( $row['amount'], 2, ',', '' ) )
+                ),
+                ';'
+            );
+        }
     }
 
     fclose( $output );

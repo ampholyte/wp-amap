@@ -180,6 +180,23 @@ function amap_get_contract_products_export_url( $contract_id, $group_id, $distri
     );
 }
 
+/**
+ * URL de l'export CSV du résumé de saison d'un contrat pour un groupe donné (nom, téléphone,
+ * quantités/paniers facturés, montant dû sur toute la période) — contrairement aux exports
+ * "Feuille de présence"/"Commandes" (fenêtre ou date unique), couvre toute la durée du contrat.
+ * amap_handle_export_contract_season_summary() envoie directement le fichier, jamais de page.
+ */
+function amap_get_contract_season_summary_export_url( $contract_id, $group_id ) {
+    return add_query_arg(
+        array(
+            'amap_member_action' => 'export_contract_season_summary',
+            'contract_id'        => $contract_id,
+            'group_id'           => $group_id,
+        ),
+        amap_get_member_area_url()
+    );
+}
+
 function amap_get_magic_link_url( $token ) {
     return add_query_arg(
         array(

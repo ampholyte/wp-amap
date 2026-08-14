@@ -406,6 +406,120 @@ function amap_get_contract_roster_rows( $contract, $group, $window_start, $windo
 }
 
 /**
+ * Groupes ayant au moins une souscription pour ce contrat — sert à savoir sur quels groupes
+ * proposer l'export "Résumé de saison" (amap_get_contract_season_summary_export_url()) : un
+ * contrat peut être livré à plusieurs groupes, mais seuls ceux ayant effectivement des
+ * souscriptions ont quelque chose à exporter.
+ */
+function amap_get_contract_subscription_group_ids( $contract_id ) {
+    global $wpdb;
+
+    return array_map(
+        'intval',
+        $wpdb->get_col(
+            $wpdb->prepare(
+                "SELECT DISTINCT group_id FROM {$wpdb->prefix}amap_subscriptions WHERE contract_id = %d",
+                $contract_id
+            )
+        )
+    );
+}
+
+/**
+ * Lignes du résumé de saison pour un contrat basket_recurring, sur un groupe donné — une ligne par
+ * adhérent souscrit : nom, téléphone, taille de panier, nombre total de distributions prévues sur
+ * toute la période du contrat, congés déclarés, distributions facturées (total - congés) et
+ * montant dû (amap_get_subscription_price_summary()). Contrairement à
+ * amap_get_contract_roster_rows() (fenêtre glissante pour le pointage terrain), couvre toute la
+ * période du contrat et ajoute le montant — vue de fin de saison plutôt qu'outil de suivi
+ * hebdomadaire.
+ */
+function amap_get_contract_basket_season_rows( $contract, $group ) {
+    global $wpdb;
+
+    $total_distributions = count(
+        amap_get_weekday_dates_in_range( $contract->start_date, $contract->end_date, (int) $group->weekday, (int) $contract->frequency_weeks )
+    );
+
+    $subscriptions = $wpdb->get_results(
+        $wpdb->prepare(
+            "SELECT * FROM {$wpdb->prefix}amap_subscriptions WHERE contract_id = %d AND group_id = %d",
+            $contract->id,
+            $group->id
+        )
+    );
+
+    $rows = array();
+    foreach ( $subscriptions as $subscription ) {
+        $member = get_user_by( 'id', $subscription->member_user_id );
+        if ( ! $member ) {
+            continue;
+        }
+
+        $basket_size  = $subscription->basket_size_id ? amap_get_contract_basket_size( $subscription->basket_size_id ) : null;
+        $leaves_count = count( amap_get_leaves( $subscription->id ) );
+        $contact      = amap_get_user_contact( $subscription->member_user_id );
+        $summary      = amap_get_subscription_price_summary( $subscription->id );
+
+        $rows[] = array(
+            'name'                 => trim( $member->last_name . ' ' . $member->first_name ),
+            'phone'                => $contact->phone ?? '',
+            'basket_size'          => $basket_size ? $basket_size->label : '',
+            'total_distributions'  => $total_distributions,
+            'leaves_count'         => $leaves_count,
+            'billed_distributions' => max( 0, $total_distributions - $leaves_count ),
+            'amount'               => $summary['total'],
+        );
+    }
+
+    return $rows;
+}
+
+/**
+ * Lignes du résumé de saison pour un contrat product_grid, sur un groupe donné — une ligne par
+ * adhérent souscrit, quantité totale commandée par produit sur toute la saison (toutes dates de
+ * livraison confondues, contrairement à amap_get_contract_product_subscribers() qui ne regarde
+ * qu'une seule date) et montant dû (amap_get_subscription_price_summary()).
+ */
+function amap_get_contract_product_season_rows( $contract, $group ) {
+    global $wpdb;
+
+    $subscriptions = $wpdb->get_results(
+        $wpdb->prepare(
+            "SELECT * FROM {$wpdb->prefix}amap_subscriptions WHERE contract_id = %d AND group_id = %d",
+            $contract->id,
+            $group->id
+        )
+    );
+
+    $rows = array();
+    foreach ( $subscriptions as $subscription ) {
+        $member = get_user_by( 'id', $subscription->member_user_id );
+        if ( ! $member ) {
+            continue;
+        }
+
+        $quantities = array();
+        foreach ( amap_get_subscription_items( $subscription->id ) as $item ) {
+            $product_id                = (int) $item->contract_product_id;
+            $quantities[ $product_id ] = ( $quantities[ $product_id ] ?? 0 ) + (int) $item->quantity;
+        }
+
+        $contact = amap_get_user_contact( $subscription->member_user_id );
+        $summary = amap_get_subscription_price_summary( $subscription->id );
+
+        $rows[] = array(
+            'name'       => trim( $member->last_name . ' ' . $member->first_name ),
+            'phone'      => $contact->phone ?? '',
+            'quantities' => $quantities,
+            'amount'     => $summary['total'],
+        );
+    }
+
+    return $rows;
+}
+
+/**
  * Souscriptions de l'adhérent connecté, enrichies pour l'affichage front (onglet "Espace
  * adhérent" de member-area.php) — même principe de jointure en PHP que
  * amap_get_producer_groups(). Un contrat supprimé entre-temps (pas de contrainte FOREIGN KEY
