@@ -117,3 +117,50 @@ function amap_render_admin_notice_styles() {
     </style>
     <?php
 }
+
+add_action( 'admin_notices', 'amap_render_contracts_ending_soon_notice' );
+
+/**
+ * Bandeau de rappel sur les pages d'admin AMAP, listant les contrats producteur dont la date de
+ * fin tombe dans les prochains jours (amap_get_contract_renewal_reminder_days()) — pour que le
+ * bureau pense à anticiper un renouvellement, sans dépendre d'un email qui pourrait se perdre.
+ * Calculé à chaque chargement de page (pas de tâche planifiée) : contrairement à la relance
+ * bénévoles (étape 5), ce rappel s'adresse à des comptes déjà connectés à l'admin, pas à une
+ * adresse externe.
+ */
+function amap_render_contracts_ending_soon_notice() {
+    if ( ! current_user_can( 'amap_manage_contracts' ) ) {
+        return;
+    }
+
+    $page = isset( $_GET['page'] ) ? sanitize_key( wp_unslash( $_GET['page'] ) ) : '';
+    if ( ! in_array( $page, array( 'amap-users', 'amap-groups', 'amap-contracts', 'amap-subscriptions' ), true ) ) {
+        return;
+    }
+
+    $contracts = amap_get_contracts_ending_soon( amap_get_contract_renewal_reminder_days() );
+    if ( ! $contracts ) {
+        return;
+    }
+    ?>
+    <div class="notice notice-warning">
+        <p><strong><?php esc_html_e( 'Contrats producteur arrivant à échéance', 'association-manager' ); ?></strong></p>
+        <ul>
+            <?php foreach ( $contracts as $contract ) : ?>
+                <?php $producer = get_user_by( 'id', $contract->producer_user_id ); ?>
+                <li>
+                    <?php
+                    printf(
+                        /* translators: 1: libellé du contrat. 2: nom du producteur. 3: date de fin. */
+                        esc_html__( '%1$s (%2$s) — se termine le %3$s', 'association-manager' ),
+                        esc_html( $contract->label ),
+                        esc_html( $producer ? $producer->display_name : '—' ),
+                        esc_html( date_i18n( 'j F Y', strtotime( $contract->end_date ) ) )
+                    );
+                    ?>
+                </li>
+            <?php endforeach; ?>
+        </ul>
+    </div>
+    <?php
+}

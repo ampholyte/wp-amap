@@ -52,6 +52,35 @@ function amap_get_contracts() {
 }
 
 /**
+ * Délai du bandeau de rappel de fin de contrat producteur (amap_get_contracts_ending_soon()),
+ * affiché au bureau sur les pages d'admin AMAP.
+ */
+function amap_get_contract_renewal_reminder_days() {
+    return 15;
+}
+
+/**
+ * Contrats producteur dont la date de fin tombe dans les $days_ahead prochains jours (bornes
+ * incluses) — is_active n'entre pas en compte ici : ce champ ne dit que si le contrat est encore
+ * ouvert à la souscription, pas si la relation avec le producteur touche à sa fin. Sert de base au
+ * bandeau de rappel affiché au bureau (amap_render_contracts_ending_soon_notice()).
+ */
+function amap_get_contracts_ending_soon( $days_ahead ) {
+    global $wpdb;
+
+    $today     = current_time( 'Y-m-d' );
+    $last_date = ( new DateTime( $today ) )->modify( "+{$days_ahead} days" )->format( 'Y-m-d' );
+
+    return $wpdb->get_results(
+        $wpdb->prepare(
+            "SELECT * FROM {$wpdb->prefix}amap_contracts WHERE end_date BETWEEN %s AND %s ORDER BY end_date ASC",
+            $today,
+            $last_date
+        )
+    );
+}
+
+/**
  * Contrats d'un producteur donné, utilisés pour l'onglet "Espace producteur" de l'espace membre
  * (member-area-producer.php) — même tri que amap_get_contracts(). Contrairement à
  * amap_get_member_subscriptions(), aucune jointure n'est nécessaire : le producteur est déjà
