@@ -42,6 +42,38 @@ require_once __DIR__ . '/includes/class-amap-subscriptions-list-table.php';
 require_once __DIR__ . '/includes/subscriptions.php';
 
 register_activation_hook( __FILE__, 'amap_activate' );
+register_activation_hook( __FILE__, 'amap_schedule_daily_checks' );
+register_deactivation_hook( __FILE__, 'amap_unschedule_daily_checks' );
+
+/**
+ * Programme la tâche planifiée quotidienne (WP-Cron) à l'activation du plugin —
+ * wp_next_scheduled() évite de la reprogrammer en double si le plugin est réactivé sans être
+ * passé par la désactivation (ex. mise à jour du code sans repasser par "Extensions").
+ */
+function amap_schedule_daily_checks() {
+    if ( ! wp_next_scheduled( 'amap_daily_checks' ) ) {
+        wp_schedule_event( time(), 'daily', 'amap_daily_checks' );
+    }
+}
+
+/**
+ * Retire la tâche planifiée à la désactivation du plugin, pour ne rien laisser en suspens dans
+ * WP-Cron une fois le plugin désactivé.
+ */
+function amap_unschedule_daily_checks() {
+    wp_clear_scheduled_hook( 'amap_daily_checks' );
+}
+
+add_action( 'amap_daily_checks', 'amap_run_daily_checks' );
+
+/**
+ * Point d'entrée unique des vérifications quotidiennes qui doivent s'exécuter sans action
+ * utilisateur — WP-Cron n'est pas un vrai démon en tâche de fond, il se déclenche au chargement
+ * d'une page du site (front ou admin) quand une tâche planifiée est en retard.
+ */
+function amap_run_daily_checks() {
+    amap_check_missing_distribution_volunteers();
+}
 
 add_action( 'admin_menu', 'amap_register_admin_menu' );
 

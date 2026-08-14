@@ -440,6 +440,83 @@ function amap_store_distribution_volunteer_form_data( array $data ) {
     set_transient( 'amap_distribution_volunteer_form_' . get_current_user_id(), $data, 60 );
 }
 
+/**
+ * Relance "bénévoles manquants", appelée quotidiennement par amap_run_daily_checks() (WP-Cron,
+ * association-manager.php) : pour chaque groupe dont la distribution tombe dans 2 jours, envoie
+ * une alerte à l'alias de notification du groupe si moins de 2 bénévoles sont inscrits (règle "2
+ * à 3 par distribution", voir metier-producteurs.md). amap_get_weekday_dates_in_range() avec une
+ * date de début/fin identique sert ici uniquement à vérifier si cette date tombe bien sur le jour
+ * fixe du groupe. Une distribution déjà annulée n'a pas besoin de bénévoles, elle est donc
+ * exclue ; une distribution déplacée reste concernée (le lieu/horaire change, pas le besoin de
+ * bénévoles).
+ */
+function amap_check_missing_distribution_volunteers() {
+    $target_date = ( new DateTime( current_time( 'Y-m-d' ) ) )->modify( '+2 days' )->format( 'Y-m-d' );
+
+    foreach ( amap_get_groups() as $group ) {
+        if ( empty( $group->notification_email ) ) {
+            continue;
+        }
+
+        if ( ! amap_get_weekday_dates_in_range( $target_date, $target_date, (int) $group->weekday ) ) {
+            continue;
+        }
+
+        $exception = amap_get_group_distribution_exception_by_date( $group->id, $target_date );
+        if ( $exception && 'cancelled' === $exception->exception_type ) {
+            continue;
+        }
+
+        if ( amap_count_group_distribution_volunteers( $group->id, $target_date ) >= 2 ) {
+            continue;
+        }
+
+        if ( amap_group_had_volunteer_alert_sent( $group->id, $target_date ) ) {
+            continue;
+        }
+
+        amap_send_missing_volunteers_alert( $group, $target_date );
+        amap_mark_group_volunteer_alert_sent( $group->id, $target_date );
+    }
+}
+
+/**
+ * Garde contre un double envoi de la même alerte (group_id, distribution_date) si la tâche
+ * planifiée s'exécute plus d'une fois le même jour — expiration à 3 jours, largement suffisante
+ * pour ne plus être consultée une fois la distribution passée.
+ */
+function amap_group_had_volunteer_alert_sent( $group_id, $distribution_date ) {
+    return (bool) get_transient( 'amap_volunteer_alert_' . $group_id . '_' . $distribution_date );
+}
+
+function amap_mark_group_volunteer_alert_sent( $group_id, $distribution_date ) {
+    set_transient( 'amap_volunteer_alert_' . $group_id . '_' . $distribution_date, 1, 3 * DAY_IN_SECONDS );
+}
+
+/**
+ * Envoie l'alerte à l'alias de notification du groupe — même canal et même principe qu'un seul
+ * envoi par groupe que amap_notify_distribution_exception(), jamais une boucle sur chaque
+ * adhérent.
+ */
+function amap_send_missing_volunteers_alert( $group, $distribution_date ) {
+    $subject = sprintf(
+        // translators: 1: nom du groupe, 2: date de la distribution concernée.
+        __( 'Bénévoles manquants — %1$s du %2$s', 'association-manager' ),
+        $group->name,
+        date_i18n( 'j F Y', strtotime( $distribution_date ) )
+    );
+
+    $html_body  = '<p>' . sprintf(
+        // translators: 1: nom du groupe, 2: date de la distribution concernée.
+        esc_html__( 'Il manque des bénévoles pour tenir la distribution de %1$s du %2$s (dans 2 jours).', 'association-manager' ),
+        esc_html( $group->name ),
+        esc_html( date_i18n( 'j F Y', strtotime( $distribution_date ) ) )
+    ) . '</p>';
+    $html_body .= '<p>' . esc_html__( "Merci de trouver un ou deux adhérents supplémentaires pour l'assurer.", 'association-manager' ) . '</p>';
+
+    amap_send_email( $group->notification_email, $subject, amap_render_email( $subject, $html_body ) );
+}
+
 function amap_render_groups_page() {
     if ( ! current_user_can( 'amap_manage_groups' ) ) {
         return;
