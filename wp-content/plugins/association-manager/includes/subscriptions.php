@@ -428,9 +428,10 @@ function amap_get_contract_subscription_group_ids( $contract_id ) {
 /**
  * Lignes du résumé de saison pour un contrat basket_recurring, sur un groupe donné — une ligne par
  * adhérent souscrit : nom, téléphone, taille de panier, nombre total de distributions prévues sur
- * toute la période du contrat, congés déclarés, distributions facturées (total - congés) et
- * montant dû (amap_get_subscription_price_summary()). Contrairement à
- * amap_get_contract_roster_rows() (fenêtre glissante pour le pointage terrain), couvre toute la
+ * toute la période du contrat, congés déclarés (information logistique, n'affecte plus le montant
+ * facturé — voir project_pricing_bug_basket_leaves_dynamic), distributions facturées (= prix
+ * plein, donc égal au total) et montant dû (amap_get_subscription_price_summary()). Contrairement
+ * à amap_get_contract_roster_rows() (fenêtre glissante pour le pointage terrain), couvre toute la
  * période du contrat et ajoute le montant — vue de fin de saison plutôt qu'outil de suivi
  * hebdomadaire.
  */
@@ -467,7 +468,7 @@ function amap_get_contract_basket_season_rows( $contract, $group ) {
             'basket_size'          => $basket_size ? $basket_size->label : '',
             'total_distributions'  => $total_distributions,
             'leaves_count'         => $leaves_count,
-            'billed_distributions' => max( 0, $total_distributions - $leaves_count ),
+            'billed_distributions' => $total_distributions,
             'amount'               => $summary['total'],
         );
     }
@@ -841,12 +842,14 @@ function amap_get_subscription_recap_html( $subscription_id ) {
  * Montant dû d'une souscription, sur l'ensemble de la saison : une seule ligne pour un contrat
  * basket_recurring (amap_get_basket_subscription_price_summary()), ou pour un contrat
  * product_grid une ligne par produit hors famille de remise (quantité × prix) plus une ligne par
- * famille de remise dont au moins un produit a été commandé (quantités de tous ses produits
- * additionnées, seuil "achetés → facturés" appliqué, reliquat hors palier facturé normalement).
- * Retourne un tableau vide si la souscription n'a aucune ligne à facturer (contrat introuvable,
- * ou product_grid sans quantité commandée). Ne tient pas compte des exceptions de distribution
- * (wp_amap_distribution_exceptions) : une distribution annulée reste comptée comme facturable,
- * cas jugé assez rare ailleurs dans le plugin pour ne pas complexifier ce calcul.
+ * famille de remise dont au moins un produit a été commandé. Le seuil "achetés → facturés" d'une
+ * famille de remise s'applique par date de livraison (pas sur l'agrégat de toute la saison, voir
+ * project_pricing_bug_grid_discount_per_week) : les quantités facturées de chaque date sont
+ * ensuite additionnées pour la ligne de synthèse. Retourne un tableau vide si la souscription n'a
+ * aucune ligne à facturer (contrat introuvable, ou product_grid sans quantité commandée). Ne
+ * tient pas compte des exceptions de distribution (wp_amap_distribution_exceptions) : une
+ * distribution annulée reste comptée comme facturable, cas jugé assez rare ailleurs dans le
+ * plugin pour ne pas complexifier ce calcul.
  */
 function amap_get_subscription_price_summary( $subscription_id ) {
     $subscription = amap_get_subscription( $subscription_id );
@@ -863,25 +866,33 @@ function amap_get_subscription_price_summary( $subscription_id ) {
         return amap_get_basket_subscription_price_summary( $subscription, $contract );
     }
 
-    $quantity_by_product = array();
-    foreach ( amap_get_subscription_items( $subscription_id ) as $item ) {
-        $product_id = (int) $item->contract_product_id;
-        $quantity_by_product[ $product_id ] = ( $quantity_by_product[ $product_id ] ?? 0 ) + (int) $item->quantity;
+    $products_by_id = array();
+    foreach ( amap_get_contract_products( $contract->id ) as $product ) {
+        $products_by_id[ (int) $product->id ] = $product;
     }
 
-    $lines             = array();
-    $total             = 0.0;
-    $quantity_by_group = array();
+    $discount_groups_by_id = array();
+    foreach ( amap_get_contract_discount_groups( $contract->id ) as $group ) {
+        $discount_groups_by_id[ (int) $group->id ] = $group;
+    }
+
+    $quantity_by_product = array();
+    $items_by_date        = array();
+    foreach ( amap_get_subscription_items( $subscription_id ) as $item ) {
+        $product_id = (int) $item->contract_product_id;
+        $date_id    = (int) $item->contract_delivery_date_id;
+        $quantity   = (int) $item->quantity;
+
+        $quantity_by_product[ $product_id ]       = ( $quantity_by_product[ $product_id ] ?? 0 ) + $quantity;
+        $items_by_date[ $date_id ][ $product_id ] = ( $items_by_date[ $date_id ][ $product_id ] ?? 0 ) + $quantity;
+    }
+
+    $lines = array();
+    $total = 0.0;
 
     foreach ( $quantity_by_product as $product_id => $quantity ) {
-        $product = amap_get_contract_product( $product_id );
-        if ( ! $product ) {
-            continue;
-        }
-
-        if ( $product->discount_group_id ) {
-            $group_id = (int) $product->discount_group_id;
-            $quantity_by_group[ $group_id ] = ( $quantity_by_group[ $group_id ] ?? 0 ) + $quantity;
+        $product = $products_by_id[ $product_id ] ?? null;
+        if ( ! $product || $product->discount_group_id ) {
             continue;
         }
 
@@ -896,19 +907,46 @@ function amap_get_subscription_price_summary( $subscription_id ) {
         );
     }
 
-    foreach ( $quantity_by_group as $group_id => $quantity ) {
-        $group = amap_get_contract_discount_group( $group_id );
-        if ( ! $group ) {
-            continue;
+    // Remise par palier appliquée par date de livraison, pas sur l'agrégat de toute la saison : un
+    // même total acheté peut être facturé différemment selon sa répartition dans le temps (ex.
+    // 5/semaine × 4 semaines déclenche la remise chaque semaine, 4/semaine × 5 semaines ne
+    // l'atteint jamais, bien que le total sur la saison soit identique dans les deux cas).
+    $bought_by_group = array();
+    $billed_by_group = array();
+
+    foreach ( $items_by_date as $date_quantities ) {
+        $quantity_by_group_this_date = array();
+        foreach ( $date_quantities as $product_id => $quantity ) {
+            $product = $products_by_id[ $product_id ] ?? null;
+            if ( ! $product || ! $product->discount_group_id ) {
+                continue;
+            }
+            $group_id = (int) $product->discount_group_id;
+            $quantity_by_group_this_date[ $group_id ] = ( $quantity_by_group_this_date[ $group_id ] ?? 0 ) + $quantity;
         }
 
-        $full_batches    = (int) floor( $quantity / (int) $group->bought_quantity );
-        $billed_quantity = $full_batches * (int) $group->billed_quantity + ( $quantity % (int) $group->bought_quantity );
-        $amount          = $billed_quantity * (float) $group->price;
-        $total          += $amount;
-        $lines[]         = array(
+        foreach ( $quantity_by_group_this_date as $group_id => $quantity ) {
+            $group = $discount_groups_by_id[ $group_id ] ?? null;
+            if ( ! $group ) {
+                continue;
+            }
+
+            $full_batches    = (int) floor( $quantity / (int) $group->bought_quantity );
+            $billed_quantity = $full_batches * (int) $group->billed_quantity + ( $quantity % (int) $group->bought_quantity );
+
+            $bought_by_group[ $group_id ] = ( $bought_by_group[ $group_id ] ?? 0 ) + $quantity;
+            $billed_by_group[ $group_id ] = ( $billed_by_group[ $group_id ] ?? 0 ) + $billed_quantity;
+        }
+    }
+
+    foreach ( $billed_by_group as $group_id => $billed_quantity ) {
+        $group  = $discount_groups_by_id[ $group_id ];
+        $amount = $billed_quantity * (float) $group->price;
+        $total += $amount;
+
+        $lines[] = array(
             'label'           => $group->label,
-            'bought_quantity' => $quantity,
+            'bought_quantity' => $bought_by_group[ $group_id ],
             'billed_quantity' => $billed_quantity,
             'unit_price'      => (float) $group->price,
             'amount'          => $amount,
@@ -925,9 +963,12 @@ function amap_get_subscription_price_summary( $subscription_id ) {
  * Détail de amap_get_subscription_price_summary() pour un contrat basket_recurring : une seule
  * ligne, quantité facturable = nombre de distributions de la période du contrat
  * (amap_get_weekday_dates_in_range(), ancré sur le jour fixe du groupe de retrait et le pas
- * frequency_weeks du contrat) moins le nombre de congés déjà déclarés — le quota max_leaves est
- * déjà appliqué à la déclaration (amap_handle_add_leave()/amap_handle_add_member_leave()), pas
- * besoin de le revérifier ici.
+ * frequency_weeks du contrat), prix plein sur toute cette période. Les congés déjà déclarés
+ * (wp_amap_leaves) n'affectent jamais ce montant : le prix est fixé à la souscription, un congé
+ * n'est qu'une information logistique pour le producteur (ce qu'il ne doit pas préparer telle
+ * semaine), pas un motif de remboursement — voir project_pricing_bug_basket_leaves_dynamic.
+ * is_paid/paid_at (wp_amap_subscriptions) restent la seule source de vérité sur ce qui a été
+ * réellement payé.
  */
 function amap_get_basket_subscription_price_summary( $subscription, $contract ) {
     $empty = array(
@@ -945,23 +986,22 @@ function amap_get_basket_subscription_price_summary( $subscription, $contract ) 
         return $empty;
     }
 
-    $distribution_dates = amap_get_weekday_dates_in_range(
-        $contract->start_date,
-        $contract->end_date,
-        (int) $group->weekday,
-        (int) $contract->frequency_weeks
+    $distribution_count = count(
+        amap_get_weekday_dates_in_range(
+            $contract->start_date,
+            $contract->end_date,
+            (int) $group->weekday,
+            (int) $contract->frequency_weeks
+        )
     );
-
-    $leaves_count    = count( amap_get_leaves( $subscription->id ) );
-    $billed_quantity = max( 0, count( $distribution_dates ) - $leaves_count );
-    $amount          = $billed_quantity * (float) $basket_size->price;
+    $amount = $distribution_count * (float) $basket_size->price;
 
     return array(
         'lines' => array(
             array(
                 'label'           => $basket_size->label,
-                'bought_quantity' => count( $distribution_dates ),
-                'billed_quantity' => $billed_quantity,
+                'bought_quantity' => $distribution_count,
+                'billed_quantity' => $distribution_count,
                 'unit_price'      => (float) $basket_size->price,
                 'amount'          => $amount,
             ),

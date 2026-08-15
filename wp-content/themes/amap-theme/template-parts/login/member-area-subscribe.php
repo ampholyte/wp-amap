@@ -166,46 +166,49 @@ $type_class      = $is_product_grid ? 'amap-type-icon--grid' : 'amap-type-icon--
     }
 
     /**
-     * Même calcul que amap_get_subscription_price_summary() côté serveur : quantité agrégée par
-     * produit sur toute la saison, remise par palier appliquée sur cet agrégat (voir le
-     * commentaire de amap_get_member_subscribe_form_data() — bug de remise par saison plutôt que
-     * par semaine déjà connu, volontairement pas corrigé ici pour annoncer le même montant que ce
-     * qui sera réellement facturé).
+     * Même calcul que amap_get_subscription_price_summary() côté serveur : produits hors remise
+     * agrégés sur toute la saison (prix linéaire, la répartition dans le temps ne change rien),
+     * remise par palier appliquée par date de livraison puis sommée sur la saison pour les
+     * familles de remise — annonce donc le même montant que ce qui sera réellement facturé.
      */
     function computeSeasonSummary() {
-        var qtyByProduct = {};
-        dates.forEach( function ( d ) {
-            products.forEach( function ( p ) {
-                var q = getQuantity( d.id, p.id );
-                if ( q > 0 ) {
-                    qtyByProduct[ p.id ] = ( qtyByProduct[ p.id ] || 0 ) + q;
-                }
-            } );
-        } );
-
-        var qtyByGroup = {};
-        var total      = 0;
+        var total = 0;
 
         products.forEach( function ( p ) {
-            var q = qtyByProduct[ p.id ] || 0;
-            if ( q <= 0 ) {
-                return;
-            }
             if ( p.discount_group_id ) {
-                qtyByGroup[ p.discount_group_id ] = ( qtyByGroup[ p.discount_group_id ] || 0 ) + q;
                 return;
             }
+            var q = 0;
+            dates.forEach( function ( d ) { q += getQuantity( d.id, p.id ); } );
             total += q * p.price;
         } );
 
+        var billedByGroup = {};
+        dates.forEach( function ( d ) {
+            var qtyByGroupThisDate = {};
+            products.forEach( function ( p ) {
+                if ( ! p.discount_group_id ) {
+                    return;
+                }
+                var q = getQuantity( d.id, p.id );
+                if ( q > 0 ) {
+                    qtyByGroupThisDate[ p.discount_group_id ] = ( qtyByGroupThisDate[ p.discount_group_id ] || 0 ) + q;
+                }
+            } );
+
+            discountGroups.forEach( function ( g ) {
+                var q = qtyByGroupThisDate[ g.id ] || 0;
+                if ( q <= 0 ) {
+                    return;
+                }
+                var fullBatches = Math.floor( q / g.bought_quantity );
+                var billed      = fullBatches * g.billed_quantity + ( q % g.bought_quantity );
+                billedByGroup[ g.id ] = ( billedByGroup[ g.id ] || 0 ) + billed;
+            } );
+        } );
+
         discountGroups.forEach( function ( g ) {
-            var q = qtyByGroup[ g.id ] || 0;
-            if ( q <= 0 ) {
-                return;
-            }
-            var fullBatches = Math.floor( q / g.bought_quantity );
-            var billed      = fullBatches * g.billed_quantity + ( q % g.bought_quantity );
-            total += billed * g.price;
+            total += ( billedByGroup[ g.id ] || 0 ) * g.price;
         } );
 
         return total;

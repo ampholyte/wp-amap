@@ -202,11 +202,9 @@ function amap_get_member_subscribe_form_data( $user ) {
             return array( 'error' => 'no_products' );
         }
 
-        // Même calcul de remise par palier que amap_get_subscription_price_summary() : agrégée
-        // sur toute la saison plutôt que par semaine (bug connu, volontairement pas corrigé
-        // ici — voir la note de projet dédiée) : le total en direct doit annoncer le même
-        // montant que celui réellement facturé après confirmation, pas un calcul "corrigé" qui
-        // afficherait un chiffre différent de la facturation réelle.
+        // Même calcul de remise par palier que amap_get_subscription_price_summary() : appliquée
+        // par date de livraison (voir son commentaire), puis sommée sur la saison — le total en
+        // direct annonce donc le même montant que celui réellement facturé après confirmation.
         $discount_groups = array_map(
             static function ( $group ) {
                 return array(
@@ -217,7 +215,7 @@ function amap_get_member_subscribe_form_data( $user ) {
                     'billed_quantity' => (int) $group->billed_quantity,
                     'note'            => sprintf(
                         /* translators: 1: nom du groupe de remise. 2: quantité achetée déclenchant la remise. 3: quantité facturée correspondante. */
-                        __( '%1$s : remise « %2$d achetés → %3$d facturés » sur l’ensemble de la saison, non reflétée dans les totaux ci-dessus (détail exact à la confirmation).', 'association-manager' ),
+                        __( '%1$s : remise « %2$d achetés → %3$d facturés » appliquée par date de livraison, non reflétée dans les totaux ci-dessus par produit (détail exact à la confirmation).', 'association-manager' ),
                         $group->label,
                         (int) $group->bought_quantity,
                         (int) $group->billed_quantity
