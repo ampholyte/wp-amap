@@ -7,6 +7,24 @@ if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
+add_filter( 'show_admin_bar', 'amap_hide_admin_bar_on_member_area' );
+
+/**
+ * La coquille "app" de l'espace membre (header-app.php) ne laisse aucune place à la barre
+ * d'outils WordPress : sa police/ses interlignes (propres au cœur WordPress, pas au thème) la
+ * font ressortir au-dessus de la barre d'identité de l'espace membre. is_page() n'est pas encore
+ * fiable ici (le filtre 'show_admin_bar' est appliqué une seule fois, mis en cache dès 'init' —
+ * donc avant amap_maybe_render_member_area(), qui tourne sur template_redirect) : on regarde
+ * directement l'URL plutôt que d'attendre que la requête principale soit résolue.
+ */
+function amap_hide_admin_bar_on_member_area( $show ) {
+    if ( false !== strpos( $_SERVER['REQUEST_URI'] ?? '', '/espace-adherent' ) ) {
+        return false;
+    }
+
+    return $show;
+}
+
 add_action( 'template_redirect', 'amap_maybe_render_member_area', 5 );
 
 /**
@@ -77,7 +95,7 @@ function amap_maybe_render_member_area() {
         amap_handle_export_contract_season_summary( $user );
     }
 
-    get_header();
+    get_header( 'app' );
     ?>
     <main>
     <?php
@@ -105,7 +123,7 @@ function amap_maybe_render_member_area() {
     ?>
     </main>
     <?php
-    get_footer();
+    get_footer( 'app' );
     exit;
 }
 
@@ -144,16 +162,18 @@ function amap_get_member_subscribe_form_data( $user ) {
         wp_die( esc_html__( "Ce contrat n'est pas disponible pour votre groupe.", 'association-manager' ) );
     }
 
-    $basket_sizes   = array();
-    $products       = array();
-    $delivery_dates = array();
+    $basket_sizes    = array();
+    $products        = array();
+    $delivery_dates  = array();
+    $discount_groups = array();
 
     if ( 'basket_recurring' === $contract->contract_type ) {
         $basket_sizes = array_map(
             static function ( $size ) {
                 return array(
                     'id'    => (int) $size->id,
-                    'label' => $size->label . ' (' . number_format_i18n( (float) $size->price, 2 ) . ' €)',
+                    'label' => $size->label,
+                    'price' => (float) $size->price,
                 );
             },
             amap_get_contract_basket_sizes( $contract->id )
@@ -163,11 +183,16 @@ function amap_get_member_subscribe_form_data( $user ) {
             return array( 'error' => 'no_basket_sizes' );
         }
     } else {
+        // price/discount_group_id (bruts, pas seulement le libellé déjà formaté) : nécessaires
+        // pour calculer les totaux en direct côté front (member-area-subscribe.php), sans
+        // dupliquer l'arrondi/la mise en forme monétaire déjà faite par number_format_i18n().
         $products = array_map(
             static function ( $product ) {
                 return array(
-                    'id'    => (int) $product->id,
-                    'label' => $product->label . ' (' . number_format_i18n( (float) $product->price, 2 ) . ' €)',
+                    'id'                => (int) $product->id,
+                    'label'             => $product->label,
+                    'price'             => (float) $product->price,
+                    'discount_group_id' => $product->discount_group_id ? (int) $product->discount_group_id : null,
                 );
             },
             amap_get_contract_products( $contract->id )
@@ -176,6 +201,31 @@ function amap_get_member_subscribe_form_data( $user ) {
         if ( empty( $products ) ) {
             return array( 'error' => 'no_products' );
         }
+
+        // Même calcul de remise par palier que amap_get_subscription_price_summary() : agrégée
+        // sur toute la saison plutôt que par semaine (bug connu, volontairement pas corrigé
+        // ici — voir la note de projet dédiée) : le total en direct doit annoncer le même
+        // montant que celui réellement facturé après confirmation, pas un calcul "corrigé" qui
+        // afficherait un chiffre différent de la facturation réelle.
+        $discount_groups = array_map(
+            static function ( $group ) {
+                return array(
+                    'id'              => (int) $group->id,
+                    'label'           => $group->label,
+                    'price'           => (float) $group->price,
+                    'bought_quantity' => (int) $group->bought_quantity,
+                    'billed_quantity' => (int) $group->billed_quantity,
+                    'note'            => sprintf(
+                        /* translators: 1: nom du groupe de remise. 2: quantité achetée déclenchant la remise. 3: quantité facturée correspondante. */
+                        __( '%1$s : remise « %2$d achetés → %3$d facturés » sur l’ensemble de la saison, non reflétée dans les totaux ci-dessus (détail exact à la confirmation).', 'association-manager' ),
+                        $group->label,
+                        (int) $group->bought_quantity,
+                        (int) $group->billed_quantity
+                    ),
+                );
+            },
+            amap_get_contract_discount_groups( $contract->id )
+        );
 
         // Groupe déjà fixé (contrairement à l'admin, qui construit les dates de tous les
         // groupes puisque le bureau choisit le groupe dans le même formulaire) : seules les
@@ -186,8 +236,9 @@ function amap_get_member_subscribe_form_data( $user ) {
             }
 
             $delivery_dates[] = array(
-                'id'    => (int) $delivery_date_row->id,
-                'label' => date_i18n( 'j F Y', strtotime( $delivery_date_row->delivery_date ) ),
+                'id'          => (int) $delivery_date_row->id,
+                'label'       => date_i18n( 'j F Y', strtotime( $delivery_date_row->delivery_date ) ),
+                'short_label' => amap_get_short_date_label( $delivery_date_row->delivery_date ),
             );
         }
 
@@ -197,12 +248,13 @@ function amap_get_member_subscribe_form_data( $user ) {
     }
 
     return array(
-        'contract'       => $contract,
-        'producer'       => get_user_by( 'id', $contract->producer_user_id ),
-        'group'          => $member_group,
-        'basket_sizes'   => $basket_sizes,
-        'products'       => $products,
-        'delivery_dates' => $delivery_dates,
+        'contract'        => $contract,
+        'producer'        => get_user_by( 'id', $contract->producer_user_id ),
+        'group'           => $member_group,
+        'basket_sizes'    => $basket_sizes,
+        'products'        => $products,
+        'delivery_dates'  => $delivery_dates,
+        'discount_groups' => $discount_groups,
     );
 }
 

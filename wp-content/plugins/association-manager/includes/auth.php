@@ -306,13 +306,11 @@ function amap_maybe_render_magic_link_confirmation() {
 
     $is_password_reset = ( 'password_reset' === $link->purpose );
 
-    get_header();
+    get_header( 'auth' );
     ?>
     <main class="amap-auth-main">
-    <div class="amap-card amap-auth-card">
-    <?php if ( has_custom_logo() ) : ?>
-        <?php the_custom_logo(); ?>
-    <?php endif; ?>
+    <div class="amap-auth-card">
+    <?php get_template_part( 'template-parts/login/auth-brand' ); ?>
     <?php
     get_template_part(
         'template-parts/login/step',
@@ -326,7 +324,7 @@ function amap_maybe_render_magic_link_confirmation() {
     </div>
     </main>
     <?php
-    get_footer();
+    get_footer( 'auth' );
     exit;
 }
 
@@ -401,13 +399,11 @@ function amap_maybe_render_new_password_form() {
 
     $has_error = isset( $_GET['amap_login_error'] );
 
-    get_header();
+    get_header( 'auth' );
     ?>
     <main class="amap-auth-main">
-    <div class="amap-card amap-auth-card">
-    <?php if ( has_custom_logo() ) : ?>
-        <?php the_custom_logo(); ?>
-    <?php endif; ?>
+    <div class="amap-auth-card">
+    <?php get_template_part( 'template-parts/login/auth-brand' ); ?>
     <?php
     get_template_part(
         'template-parts/login/step',
@@ -421,7 +417,7 @@ function amap_maybe_render_new_password_form() {
     </div>
     </main>
     <?php
-    get_footer();
+    get_footer( 'auth' );
     exit;
 }
 
@@ -509,20 +505,18 @@ function amap_maybe_render_login_email_step() {
         return;
     }
 
-    get_header();
+    get_header( 'auth' );
     ?>
     <main class="amap-auth-main">
-    <div class="amap-card amap-auth-card">
-    <?php if ( has_custom_logo() ) : ?>
-        <?php the_custom_logo(); ?>
-    <?php endif; ?>
+    <div class="amap-auth-card">
+    <?php get_template_part( 'template-parts/login/auth-brand' ); ?>
     <?php
     get_template_part( 'template-parts/login/step', 'email', array( 'has_error' => ( 'invalid_email' === $step ) ) );
     ?>
     </div>
     </main>
     <?php
-    get_footer();
+    get_footer( 'auth' );
     exit;
 }
 
@@ -582,13 +576,11 @@ function amap_maybe_render_login_password_step() {
 
     $email = isset( $_GET['email'] ) ? sanitize_email( wp_unslash( $_GET['email'] ) ) : '';
 
-    get_header();
+    get_header( 'auth' );
     ?>
     <main class="amap-auth-main">
-    <div class="amap-card amap-auth-card">
-    <?php if ( has_custom_logo() ) : ?>
-        <?php the_custom_logo(); ?>
-    <?php endif; ?>
+    <div class="amap-auth-card">
+    <?php get_template_part( 'template-parts/login/auth-brand' ); ?>
     <?php
     get_template_part(
         'template-parts/login/step',
@@ -602,7 +594,7 @@ function amap_maybe_render_login_password_step() {
     </div>
     </main>
     <?php
-    get_footer();
+    get_footer( 'auth' );
     exit;
 }
 
@@ -634,13 +626,11 @@ function amap_maybe_render_login_message_step() {
     $demo_steps = array( 'magic_link_sent', 'password_reset_sent' );
     $demo_email = in_array( $step, $demo_steps, true ) ? amap_get_demo_last_email() : false;
 
-    get_header();
+    get_header( 'auth' );
     ?>
     <main class="amap-auth-main">
-    <div class="amap-card amap-auth-card">
-    <?php if ( has_custom_logo() ) : ?>
-        <?php the_custom_logo(); ?>
-    <?php endif; ?>
+    <div class="amap-auth-card">
+    <?php get_template_part( 'template-parts/login/auth-brand' ); ?>
     <?php
     get_template_part(
         'template-parts/login/step',
@@ -655,7 +645,7 @@ function amap_maybe_render_login_message_step() {
     </div>
     </main>
     <?php
-    get_footer();
+    get_footer( 'auth' );
     exit;
 }
 

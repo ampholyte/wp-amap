@@ -9,6 +9,10 @@
  * .amap-contract-card__producer sert donc de simple emplacement pour le texte en gras, réutilisé
  * pour le libellé du contrat plutôt que pour un nom de producteur. Les symboles SVG référencés
  * (#amap-icon-*) sont définis dans la coquille commune member-area.php.
+ *
+ * Période/export sont des frères de .amap-contract-card__top (pas nichés dans
+ * .amap-contract-card__body, qui n'a pas de règle CSS et casserait le flex de la carte) : même
+ * principe que member-area-subscription-item.php côté adhérent.
  */
 $contract      = $args['contract'];
 $status        = $args['status'];
@@ -32,44 +36,44 @@ $season_export_group_ids = array_intersect(
             <svg class="icon" aria-hidden="true"><use href="#<?php echo esc_attr( $type_icon ); ?>"></use></svg>
             <span class="sr-only"><?php echo esc_html( $type_label ); ?></span>
         </span>
-        <div class="amap-contract-card__body">
-            <div class="amap-contract-card__heading">
-                <div>
-                    <div class="amap-contract-card__producer"><?php echo esc_html( $contract->label ); ?></div>
-                    <div class="amap-contract-card__label"><?php echo esc_html( $type_label ); ?></div>
-                </div>
-                <span class="amap-status-badge amap-status-badge--<?php echo esc_attr( $status ); ?>">
-                    <?php echo esc_html( $args['status_labels'][ $status ] ); ?>
-                </span>
+        <div class="amap-contract-card__heading">
+            <div>
+                <div class="amap-contract-card__producer"><?php echo esc_html( $contract->label ); ?></div>
+                <div class="amap-contract-card__label"><?php echo esc_html( $type_label ); ?></div>
             </div>
-            <p class="amap-contract-card__facts">
-                <?php
-                printf(
-                    /* translators: 1: date de début du contrat. 2: date de fin du contrat. */
-                    esc_html__( 'Période : %1$s – %2$s', 'association-manager' ),
-                    esc_html( date_i18n( 'j F Y', strtotime( $contract->start_date ) ) ),
-                    esc_html( date_i18n( 'j F Y', strtotime( $contract->end_date ) ) )
-                );
-                ?>
-            </p>
-            <?php if ( ! empty( $season_export_group_ids ) ) : ?>
-                <div class="amap-actions">
-                    <?php foreach ( $season_export_group_ids as $season_group_id ) : ?>
-                        <?php $season_group = amap_get_group( $season_group_id ); ?>
-                        <?php if ( $season_group ) : ?>
-                            <a class="button-secondary" href="<?php echo esc_url( amap_get_contract_season_summary_export_url( $contract->id, $season_group_id ) ); ?>">
-                                <?php
-                                printf(
-                                    /* translators: %s: nom du groupe de distribution. */
-                                    esc_html__( 'Export saison — %s (CSV)', 'association-manager' ),
-                                    esc_html( $season_group->name )
-                                );
-                                ?>
-                            </a>
-                        <?php endif; ?>
-                    <?php endforeach; ?>
-                </div>
-            <?php endif; ?>
+            <span class="amap-status-badge amap-status-badge--<?php echo esc_attr( $status ); ?>">
+                <?php echo esc_html( $args['status_labels'][ $status ] ); ?>
+            </span>
         </div>
     </div>
+
+    <p class="amap-contract-card__facts">
+        <?php
+        printf(
+            /* translators: 1: date de début du contrat. 2: date de fin du contrat. */
+            esc_html__( 'Période : %1$s – %2$s', 'association-manager' ),
+            esc_html( date_i18n( 'j F Y', strtotime( $contract->start_date ) ) ),
+            esc_html( date_i18n( 'j F Y', strtotime( $contract->end_date ) ) )
+        );
+        ?>
+    </p>
+
+    <?php if ( ! empty( $season_export_group_ids ) ) : ?>
+        <div class="amap-actions">
+            <?php foreach ( $season_export_group_ids as $season_group_id ) : ?>
+                <?php $season_group = amap_get_group( $season_group_id ); ?>
+                <?php if ( $season_group ) : ?>
+                    <a class="button-secondary" href="<?php echo esc_url( amap_get_contract_season_summary_export_url( $contract->id, $season_group_id ) ); ?>">
+                        <?php
+                        printf(
+                            /* translators: %s: nom du groupe de distribution. */
+                            esc_html__( 'Export saison — %s (CSV)', 'association-manager' ),
+                            esc_html( $season_group->name )
+                        );
+                        ?>
+                    </a>
+                <?php endif; ?>
+            <?php endforeach; ?>
+        </div>
+    <?php endif; ?>
 </li>

@@ -26,24 +26,28 @@ foreach ( $groups as $group ) {
 }
 ?>
 
+<div class="amap-stack">
 <h2><?php esc_html_e( 'Mes prochaines livraisons', 'association-manager' ); ?></h2>
 
 <?php if ( empty( $groups ) ) : ?>
     <p><?php esc_html_e( "Vous n'êtes pour l'instant rattaché à aucun groupe de distribution. Contactez le bureau.", 'association-manager' ); ?></p>
 <?php else : ?>
+    <div class="amap-context-cards">
     <?php foreach ( $groups as $group ) : ?>
         <?php $next = $group_next_distributions[ $group->id ]; ?>
         <div class="amap-context-card">
             <p class="amap-context-row">
                 <svg class="icon" aria-hidden="true"><use href="#amap-icon-pin"></use></svg>
                 <?php
+                // Le lien Google Maps est sur le lieu de distribution lui-même ; pas d'horaire ici,
+                // déjà donné juste en dessous par la ligne "Prochaine distribution" (même principe
+                // que le bandeau de contexte côté adhérent, member-area-member.php).
                 printf(
-                    /* translators: 1: nom du groupe. 2: jour de la semaine. 3: horaire. 4: lieu de livraison. */
-                    esc_html__( '%1$s — %2$s, %3$s (%4$s)', 'association-manager' ),
+                    /* translators: 1: URL Google Maps de l'adresse. 2: nom du groupe. 3: jour de la semaine. Balises <a>/<strong> à conserver. */
+                    __( '<a href="%1$s" target="_blank" rel="noopener noreferrer"><strong>%2$s</strong></a> — %3$s', 'association-manager' ),
+                    esc_url( amap_get_google_maps_url( $group->delivery_place ) ),
                     esc_html( $group->name ),
-                    esc_html( $weekday_labels[ (int) $group->weekday ] ?? '' ),
-                    esc_html( amap_format_time( $group->start_time ) . '–' . amap_format_time( $group->end_time ) ),
-                    esc_html( $group->delivery_place )
+                    esc_html( $weekday_labels[ (int) $group->weekday ] ?? '' )
                 );
                 ?>
             </p>
@@ -91,12 +95,13 @@ foreach ( $groups as $group ) {
                         ?>
                     <?php else : ?>
                         <?php
+                        // Pas de lieu ici : déjà donné (en lien Google Maps) sur la ligne juste
+                        // au-dessus.
                         printf(
-                            /* translators: 1: date. 2: horaire. 3: lieu de livraison. Balise <strong> à conserver. */
-                            __( 'Prochaine distribution : <strong>%1$s</strong>, %2$s (%3$s)', 'association-manager' ),
+                            /* translators: 1: date. 2: horaire. Balise <strong> à conserver. */
+                            __( 'Prochaine distribution : <strong>%1$s</strong>, %2$s', 'association-manager' ),
                             esc_html( date_i18n( 'j F Y', strtotime( $next['date'] ) ) ),
-                            esc_html( amap_format_time( $next['start_time'] ) . '–' . amap_format_time( $next['end_time'] ) ),
-                            esc_html( $next['place'] )
+                            esc_html( amap_format_time( $next['start_time'] ) . '–' . amap_format_time( $next['end_time'] ) )
                         );
                         ?>
                     <?php endif; ?>
@@ -141,8 +146,11 @@ foreach ( $groups as $group ) {
             <?php endif; ?>
         </div>
     <?php endforeach; ?>
+    </div>
 <?php endif; ?>
+</div>
 
+<div class="amap-stack">
 <h2><?php esc_html_e( 'Mes contrats', 'association-manager' ); ?></h2>
 
 <?php if ( empty( $contracts ) ) : ?>
@@ -210,3 +218,4 @@ foreach ( $groups as $group ) {
         </details>
     <?php endif; ?>
 <?php endif; ?>
+</div>

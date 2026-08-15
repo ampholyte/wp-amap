@@ -1,7 +1,7 @@
 /*
 Theme Name: AMAP Theme
 Description: Thème minimal développé sur mesure pour le site de l'AMAP.
-Version: 0.3.5
+Version: 0.3.9
 Author: Association AMAP
 Text Domain: amap-theme
 */
@@ -41,6 +41,26 @@ Text Domain: amap-theme
     --space-6: 3rem;
 
     --radius: 6px;
+}
+
+/* Espace membre ("espace-adherent", voir header-app.php qui pose body.amap-app) : quelques
+   tokens propres à cet espace, qui se veut plus proche d'une application que le site vitrine
+   public — un peu comme une redéfinition de variable locale qui masque la globale le temps d'un
+   bloc, sans toucher le reste du site. Les autres tokens (couleurs de fond/texte/statut) restent
+   ceux du site, déjà cohérents avec les maquettes. */
+body.amap-app {
+    --color-accent: #c97a2b;
+    --color-accent-dark: #a5601f;
+    --color-accent-bg: #f8ecdd;
+    --radius-sm: 6px;
+    --radius: 12px;
+    --shadow-card: 0 1px 2px rgba(43, 42, 38, 0.06), 0 1px 1px rgba(43, 42, 38, 0.04);
+    --space-3: 0.875rem;
+    /* Le corps de page du site public a un dégradé (voir la règle body ci-dessous) : sur un écran
+       long comme "Mes contrats", il finit visiblement plus foncé en bas qu'en haut. Les maquettes
+       ont toutes un fond uni — annulé ici pour l'espace membre uniquement, pas pour le site
+       public. */
+    background: var(--color-bg);
 }
 
 /* Reset minimal */
@@ -165,49 +185,45 @@ main {
     padding: var(--space-5) var(--space-3);
 }
 
-@media (max-width: 600px) {
-    header {
-        flex-direction: column;
-        align-items: flex-start;
-    }
+/* Espace membre : colonne plus étroite que les pages du site vitrine (article, accueil), pour un
+   rendu plus dense/applicatif — cf. body.amap-app plus haut. */
+body.amap-app main {
+    max-width: 780px;
+    padding: var(--space-3) var(--space-4) var(--space-6);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-5);
+}
 
-    /* Espace membre : bandeau de contexte, plus long depuis l'ajout du jour/horaire/lieu et de
-       la prochaine distribution (étape 1) — passe sur plusieurs lignes plus souvent qu'avant. */
-    .amap-context-row {
-        align-items: flex-start;
-    }
+/* Sous-pages hors coquille à onglets (congé/souscrire/modifier mes informations — repérables à
+   leur .amap-page-head, absent des onglets) : espacement plus serré entre les blocs que sur les
+   maquettes, qui séparaient déjà les deux cas (contrairement à cette règle jusqu'ici, qui
+   appliquait le même gap partout). */
+body.amap-app main:has(.amap-page-head) {
+    gap: var(--space-4);
+}
 
-    .amap-next-distribution {
-        flex-direction: column;
-        align-items: flex-start;
-    }
+/* Un groupe "titre + contenu" (une h2 et ce qui va avec, ex. "Mes contrats" et ses listes) :
+   espacement serré à l'intérieur, l'espacement entre deux groupes étant déjà celui du gap de
+   body.amap-app main ci-dessus. */
+.amap-stack {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+}
 
-    /* Espace membre : cartes de contrat — le badge de statut passe sous le nom du producteur
-       plutôt que de se retrouver compressé à côté sur un écran étroit. */
-    .amap-contract-card__heading {
-        flex-direction: column;
-    }
+body.amap-app main h2,
+body.amap-app main h3 {
+    margin: 0;
+}
 
-    /* Espace membre : boutons d'action (déclarer un congé, souscrire) en pleine largeur pour des
-       cibles tactiles confortables au doigt. */
-    .amap-actions .button-primary,
-    .amap-actions .button-secondary {
-        display: block;
-        width: 100%;
-        text-align: center;
-    }
-
-    /* Espace producteur : bouton d'export CSV d'une livraison — même traitement pleine largeur
-       que .amap-actions ci-dessus, alors qu'il ne vit pas dans ce conteneur. */
-    .amap-delivery-contract-header .button-secondary {
-        display: block;
-        width: 100%;
-        text-align: center;
-    }
-
-    .amap-nav-item {
-        padding: var(--space-3) var(--space-3);
-    }
+/* Toutes les listes de l'espace membre espacent leurs <li> via un gap flex (.amap-contract-list,
+   .amap-available-list, .amap-delivery-items, .amap-declared-leaves...) : la marge générique
+   li{margin-bottom} du site (plus bas dans ce fichier, pensée pour du contenu éditorial classique)
+   s'additionnait à ce gap au lieu d'être remplacée — même piège que .amap-nav/.amap-field déjà
+   rencontré, ici ressenti sur toutes les cartes de "Mes contrats" (18px mesurés au lieu de 14px). */
+body.amap-app li {
+    margin: 0;
 }
 
 /* Navigation */
@@ -247,7 +263,11 @@ label {
     font-weight: 600;
 }
 
-input:not([type="submit"]):not([type="checkbox"]):not([type="radio"]):not(.amap-item-quantity),
+/* :where() plutôt que 4 :not() enchaînés sur input : sélectionne exactement les mêmes éléments,
+   mais sans la spécificité démesurée qu'accumulaient les :not() (chacun comptant la spécificité
+   de son argument) — elle finissait par l'emporter sur des règles plus ciblées comme
+   .amap-field.has-error input, empêchant l'état d'erreur de s'afficher. */
+:where(input:not([type="submit"]):not([type="checkbox"]):not([type="radio"]):not(.amap-item-quantity)),
 textarea,
 select {
     width: 100%;
@@ -310,6 +330,16 @@ input[type="submit"]:hover,
     border-color: var(--color-border);
 }
 
+/* Espace membre : boutons plus compacts que le reste du site (maquettes), notamment "Déclarer un
+   congé"/"Souscrire" au fil des cartes plutôt que des appels à l'action de page comme sur le site
+   public. */
+body.amap-app .button-primary,
+body.amap-app .button-secondary {
+    padding: 0.5rem 0.9rem;
+    border-radius: var(--radius-sm);
+    font-size: 0.85rem;
+}
+
 .button-secondary:hover {
     border-color: var(--color-text-muted);
 }
@@ -341,22 +371,49 @@ input[type="submit"]:hover,
     color: var(--color-info);
 }
 
-/* Espace membre : badges de rôle et carte d'info */
+/* Espace membre : "Mes infos" — accueil (Bonjour X + casquettes) + carte d'informations */
+.amap-greeting {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+}
+
+.amap-greeting__text {
+    margin: 0;
+    font-size: 1.15rem;
+    font-weight: 700;
+}
+
 .amap-badges {
+    margin: 0;
     display: flex;
     flex-wrap: wrap;
     gap: var(--space-2);
-    margin-bottom: var(--space-4);
 }
 
 .amap-badge {
     display: inline-block;
-    padding: var(--space-1) var(--space-3);
+    background: var(--color-bg-alt);
+    color: var(--color-text-muted);
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    padding: 0.25rem 0.65rem;
     border-radius: 999px;
-    background: var(--color-primary-bg);
-    color: var(--color-primary-dark);
-    font-size: 0.875rem;
-    font-weight: 600;
+}
+
+.amap-info-list--divided div {
+    padding-bottom: 0.6rem;
+    border-bottom: 1px solid var(--color-border);
+}
+
+.amap-info-list--divided div:last-child {
+    border-bottom: none;
+    padding-bottom: 0;
+}
+
+.amap-info-card__actions {
+    padding-top: var(--space-1);
 }
 
 .amap-card {
@@ -375,15 +432,50 @@ input[type="submit"]:hover,
 
 /* Écrans de connexion (step-email, step-password, etc.) : carte .amap-card centrée et de
    largeur modérée, plutôt qu'un formulaire flottant seul dans un <main> large. */
+/* Écrans de connexion (step-email, step-password, etc.) : carte centrée sur la page plutôt qu'un
+   formulaire flottant seul dans un <main> large — body.amap-app main.amap-auth-main l'emporte sur
+   la règle générique body.amap-app main (colonne de blocs) pour passer en centrage plein écran. */
+body.amap-app main.amap-auth-main {
+    max-width: none;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--space-5) var(--space-4);
+}
+
 .amap-auth-card {
-    max-width: 480px;
-    margin-left: auto;
-    margin-right: auto;
+    width: 100%;
+    max-width: 380px;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+    padding: var(--space-5) var(--space-4);
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-card);
+}
+
+.amap-auth-brand {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-1);
+}
+
+.amap-auth-brand__mark {
+    font-size: 2rem;
+}
+
+.amap-auth-brand__name {
+    font-weight: 700;
+    font-size: 0.95rem;
+    text-align: center;
 }
 
 .amap-auth-card .custom-logo-link {
     display: block;
-    margin-bottom: var(--space-3);
     text-align: center;
 }
 
@@ -393,25 +485,302 @@ input[type="submit"]:hover,
     width: auto;
 }
 
-/* Boutons/liens-boutons de la carte de connexion : même largeur que les champs de saisie
-   (width:100%, max-width:400px) plutôt qu'une largeur calée sur la longueur du texte — sinon
-   "Se connecter" et "Mot de passe oublié ?" empilés n'ont pas la même largeur. */
-.amap-auth-card button,
-.amap-auth-card input[type="submit"],
-.amap-auth-card .button-primary,
-.amap-auth-card .button-secondary {
-    display: block;
-    width: 100%;
-    max-width: 400px;
+.amap-auth-card h1 {
+    margin: 0;
+    font-size: 1.3rem;
     text-align: center;
 }
 
-/* main.amap-auth-main : marge haute plus généreuse que le <main> standard, pour aérer l'écran de
-   connexion sans pour autant centrer la carte sur toute la hauteur (qui l'isole dans un vide
-   d'autant plus grand que l'écran est haut) — seulement pour les écrans de connexion, jamais
-   pour l'accueil/les articles qui doivent rester alignés en haut. */
-main.amap-auth-main {
-    padding-top: var(--space-6);
+.amap-auth-card form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    margin: 0;
+}
+
+.amap-auth-step__text {
+    margin: 0;
+    font-size: 0.95rem;
+    text-align: center;
+    color: var(--color-text-muted);
+}
+
+/* Bouton/lien-bouton pleine largeur (écrans de connexion, formulaires en carte étroite) — modifie
+   .button-primary/.button-secondary plutôt que de les remplacer. */
+.button-block {
+    display: block;
+    width: 100%;
+    text-align: center;
+}
+
+.amap-demo-email-preview {
+    width: 100%;
+    max-width: 480px;
+    height: 420px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    background: #fff;
+}
+
+/* Espace membre : coquille (barre d'identité + onglets), voir header-app.php. Comme la maquette :
+   pas de bande pleine largeur, la barre est soumise à la même colonne que le contenu (780px,
+   cf. body.amap-app main) et se fond dans le fond de la page plutôt que de trancher dessus. */
+body.amap-app .amap-topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+    /* Sans width:100%, un <header> flex-item de body (display:flex;flex-direction:column) se
+       réduit à la taille de son contenu au lieu de remplir la largeur disponible avant d'être
+       plafonné par max-width — contrairement à .amap-app main, qui a ce width:100% depuis la
+       règle générique du site. Sans lui, space-between n'avait que ~400px à répartir au lieu de
+       780px, collant "Déconnexion" bien avant le bord droit. */
+    width: 100%;
+    max-width: 780px;
+    margin: 0 auto;
+    padding: var(--space-4) var(--space-4) var(--space-2);
+    /* header, footer {...} (règle générique du site) pose un fond + une bordure sur tout élément
+       <header> : sans ces deux lignes, ils survivraient ici malgré la règle ci-dessus (spécificité
+       plus forte mais ces deux propriétés précises n'y sont pas redéfinies). */
+    background: none;
+    border-bottom: none;
+}
+
+.amap-topbar__brand {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-weight: 700;
+}
+
+.amap-topbar__mark {
+    font-size: 1.3rem;
+}
+
+.amap-topbar .custom-logo {
+    display: block;
+    max-height: 40px;
+    width: auto;
+}
+
+.amap-topbar__logout {
+    font-size: 0.9rem;
+    color: var(--color-text-muted);
+    text-decoration: none;
+    padding: var(--space-1) var(--space-2);
+    border-radius: var(--radius);
+}
+
+.amap-topbar__logout:hover {
+    background: var(--color-bg-alt);
+    color: var(--color-text);
+}
+
+/* Espace membre : sous-pages en dehors de la coquille à onglets (ex. "Déclarer un congé"),
+   atteintes directement par amap_maybe_render_member_area() plutôt que via member-area.php. */
+.amap-page-head {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+}
+
+.amap-back-link {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    align-self: flex-start;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--color-text-muted);
+    text-decoration: none;
+}
+
+.amap-back-link:hover {
+    color: var(--color-primary);
+}
+
+.amap-page-title {
+    margin: 0;
+    font-size: 1.5rem;
+    font-weight: 700;
+    text-wrap: balance;
+}
+
+.amap-info-card {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    padding: var(--space-4);
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-card);
+}
+
+.amap-info-card__head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+}
+
+.amap-info-card__title {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 700;
+}
+
+.amap-info-card__sub {
+    margin: 0.15rem 0 0;
+    font-size: 0.85rem;
+    color: var(--color-text-muted);
+}
+
+.amap-info-list {
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    font-size: 0.9rem;
+}
+
+.amap-info-list div {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--space-3);
+}
+
+.amap-info-list dt {
+    margin: 0;
+    color: var(--color-text-muted);
+}
+
+.amap-info-list dd {
+    margin: 0;
+    font-weight: 600;
+}
+
+.amap-declared-leaves {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    font-size: 0.9rem;
+}
+
+.amap-declared-leaves li {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.amap-declared-leaves .icon {
+    color: var(--color-success);
+}
+
+.amap-info-card__note {
+    margin: 0;
+    font-size: 0.85rem;
+    color: var(--color-text-muted);
+}
+
+.amap-leave-form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+    padding: var(--space-4);
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-card);
+}
+
+.amap-leave-form__title {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 700;
+}
+
+.amap-date-options {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(6.5rem, 1fr));
+    gap: var(--space-2);
+}
+
+.amap-date-option {
+    /* Un <label> est un item de grille "blockifié" (étiré à la hauteur de sa rangée par
+       .amap-date-options), mais sa case interne (.amap-date-option__box) ne suivait pas cet
+       étirement — les dates tenant sur une seule ligne (ex. "1 octobre") gardaient une case plus
+       basse que leurs voisines à deux lignes (ex. "3 septembre") sur la même rangée. display:flex
+       ici fait suivre l'étirement à la case, centrée verticalement dans le flex:1 ci-dessous. */
+    display: flex;
+}
+
+.amap-date-option__box {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.15rem;
+    padding: var(--space-3) var(--space-2);
+    border: 1.5px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    text-align: center;
+    transition: border-color 0.15s, background 0.15s;
+}
+
+.amap-date-option__day {
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--color-text-muted);
+}
+
+.amap-date-option__date {
+    font-size: 0.95rem;
+    font-weight: 600;
+}
+
+.amap-date-option:hover .amap-date-option__box {
+    border-color: var(--color-primary);
+}
+
+.amap-date-option input:checked + .amap-date-option__box {
+    border-color: var(--color-primary);
+    background: var(--color-primary-bg);
+}
+
+.amap-date-option input:checked + .amap-date-option__box .amap-date-option__day,
+.amap-date-option input:checked + .amap-date-option__box .amap-date-option__date {
+    color: var(--color-primary-dark);
+}
+
+.amap-form-help {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-2);
+    margin: 0;
+    font-size: 0.85rem;
+    color: var(--color-text-muted);
+    background: var(--color-bg-alt);
+    border-radius: var(--radius-sm);
+    padding: var(--space-3);
+}
+
+.amap-form-help .icon {
+    color: var(--color-info);
+    margin-top: 0.15rem;
+}
+
+.amap-form-actions {
+    display: flex;
+    gap: var(--space-2);
+    flex-wrap: wrap;
 }
 
 /* Espace membre : bandeau de contexte (point de retrait + prochaine distribution) */
@@ -432,19 +801,35 @@ main.amap-auth-main {
 .amap-context-card {
     display: flex;
     flex-direction: column;
-    gap: var(--space-2);
-    padding: var(--space-3) var(--space-4);
-    margin-bottom: var(--space-4);
+    gap: var(--space-3);
+    padding: var(--space-4);
     background: var(--color-surface);
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
+    box-shadow: var(--shadow-card);
+}
+
+/* Espace producteur : un .amap-context-card par groupe livré ("Mes prochaines livraisons"), un
+   producteur pouvant livrer plusieurs groupes — même gap que .amap-contract-list/
+   .amap-available-list pour une liste de cartes de même famille. */
+.amap-context-cards {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
 }
 
 .amap-context-row {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
+    /* Pas de display:flex : ce texte traduit mélange plusieurs nœuds (strong, lien vers Maps) —
+       même piège que .amap-next-distribution__text (voir ce commentaire) : en flex, chaque
+       morceau devient un item séparé, cassant la phrase au lieu d'un retour à la ligne normal. */
     margin: 0;
+    color: var(--color-text-muted);
+    font-size: 0.9rem;
+}
+
+.amap-context-row .icon {
+    color: var(--color-primary);
+    margin-right: var(--space-2);
 }
 
 .amap-next-distribution {
@@ -452,10 +837,10 @@ main.amap-auth-main {
     align-items: center;
     justify-content: space-between;
     flex-wrap: wrap;
-    gap: var(--space-2);
-    padding: var(--space-2) var(--space-3);
-    border-radius: var(--radius);
-    background: var(--color-primary-bg);
+    gap: var(--space-3);
+    padding: var(--space-3);
+    border-radius: var(--radius-sm);
+    background: var(--color-bg-alt);
 }
 
 .amap-next-distribution--cancelled {
@@ -467,18 +852,24 @@ main.amap-auth-main {
 }
 
 .amap-next-distribution__text {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
+    /* Pas de display:flex ici : le contenu est un texte traduit avec une balise <strong> au
+       milieu (amap_get_group_next_distribution()), donc plusieurs nœuds de texte — en flex,
+       chacun devient un item séparé qui enveloppe son propre texte indépendamment des autres,
+       cassant la phrase en colonnes au lieu d'un retour à la ligne normal. Le flux inline
+       standard suffit : .icon porte déjà son propre vertical-align pour s'aligner avec le texte. */
     margin: 0;
-    color: var(--color-primary-dark);
 }
 
-.amap-next-distribution--cancelled .amap-next-distribution__text {
+.amap-next-distribution__text .icon {
+    color: var(--color-accent);
+    margin-right: var(--space-2);
+}
+
+.amap-next-distribution--cancelled .amap-next-distribution__text .icon {
     color: var(--color-error);
 }
 
-.amap-next-distribution--moved .amap-next-distribution__text {
+.amap-next-distribution--moved .amap-next-distribution__text .icon {
     color: var(--color-warning);
 }
 
@@ -486,8 +877,8 @@ main.amap-auth-main {
     flex-shrink: 0;
     padding: 0.2rem 0.65rem;
     border-radius: 999px;
-    background: var(--color-surface);
-    color: var(--color-primary-dark);
+    background: var(--color-accent);
+    color: #fff;
     font-size: 0.75rem;
     font-weight: 700;
     white-space: nowrap;
@@ -495,12 +886,13 @@ main.amap-auth-main {
 
 /* Espace membre : barre de navigation à onglets */
 .amap-nav {
+    /* Pas de margin ici : .amap-nav est un flex-item direct de body.amap-app main, qui espace déjà
+       tous ses enfants via son propre gap — une marge en plus s'additionnait à ce gap au lieu de
+       le remplacer, doublant l'espace au-dessus/en-dessous des onglets. */
     display: flex;
     flex-wrap: nowrap;
     gap: var(--space-2);
     overflow-x: auto;
-    margin-bottom: var(--space-4);
-    border-bottom: 1px solid var(--color-border);
 }
 
 .amap-nav-item {
@@ -508,22 +900,20 @@ main.amap-auth-main {
     padding: var(--space-2) var(--space-3);
     color: var(--color-text-muted);
     text-decoration: none;
+    font-weight: 600;
+    font-size: 0.9rem;
     white-space: nowrap;
-    border-bottom: 2px solid transparent;
+    border-radius: 999px;
 }
 
 .amap-nav-item:hover {
+    background: var(--color-bg-alt);
     color: var(--color-text);
 }
 
 .amap-nav-item.is-active {
-    color: var(--color-primary-dark);
-    border-bottom-color: var(--color-primary);
-    font-weight: 600;
-}
-
-.amap-nav-item--logout {
-    margin-left: auto;
+    background: var(--color-primary);
+    color: #fff;
 }
 
 /* Espace membre : liste des contrats de l'adhérent ("Mes contrats") */
@@ -625,18 +1015,27 @@ main.amap-auth-main {
 
 .amap-delivery-items {
     list-style: none;
-    padding-left: 0;
+    /* Aligné sous le libellé du contrat au-dessus (après son icône), pas collé au bord gauche de
+       la carte — c'est ce lien visuel qui manquait par rapport à la maquette. */
+    padding-left: 2.15rem;
     margin: var(--space-2) 0 0;
     display: flex;
     flex-direction: column;
-    gap: 0.2rem;
+    gap: 0.15rem;
+    font-size: 0.85rem;
+    color: var(--color-text-muted);
 }
 
 .amap-delivery-items li {
     display: flex;
     justify-content: space-between;
-    gap: var(--space-3);
-    font-size: 0.95rem;
+    gap: var(--space-2);
+}
+
+.amap-delivery-items strong {
+    font-weight: 600;
+    color: var(--color-text);
+    font-variant-numeric: tabular-nums;
 }
 
 .amap-status-badge {
@@ -675,10 +1074,6 @@ main.amap-auth-main {
 }
 
 /* Espace membre : groupe replié des contrats terminés ("Mes contrats") */
-.amap-ended-group {
-    margin-top: var(--space-4);
-}
-
 .amap-ended-group > summary {
     cursor: pointer;
     padding: var(--space-2) 0;
@@ -697,15 +1092,24 @@ main.amap-auth-main {
 /* Espace membre : compteur à côté des titres "En cours" / "À venir" */
 h3.amap-section-title {
     display: flex;
-    align-items: baseline;
-    justify-content: space-between;
+    align-items: center;
     gap: var(--space-2);
+    font-size: 0.8rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--color-text-muted);
 }
 
 .amap-section-count {
-    color: var(--color-text-muted);
-    font-size: 0.85rem;
-    font-weight: 400;
+    background: var(--color-bg-alt);
+    color: var(--color-text);
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: none;
+    letter-spacing: normal;
+    padding: 0.05rem 0.5rem;
+    border-radius: 999px;
 }
 
 /* Espace membre : cartes de contrat de "Mes contrats" (En cours / À venir / Terminés) */
@@ -718,11 +1122,19 @@ h3.amap-section-title {
 }
 
 .amap-contract-card {
-    padding: var(--space-3);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    padding: var(--space-4);
     background: var(--color-surface);
     border: 1px solid var(--color-border);
+    border-left: 4px solid var(--color-primary);
     border-radius: var(--radius);
-    box-shadow: 0 1px 2px rgba(43, 42, 38, 0.05);
+    box-shadow: var(--shadow-card);
+}
+
+.amap-contract-card--grid {
+    border-left-color: var(--color-accent);
 }
 
 .amap-contract-card__top {
@@ -733,17 +1145,17 @@ h3.amap-section-title {
 
 .amap-contract-card__type {
     flex-shrink: 0;
-    width: 38px;
-    height: 38px;
-    border-radius: 10px;
+    width: 2.25rem;
+    height: 2.25rem;
+    border-radius: var(--radius-sm);
     display: flex;
     align-items: center;
     justify-content: center;
 }
 
 .amap-contract-card__type .icon {
-    width: 20px;
-    height: 20px;
+    width: 1.1rem;
+    height: 1.1rem;
 }
 
 .amap-contract-card--basket .amap-contract-card__type {
@@ -756,12 +1168,9 @@ h3.amap-section-title {
     color: var(--color-accent-dark);
 }
 
-.amap-contract-card__body {
+.amap-contract-card__heading {
     flex: 1 1 auto;
     min-width: 0;
-}
-
-.amap-contract-card__heading {
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
@@ -791,6 +1200,8 @@ h3.amap-section-title {
     gap: var(--space-2);
     flex-wrap: wrap;
     margin-top: var(--space-2);
+    padding-top: var(--space-2);
+    border-top: 1px solid var(--color-border);
 }
 
 .amap-leave-dots {
@@ -810,6 +1221,8 @@ h3.amap-section-title {
 }
 
 .amap-leave-tracker__label {
+    flex: 1 1 auto;
+    min-width: 12rem;
     font-size: 0.85rem;
     color: var(--color-text-muted);
 }
@@ -829,8 +1242,15 @@ h3.amap-section-title {
     color: var(--color-text-muted);
 }
 
+/* Espace producteur : liens d'export saison d'une carte de "Mes contrats" — séparés du reste de
+   la carte par un filet, comme sur la maquette (seul usage actuel de .amap-actions). */
 .amap-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
     margin-top: var(--space-2);
+    padding-top: var(--space-2);
+    border-top: 1px solid var(--color-border);
 }
 
 details.amap-detail {
@@ -867,10 +1287,37 @@ details.amap-detail[open] > summary .icon {
     margin-top: var(--space-2);
 }
 
-/* Espace membre : "Contrats disponibles", volontairement plus discret que "Mes contrats" —
-   même principe de carte que .amap-contract-card (un bloc distinct par contrat, bouton en
-   dessous des informations), mais avec une bordure en pointillés et un fond légèrement teinté
-   pour rester visuellement secondaire. */
+.amap-detail-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+}
+
+.amap-detail-table td {
+    padding: var(--space-2) 0;
+    border-bottom: 1px solid var(--color-border);
+    text-align: left;
+    vertical-align: top;
+}
+
+.amap-detail-table small {
+    color: var(--color-text-muted);
+}
+
+.amap-detail-table__num {
+    text-align: right;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+
+.amap-detail-table__total td {
+    font-weight: 600;
+    border-bottom: none;
+    padding-top: var(--space-3);
+}
+
+/* Espace membre : "Contrats disponibles" — même principe de carte que .amap-contract-card
+   (nom + détails à gauche), avec le bouton "Souscrire" à droite sur la même ligne. */
 .amap-available-list {
     list-style: none;
     padding-left: 0;
@@ -880,10 +1327,16 @@ details.amap-detail[open] > summary .icon {
 }
 
 .amap-available-item {
-    padding: var(--space-3);
-    background: var(--color-bg-alt);
-    border: 1px dashed var(--color-border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+    padding: var(--space-3) var(--space-4);
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
     border-radius: var(--radius);
+    box-shadow: var(--shadow-card);
 }
 
 .amap-available-item__name {
@@ -896,60 +1349,290 @@ details.amap-detail[open] > summary .icon {
     margin-top: 0.1rem;
 }
 
-/* Formulaire de souscription : grille produits×dates (member-area-subscribe.php) */
+/* Formulaire de souscription (member-area-subscribe.php) : carte englobante, comme
+   .amap-leave-form, pour la taille de panier (radio) et la grille produits×dates (grid). */
+.amap-order-form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+    padding: var(--space-4);
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-card);
+}
+
+.amap-order-form__head {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+}
+
+.amap-form-help-plain {
+    margin: 0;
+    font-size: 0.85rem;
+    color: var(--color-text-muted);
+}
+
+.amap-scroll-hint {
+    margin: 0;
+    font-size: 0.75rem;
+    color: var(--color-text-muted);
+    text-align: right;
+}
+
+/* Grille produits×dates, générée en JS (member-area-subscribe.php) : une colonne par produit, une
+   ligne par date de livraison, total par ligne + par produit + par saison recalculés en direct. */
 .amap-items-grid-wrapper {
     overflow-x: auto;
-    margin-bottom: var(--space-3);
-}
-
-table.amap-items-grid {
-    width: auto;
-    border-collapse: collapse;
-    margin-top: var(--space-2);
-}
-
-table.amap-items-grid th,
-table.amap-items-grid td {
     border: 1px solid var(--color-border);
-    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-sm);
+}
+
+.amap-items-grid {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+}
+
+.amap-items-grid th,
+.amap-items-grid td {
+    padding: var(--space-2);
+    border-bottom: 1px solid var(--color-border);
     text-align: center;
-}
-
-table.amap-items-grid thead th {
-    background: var(--color-primary-bg);
-    white-space: normal;
-    min-width: 90px;
-}
-
-table.amap-items-grid tbody th {
-    background: var(--color-bg);
     white-space: nowrap;
+}
+
+.amap-items-grid thead th {
+    background: var(--color-bg-alt);
+    font-weight: 600;
+    vertical-align: top;
+}
+
+.amap-items-grid thead th span {
+    display: block;
+    margin-top: 0.15rem;
+    font-weight: 400;
+    color: var(--color-text-muted);
+    font-size: 0.75rem;
+}
+
+.amap-items-grid tbody th {
     text-align: left;
+    font-weight: 600;
+}
+
+.amap-items-grid__total-col {
+    font-weight: 600;
+    background: var(--color-bg-alt);
+}
+
+.amap-items-grid tfoot th,
+.amap-items-grid tfoot td {
+    font-weight: 700;
+    border-bottom: none;
+    border-top: 2px solid var(--color-border);
 }
 
 .amap-item-quantity {
-    width: 4em;
-    max-width: 4em;
-    padding: var(--space-2);
+    width: 3.5em;
+    max-width: 3.5em;
+    padding: 0.3rem;
     margin-bottom: 0;
     border: 1px solid var(--color-border);
-    border-radius: var(--radius);
+    border-radius: var(--radius-sm);
     background: var(--color-surface);
     color: var(--color-text);
     font-family: inherit;
-    font-size: 1rem;
+    font-size: 0.9rem;
     text-align: center;
 }
 
-/* Erreur de validation propre à un champ (ex. téléphone) */
-.field-error {
-    display: block;
-    margin-top: var(--space-1);
-    color: var(--color-error);
-    font-size: 0.875rem;
+/* Grille produits×dates : accordéon mobile (une date par bloc, steppers +/-) — alternative à
+   .amap-items-grid, générée par la même donnée pour les petits écrans. */
+.amap-date-acc-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
 }
 
-.field-error[hidden] {
+.amap-date-acc {
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    padding: var(--space-2) var(--space-3);
+}
+
+.amap-date-acc > summary {
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    list-style: none;
+    padding: var(--space-1) 0;
+    font-weight: 600;
+}
+
+.amap-date-acc > summary::-webkit-details-marker {
+    display: none;
+}
+
+.amap-date-acc__summary {
+    font-weight: 400;
+    font-size: 0.85rem;
+    color: var(--color-text-muted);
+}
+
+.amap-stepper-list {
+    list-style: none;
+    margin: var(--space-2) 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+}
+
+.amap-stepper-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    padding-top: var(--space-2);
+    border-top: 1px solid var(--color-border);
+}
+
+.amap-stepper-row:first-child {
+    padding-top: 0;
+    border-top: none;
+}
+
+.amap-stepper-row__label {
+    font-size: 0.9rem;
+}
+
+.amap-stepper-row__label small {
+    color: var(--color-text-muted);
+    font-size: 0.8rem;
+}
+
+.amap-stepper {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+.amap-stepper__btn {
+    width: 1.9rem;
+    height: 1.9rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    background: var(--color-surface);
+    color: var(--color-text);
+    font-size: 1.1rem;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.amap-stepper__btn:hover {
+    background: var(--color-bg-alt);
+}
+
+.amap-stepper__value {
+    width: 2.75em;
+    max-width: 2.75em;
+    text-align: center;
+}
+
+.amap-order-total {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    padding: var(--space-3);
+    background: var(--color-bg-alt);
+    border-radius: var(--radius-sm);
+    font-weight: 600;
+}
+
+/* "Modifier mes informations" : formulaire self-service (member-profile-edit.php) */
+.amap-profile-form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+    padding: var(--space-4);
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-card);
+}
+
+.amap-field-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-3);
+}
+
+.amap-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+
+.amap-field label {
+    /* Sans ce reset, la marge globale du site (label { margin-bottom: var(--space-1); }) s'ajoute
+       au gap de .amap-field, qui gère déjà l'espacement entre le label et le champ. */
+    margin: 0;
+    font-size: 0.85rem;
+    font-weight: 600;
+}
+
+.amap-field__optional {
+    font-weight: 400;
+    color: var(--color-text-muted);
+}
+
+.amap-field input {
+    /* Même chose que .amap-field label ci-dessus, pour la marge globale du site sur <input>
+       (:where(input...) { margin-bottom: var(--space-3); ... }). */
+    margin: 0;
+    width: 100%;
+    max-width: none;
+    padding: 0.65rem 0.75rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    font-size: 0.95rem;
+    font-family: inherit;
+    background: var(--color-bg);
+    color: var(--color-text);
+}
+
+.amap-field input:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 1px;
+}
+
+.amap-field__hint {
+    font-size: 0.8rem;
+    color: var(--color-text-muted);
+}
+
+.amap-field__error {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--color-error);
+}
+
+.amap-field.has-error input {
+    border-color: var(--color-error);
+    background: var(--color-error-bg);
+}
+
+.amap-field.has-error .amap-field__hint {
     display: none;
 }
 
@@ -1003,4 +1686,99 @@ ol {
 
 li {
     margin-bottom: var(--space-1);
+}
+
+/* Toujours en dernier dans ce fichier : à spécificité égale, une règle plus tardive dans la
+   feuille l'emporte sur une règle plus précoce, indépendamment de la media query qui l'entoure —
+   un bloc responsive placé plus haut (avant la règle "normale" qu'il doit ajuster) perd contre
+   elle une fois sur l'écran étroit visé. Déjà rencontré avec .amap-field-row : l'ancien bloc
+   @media, placé avant la définition de .amap-field-row plus bas dans le fichier, ne prenait pas
+   le dessus sur elle en mobile. */
+@media (max-width: 600px) {
+    header {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    /* Espace membre : bandeau de contexte, plus long depuis l'ajout du jour/horaire/lieu et de
+       la prochaine distribution (étape 1) — passe sur plusieurs lignes plus souvent qu'avant. */
+    .amap-next-distribution {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    /* Espace membre : cartes de contrat — le badge de statut passe sous le nom du producteur
+       plutôt que de se retrouver compressé à côté sur un écran étroit. */
+    .amap-contract-card__heading {
+        flex-direction: column;
+    }
+
+    /* Espace membre : boutons d'action (déclarer un congé, souscrire) en pleine largeur pour des
+       cibles tactiles confortables au doigt. */
+    .amap-actions .button-primary,
+    .amap-actions .button-secondary {
+        display: block;
+        width: 100%;
+        text-align: center;
+    }
+
+    /* Espace producteur : en-tête d'une livraison (libellé + badge panier + bouton d'export) —
+       empilé plutôt que compressé sur une largeur trop étroite pour les trois à la fois. */
+    .amap-delivery-contract-header {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    /* Espace producteur : bouton d'export CSV d'une livraison — même traitement pleine largeur
+       que .amap-actions ci-dessus, alors qu'il ne vit pas dans ce conteneur. */
+    .amap-delivery-contract-header .button-secondary {
+        display: block;
+        width: 100%;
+        text-align: center;
+    }
+
+    /* Espace adhérent : congés déclarés — le bouton "Déclarer un congé" (dans .amap-leave-tracker
+       depuis cette étape, plus dans .amap-actions) passe pleine largeur sur sa propre ligne. */
+    .amap-leave-tracker .button-secondary {
+        display: block;
+        width: 100%;
+        text-align: center;
+    }
+
+    /* Espace adhérent : "Contrats disponibles" — nom/détails puis bouton en pleine largeur
+       plutôt que compressés côte à côte sur un écran étroit. */
+    .amap-available-item {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .amap-available-item .button-primary {
+        text-align: center;
+    }
+
+    .amap-nav-item {
+        padding: var(--space-3) var(--space-3);
+    }
+
+    /* Formulaire "Déclarer un congé" : cases de date plus étroites, boutons empilés pleine
+       largeur (le bouton principal d'abord, "Annuler" en dessous). */
+    .amap-date-options {
+        grid-template-columns: repeat(auto-fill, minmax(5.5rem, 1fr));
+    }
+
+    .amap-form-actions {
+        flex-direction: column-reverse;
+    }
+
+    .amap-form-actions .button-primary,
+    .amap-form-actions .button-secondary {
+        width: 100%;
+        text-align: center;
+    }
+
+    /* "Modifier mes informations" : Nom/Prénom passent l'un sous l'autre plutôt que compressés
+       côte à côte. */
+    .amap-field-row {
+        grid-template-columns: 1fr;
+    }
 }

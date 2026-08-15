@@ -19,13 +19,15 @@ $next_distribution     = $member_group ? amap_get_group_next_distribution( $memb
         <p class="amap-context-row">
             <svg class="icon" aria-hidden="true"><use href="#amap-icon-pin"></use></svg>
             <?php
+            // Le lien Google Maps est sur le lieu de distribution lui-même (pas une adresse
+            // affichée en plus) ; pas d'horaire ici, déjà donné juste en dessous par la ligne
+            // "Prochaine distribution".
             printf(
-                /* translators: 1: nom du groupe (point de retrait). 2: jour de la semaine. 3: horaire. 4: lieu de livraison. */
-                esc_html__( 'Votre point de retrait : %1$s — %2$s, %3$s (%4$s)', 'association-manager' ),
+                /* translators: 1: URL Google Maps de l'adresse. 2: nom du groupe (lieu de distribution). 3: jour de la semaine. Balises <a>/<strong> à conserver. */
+                __( 'Votre point de retrait : <a href="%1$s" target="_blank" rel="noopener noreferrer"><strong>%2$s</strong></a> — %3$s', 'association-manager' ),
+                esc_url( amap_get_google_maps_url( $member_group->delivery_place ) ),
                 esc_html( $member_group->name ),
-                esc_html( $weekday_labels[ (int) $member_group->weekday ] ?? '' ),
-                esc_html( amap_format_time( $member_group->start_time ) . '–' . amap_format_time( $member_group->end_time ) ),
-                esc_html( $member_group->delivery_place )
+                esc_html( $weekday_labels[ (int) $member_group->weekday ] ?? '' )
             );
             ?>
         </p>
@@ -63,12 +65,13 @@ $next_distribution     = $member_group ? amap_get_group_next_distribution( $memb
                         ?>
                     <?php else : ?>
                         <?php
+                        // Pas de lieu ici : déjà donné (en lien Google Maps) sur la ligne "Votre
+                        // point de retrait" juste au-dessus.
                         printf(
-                            /* translators: 1: date. 2: horaire. 3: lieu de livraison. Balise <strong> à conserver. */
-                            __( 'Prochaine distribution : <strong>%1$s</strong>, %2$s (%3$s)', 'association-manager' ),
+                            /* translators: 1: date. 2: horaire. Balise <strong> à conserver. */
+                            __( 'Prochaine distribution : <strong>%1$s</strong>, %2$s', 'association-manager' ),
                             esc_html( date_i18n( 'j F Y', strtotime( $next_distribution['date'] ) ) ),
-                            esc_html( amap_format_time( $next_distribution['start_time'] ) . '–' . amap_format_time( $next_distribution['end_time'] ) ),
-                            esc_html( $next_distribution['place'] )
+                            esc_html( amap_format_time( $next_distribution['start_time'] ) . '–' . amap_format_time( $next_distribution['end_time'] ) )
                         );
                         ?>
                     <?php endif; ?>
@@ -101,6 +104,7 @@ $next_distribution     = $member_group ? amap_get_group_next_distribution( $memb
     </div>
 <?php endif; ?>
 
+<div class="amap-stack">
 <h2><?php esc_html_e( 'Mes contrats', 'association-manager' ); ?></h2>
 
 <?php if ( empty( $subscriptions ) ) : ?>
@@ -166,7 +170,9 @@ $next_distribution     = $member_group ? amap_get_group_next_distribution( $memb
         </details>
     <?php endif; ?>
 <?php endif; ?>
+</div>
 
+<div class="amap-stack">
 <h2><?php esc_html_e( 'Contrats disponibles', 'association-manager' ); ?></h2>
 
 <?php if ( ! $member_group ) : ?>
@@ -177,25 +183,26 @@ $next_distribution     = $member_group ? amap_get_group_next_distribution( $memb
     <ul class="amap-available-list">
         <?php foreach ( $available_contracts as $item ) : ?>
             <li class="amap-available-item">
-                <div class="amap-available-item__name"><?php echo esc_html( $item['contract']->label ); ?></div>
-                <div class="amap-available-item__meta">
-                    <?php
-                    printf(
-                        /* translators: 1: nom du producteur. 2: type de contrat. 3: date de début. 4: date de fin. */
-                        esc_html__( '%1$s · %2$s · %3$s – %4$s', 'association-manager' ),
-                        esc_html( $item['producer'] ? $item['producer']->display_name : '—' ),
-                        esc_html( $contract_types[ $item['contract']->contract_type ] ?? '—' ),
-                        esc_html( $item['contract']->start_date ),
-                        esc_html( $item['contract']->end_date )
-                    );
-                    ?>
+                <div>
+                    <div class="amap-available-item__name"><?php echo esc_html( $item['contract']->label ); ?></div>
+                    <div class="amap-available-item__meta">
+                        <?php
+                        printf(
+                            /* translators: 1: nom du producteur. 2: type de contrat. 3: date de début. 4: date de fin. */
+                            esc_html__( '%1$s · %2$s · %3$s – %4$s', 'association-manager' ),
+                            esc_html( $item['producer'] ? $item['producer']->display_name : '—' ),
+                            esc_html( $contract_types[ $item['contract']->contract_type ] ?? '—' ),
+                            esc_html( $item['contract']->start_date ),
+                            esc_html( $item['contract']->end_date )
+                        );
+                        ?>
+                    </div>
                 </div>
-                <p class="amap-actions">
-                    <a class="button-secondary" href="<?php echo esc_url( amap_get_member_subscribe_url( $item['contract']->id ) ); ?>">
-                        <?php esc_html_e( 'Souscrire', 'association-manager' ); ?>
-                    </a>
-                </p>
+                <a class="button-primary" href="<?php echo esc_url( amap_get_member_subscribe_url( $item['contract']->id ) ); ?>">
+                    <?php esc_html_e( 'Souscrire', 'association-manager' ); ?>
+                </a>
             </li>
         <?php endforeach; ?>
     </ul>
 <?php endif; ?>
+</div>

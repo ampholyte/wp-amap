@@ -163,6 +163,32 @@ function amap_is_valid_time( $time ) {
     return (bool) preg_match( '/^([01]\d|2[0-3]):[0-5]\d$/', $time );
 }
 
+/**
+ * URL de recherche Google Maps pour une adresse de livraison (wp_amap_groups.delivery_place) —
+ * format "search" officiel d'URL Google Maps, sans clé API. Utilisée par le lien cliquable du
+ * point de retrait dans l'espace membre.
+ */
+function amap_get_google_maps_url( $address ) {
+    return 'https://www.google.com/maps/search/?api=1&query=' . rawurlencode( $address );
+}
+
+/**
+ * "3 sept.", "27 août" : jour + mois tronqué aux 4 premières lettres, avec un "." seulement sur
+ * les mois réellement raccourcis (pas "mai"/"juin"/"mars"/"août", déjà ≤ 4 lettres) — évite les
+ * cases de date à largeur/hauteur inégale selon la longueur du mois (espace membre : "Déclarer un
+ * congé", "Souscrire à un contrat").
+ */
+function amap_get_short_date_label( $date ) {
+    $timestamp   = strtotime( $date );
+    $month_full  = date_i18n( 'F', $timestamp );
+    $month_short = mb_substr( $month_full, 0, 4 );
+    if ( mb_strlen( $month_full ) > 4 ) {
+        $month_short .= '.';
+    }
+
+    return date_i18n( 'j', $timestamp ) . ' ' . $month_short;
+}
+
 function amap_store_group_form_data( array $data ) {
     set_transient( 'amap_group_form_' . get_current_user_id(), $data, 60 );
 }

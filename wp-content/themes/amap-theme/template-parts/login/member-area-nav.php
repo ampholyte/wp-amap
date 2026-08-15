@@ -1,8 +1,9 @@
 <?php
 /**
  * Barre de navigation de l'espace membre : un onglet par casquette portée, plus "Mes infos"
- * (toujours) et "Déconnexion". "Espace bureau" n'est pas un onglet de contenu : lien direct vers
- * wp-admin, seul espace de gestion du bureau (voir docs/plan-contrats-distributions.md).
+ * (toujours). "Déconnexion" est dans la barre d'identité au-dessus (header-app.php), commune à
+ * tous les écrans de l'espace membre. "Espace bureau" n'est pas un onglet de contenu : lien direct
+ * vers wp-admin, seul espace de gestion du bureau (voir docs/plan-contrats-distributions.md).
  */
 ?>
 <nav class="amap-nav">
@@ -23,8 +24,5 @@
     <?php endif; ?>
     <a class="amap-nav-item<?php echo ( 'profile' === $args['active_tab'] ) ? ' is-active' : ''; ?>" href="<?php echo esc_url( amap_get_member_area_tab_url( 'profile' ) ); ?>">
         <?php esc_html_e( 'Mes infos', 'association-manager' ); ?>
-    </a>
-    <a class="amap-nav-item amap-nav-item--logout" href="<?php echo esc_url( wp_logout_url( amap_get_member_area_url() ) ); ?>">
-        <?php esc_html_e( 'Déconnexion', 'association-manager' ); ?>
     </a>
 </nav>

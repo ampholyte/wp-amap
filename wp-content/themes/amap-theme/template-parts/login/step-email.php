@@ -16,11 +16,11 @@
 
 <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
     <input type="hidden" name="action" value="amap_login_email_step">
-    <p>
+    <div class="amap-field">
         <label for="amap_email"><?php esc_html_e( 'Adresse email', 'association-manager' ); ?></label>
         <input type="email" id="amap_email" name="email" required>
-    </p>
-    <p><button type="submit"><?php esc_html_e( 'Continuer', 'association-manager' ); ?></button></p>
+    </div>
+    <button type="submit" class="button-primary button-block"><?php esc_html_e( 'Continuer', 'association-manager' ); ?></button>
 </form>
 
 <?php if ( AMAP_DEMO_MODE ) : ?>

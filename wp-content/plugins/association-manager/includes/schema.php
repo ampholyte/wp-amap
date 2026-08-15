@@ -7,12 +7,35 @@ if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
-function amap_activate() {
-    // update_option() (et non plus add_option()) : la version doit refléter le schéma du
-    // code à chaque activation. dbDelta() est idempotent, le rappeler ne pose pas de problème.
-    update_option( 'amap_db_version', '3.21' );
+// Version du schéma attendue par le code actuel — comparée à l'option 'amap_db_version' à chaque
+// chargement (amap_maybe_upgrade_db()) et à l'activation (amap_activate()), pour ne définir cette
+// chaîne qu'à un seul endroit.
+define( 'AMAP_DB_VERSION', '3.21' );
+
+add_action( 'plugins_loaded', 'amap_maybe_upgrade_db' );
+
+/**
+ * Ajouter une colonne à une table existante dans amap_create_tables() (ex. is_paid/paid_at sur
+ * wp_amap_subscriptions) ne suffit pas à la faire apparaître sur une installation déjà active :
+ * dbDelta() ne s'exécute qu'à l'activation du plugin (register_activation_hook), jamais tout seul
+ * quand le code change. Sans ce filet, une base déjà en place resterait silencieusement en retard
+ * sur le schéma du code jusqu'à une désactivation/réactivation manuelle du plugin — découvert ici
+ * via une colonne is_paid absente en base alors que présente dans amap_create_tables().
+ * dbDelta() étant idempotent, le rappeler à chaque changement de version ne casse rien pour les
+ * installations déjà à jour.
+ */
+function amap_maybe_upgrade_db() {
+    if ( get_option( 'amap_db_version' ) === AMAP_DB_VERSION ) {
+        return;
+    }
+
     amap_create_tables();
     amap_drop_obsolete_tables();
+    update_option( 'amap_db_version', AMAP_DB_VERSION );
+}
+
+function amap_activate() {
+    amap_maybe_upgrade_db();
 
     // add_role() ne fait rien si le rôle existe déjà : sûr à rappeler à chaque activation,
     // comme dbDelta() pour les tables. Les trois casquettes sont cumulables nativement par

@@ -12,7 +12,7 @@
 <div class="amap-notice amap-notice--success"><?php echo esc_html( $args['message'] ); ?></div>
 
 <?php if ( $args['show_login_link'] ) : ?>
-    <p><a class="button-primary" href="<?php echo esc_url( amap_get_member_area_url() ); ?>"><?php esc_html_e( 'Se connecter', 'association-manager' ); ?></a></p>
+    <a class="button-primary button-block" href="<?php echo esc_url( amap_get_member_area_url() ); ?>"><?php esc_html_e( 'Se connecter', 'association-manager' ); ?></a>
 <?php endif; ?>
 
 <?php if ( $args['demo_email'] ) : ?>
@@ -30,7 +30,7 @@
         <iframe
             title="<?php esc_attr_e( "Aperçu de l'email", 'association-manager' ); ?>"
             srcdoc="<?php echo esc_attr( $args['demo_email']['body'] ); ?>"
-            style="width:100%; max-width:480px; height:420px; border:1px solid var(--color-border); border-radius:var(--radius); background:#fff;"
+            class="amap-demo-email-preview"
         ></iframe>
         <?php
         /**
@@ -46,11 +46,9 @@
         }
         ?>
         <?php if ( $demo_cta_url ) : ?>
-            <p>
-                <a class="button-primary" href="<?php echo esc_url( $demo_cta_url ); ?>">
-                    <?php esc_html_e( "Suivre le lien (le bouton dans l'aperçu ci-dessus ne fonctionne pas sur Playground)", 'association-manager' ); ?>
-                </a>
-            </p>
+            <a class="button-primary button-block" href="<?php echo esc_url( $demo_cta_url ); ?>">
+                <?php esc_html_e( "Suivre le lien (le bouton dans l'aperçu ci-dessus ne fonctionne pas sur Playground)", 'association-manager' ); ?>
+            </a>
         <?php endif; ?>
     </div>
 <?php endif; ?>
