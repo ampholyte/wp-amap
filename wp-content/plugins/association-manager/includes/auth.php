@@ -148,6 +148,224 @@ function amap_get_member_leave_url( $subscription_id ) {
 }
 
 /**
+ * URL de l'onglet "Espace bureau" (member-area-board.php). Pas de paramètre de section :
+ * "Utilisateurs" est la section par défaut tant qu'aucune n'est précisée.
+ */
+function amap_get_board_users_url() {
+    return amap_get_member_area_tab_url( 'board' );
+}
+
+/**
+ * URL du formulaire d'ajout d'un utilisateur AMAP (member-area-board-user-form.php), depuis le
+ * bouton "+ Ajouter un utilisateur" de la section "Utilisateurs".
+ */
+function amap_get_board_user_add_url() {
+    return add_query_arg( 'amap_board_action', 'add_user', amap_get_board_users_url() );
+}
+
+/**
+ * URL du formulaire de modification d'un utilisateur AMAP donné, depuis le lien "Modifier" de sa
+ * ligne dans la liste "Utilisateurs".
+ */
+function amap_get_board_user_edit_url( $user_id ) {
+    return add_query_arg(
+        array(
+            'amap_board_action' => 'edit_user',
+            'id'                => $user_id,
+        ),
+        amap_get_board_users_url()
+    );
+}
+
+/**
+ * URL de la page de confirmation de suppression d'un utilisateur AMAP donné, depuis le lien
+ * "Supprimer" de sa ligne dans la liste "Utilisateurs" — page dédiée plutôt qu'un simple lien
+ * confirm() JS, voir project_espace_bureau_design_consolide.
+ */
+function amap_get_board_user_delete_url( $user_id ) {
+    return add_query_arg(
+        array(
+            'amap_board_action' => 'delete_user',
+            'id'                => $user_id,
+        ),
+        amap_get_board_users_url()
+    );
+}
+
+/**
+ * URL de la fiche producteur en lecture seule (member-area-board-producer-profile.php), depuis un
+ * lien "Voir la fiche" sur une ligne producteur — section "Utilisateurs" ou "Producteurs
+ * rattachés" d'une fiche groupe. Rattachée à la section "Utilisateurs" (même capability
+ * amap_manage_users que wp-admin, où cette fiche vivait dans la même page que la liste), même si
+ * on peut y arriver depuis Groupes.
+ */
+function amap_get_board_producer_profile_url( $producer_user_id ) {
+    return add_query_arg(
+        array(
+            'amap_board_action' => 'view_producer_profile',
+            'id'                => $producer_user_id,
+        ),
+        amap_get_board_users_url()
+    );
+}
+
+/**
+ * URL de la section "Souscriptions" de l'espace bureau (member-area-board-subscriptions.php).
+ */
+function amap_get_board_subscriptions_url() {
+    return add_query_arg( 'amap_board_section', 'subscriptions', amap_get_member_area_tab_url( 'board' ) );
+}
+
+/**
+ * URL du formulaire d'ajout d'une souscription, depuis le bouton "+ Ajouter une souscription" de
+ * la section "Souscriptions". $member_user_id (optionnel) pré-remplit le champ Adhérent — utilisé
+ * par le raccourci "Ajouter une souscription" sur la ligne d'un adhérent (section "Utilisateurs").
+ */
+function amap_get_board_subscription_add_url( $member_user_id = 0 ) {
+    $url = add_query_arg( 'amap_board_action', 'add_subscription', amap_get_board_subscriptions_url() );
+
+    return $member_user_id ? add_query_arg( 'member_user_id', $member_user_id, $url ) : $url;
+}
+
+/**
+ * URL du formulaire de modification d'une souscription donnée.
+ */
+function amap_get_board_subscription_edit_url( $subscription_id ) {
+    return add_query_arg(
+        array(
+            'amap_board_action' => 'edit_subscription',
+            'id'                => $subscription_id,
+        ),
+        amap_get_board_subscriptions_url()
+    );
+}
+
+/**
+ * URL de la page de confirmation de suppression d'une souscription donnée.
+ */
+function amap_get_board_subscription_delete_url( $subscription_id ) {
+    return add_query_arg(
+        array(
+            'amap_board_action' => 'delete_subscription',
+            'id'                => $subscription_id,
+        ),
+        amap_get_board_subscriptions_url()
+    );
+}
+
+/**
+ * URL de la section "Groupes" de l'espace bureau (member-area-board-groups.php).
+ */
+function amap_get_board_groups_url() {
+    return add_query_arg( 'amap_board_section', 'groups', amap_get_member_area_tab_url( 'board' ) );
+}
+
+/**
+ * URL du formulaire d'ajout d'un groupe, depuis le bouton "+ Ajouter un groupe".
+ */
+function amap_get_board_group_add_url() {
+    return add_query_arg( 'amap_board_action', 'add_group', amap_get_board_groups_url() );
+}
+
+/**
+ * URL de la fiche d'un groupe (infos + producteurs rattachés + exceptions + bénévoles), depuis le
+ * lien "Voir le groupe" de sa ligne dans la liste "Groupes".
+ */
+function amap_get_board_group_view_url( $group_id ) {
+    return add_query_arg(
+        array(
+            'amap_board_action' => 'view_group',
+            'id'                => $group_id,
+        ),
+        amap_get_board_groups_url()
+    );
+}
+
+/**
+ * URL du formulaire de modification des infos d'un groupe donné (nom/lieu/jour/horaire/email),
+ * depuis le bouton "Modifier les infos" de sa fiche — page dédiée séparée de la fiche elle-même,
+ * contrairement à wp-admin où les deux vivent sur la même page (bascule en JS).
+ */
+function amap_get_board_group_edit_url( $group_id ) {
+    return add_query_arg(
+        array(
+            'amap_board_action' => 'edit_group',
+            'id'                => $group_id,
+        ),
+        amap_get_board_groups_url()
+    );
+}
+
+/**
+ * URL de la page de confirmation de suppression d'un groupe donné.
+ */
+function amap_get_board_group_delete_url( $group_id ) {
+    return add_query_arg(
+        array(
+            'amap_board_action' => 'delete_group',
+            'id'                => $group_id,
+        ),
+        amap_get_board_groups_url()
+    );
+}
+
+/**
+ * URL de la section "Contrats" de l'espace bureau (member-area-board-contracts.php).
+ */
+function amap_get_board_contracts_url() {
+    return add_query_arg( 'amap_board_section', 'contracts', amap_get_member_area_tab_url( 'board' ) );
+}
+
+/**
+ * URL du formulaire d'ajout d'un contrat, depuis le bouton "+ Ajouter un contrat".
+ */
+function amap_get_board_contract_add_url() {
+    return add_query_arg( 'amap_board_action', 'add_contract', amap_get_board_contracts_url() );
+}
+
+/**
+ * URL de la fiche d'un contrat (infos + tailles de panier ou produits/familles de remise/dates de
+ * livraison selon son type), depuis le lien "Voir" de sa ligne dans la liste "Contrats".
+ */
+function amap_get_board_contract_view_url( $contract_id ) {
+    return add_query_arg(
+        array(
+            'amap_board_action' => 'view_contract',
+            'id'                => $contract_id,
+        ),
+        amap_get_board_contracts_url()
+    );
+}
+
+/**
+ * URL du formulaire de modification des infos d'un contrat donné (libellé/producteur/type/
+ * période/fréquence/congés max/actif), depuis le bouton "Modifier les infos" de sa fiche — page
+ * dédiée séparée de la fiche elle-même, même principe que amap_get_board_group_edit_url().
+ */
+function amap_get_board_contract_edit_url( $contract_id ) {
+    return add_query_arg(
+        array(
+            'amap_board_action' => 'edit_contract',
+            'id'                => $contract_id,
+        ),
+        amap_get_board_contracts_url()
+    );
+}
+
+/**
+ * URL de la page de confirmation de suppression d'un contrat donné.
+ */
+function amap_get_board_contract_delete_url( $contract_id ) {
+    return add_query_arg(
+        array(
+            'amap_board_action' => 'delete_contract',
+            'id'                => $contract_id,
+        ),
+        amap_get_board_contracts_url()
+    );
+}
+
+/**
  * URL de l'export CSV du pointage des adhérents d'un contrat basket_recurring sur un groupe
  * donné (bouton "Détail" de la carte "Produits à livrer", onglet "Espace producteur", étape
  * 12.4) — amap_handle_export_contract_roster() envoie directement le fichier, jamais de page.
@@ -267,15 +485,19 @@ function amap_handle_send_magic_link() {
 
     check_admin_referer( 'amap_send_magic_link_' . $id );
 
+    // Même principe que amap_handle_delete_user() : "Envoyer un lien de connexion" est un lien,
+    // pas un formulaire posté, la page de retour arrive donc en paramètre d'URL.
+    $redirect_url = isset( $_GET['redirect_to'] ) ? esc_url_raw( wp_unslash( $_GET['redirect_to'] ) ) : admin_url( 'admin.php?page=amap-users' );
+
     $result = amap_send_magic_link( $user );
 
     if ( is_wp_error( $result ) ) {
         set_transient( 'amap_magic_link_error_' . get_current_user_id(), $result->get_error_message(), 60 );
-        wp_safe_redirect( admin_url( 'admin.php?page=amap-users&amap_notice=magic_link_failed' ) );
+        wp_safe_redirect( add_query_arg( 'amap_notice', 'magic_link_failed', $redirect_url ) );
         exit;
     }
 
-    wp_safe_redirect( admin_url( 'admin.php?page=amap-users&amap_notice=magic_link_sent' ) );
+    wp_safe_redirect( add_query_arg( 'amap_notice', 'magic_link_sent', $redirect_url ) );
     exit;
 }
 

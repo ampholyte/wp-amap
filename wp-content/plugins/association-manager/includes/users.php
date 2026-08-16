@@ -46,370 +46,6 @@ function amap_get_amap_user( $user_id ) {
     return $user;
 }
 
-function amap_render_users_page() {
-    if ( ! current_user_can( 'amap_manage_users' ) ) {
-        return;
-    }
-
-    // Fiche producteur en lecture seule (?action=view_producer&id=X) : remplace entièrement la
-    // liste/formulaire habituels de cette page, plutôt qu'une nouvelle page CRUD séparée — voir
-    // amap_render_producer_profile_page().
-    if ( isset( $_GET['action'], $_GET['id'] ) && 'view_producer' === $_GET['action'] ) {
-        amap_render_producer_profile_page( absint( $_GET['id'] ) );
-        return;
-    }
-
-    $notice = isset( $_GET['amap_notice'] ) ? sanitize_key( wp_unslash( $_GET['amap_notice'] ) ) : '';
-
-    $magic_link_error_key = 'amap_magic_link_error_' . get_current_user_id();
-    $magic_link_error     = get_transient( $magic_link_error_key );
-    if ( false !== $magic_link_error ) {
-        delete_transient( $magic_link_error_key );
-    }
-
-    // Mode édition : ?action=edit&id=X sur cette même page. Si l'ID ne correspond à aucun
-    // utilisateur AMAP, on retombe silencieusement sur le formulaire d'ajout.
-    $editing_id = 0;
-    if ( isset( $_GET['action'], $_GET['id'] ) && 'edit' === $_GET['action'] ) {
-        $editing_id = absint( $_GET['id'] );
-    }
-    $editing_user = $editing_id ? amap_get_amap_user( $editing_id ) : null;
-    // Un compte administrateur ne peut pas être modifié depuis cette page (voir
-    // amap_handle_update_user()) : on retombe sur le formulaire d'ajout plutôt que d'afficher un
-    // formulaire d'édition dont la soumission serait de toute façon refusée côté serveur.
-    if ( $editing_user && in_array( 'administrator', $editing_user->roles, true ) ) {
-        $editing_user = null;
-    }
-    if ( $editing_id && ! $editing_user ) {
-        $editing_id = 0;
-    }
-
-    // Récupère les valeurs saisies avant la redirection en cas d'erreur (voir
-    // amap_store_user_form_data()), pour ne pas faire ressaisir tout le formulaire.
-    $transient_key = 'amap_user_form_' . get_current_user_id();
-    $form_data     = get_transient( $transient_key );
-    if ( false !== $form_data ) {
-        delete_transient( $transient_key );
-    } elseif ( $editing_user ) {
-        // Pas d'erreur en attente : on préremplit avec les valeurs actuelles de l'utilisateur.
-        $contact      = amap_get_user_contact( $editing_user->ID );
-        $member_group = amap_get_member_group( $editing_user->ID );
-        $form_data    = array(
-            'last_name'  => $editing_user->last_name,
-            'first_name' => $editing_user->first_name,
-            'email'      => $editing_user->user_email,
-            'phone'      => $contact->phone ?? '',
-            'address'    => $contact->address ?? '',
-            'roles'      => array_intersect( $editing_user->roles, array_keys( amap_get_available_roles() ) ),
-            'group_id'   => $member_group ? (string) $member_group->id : '',
-        );
-    } else {
-        $form_data = array();
-    }
-    $selected_roles    = $form_data['roles'] ?? array();
-    $selected_group_id = $form_data['group_id'] ?? '';
-    $groups            = amap_get_groups();
-
-    $users_list_table = new Amap_Users_List_Table();
-    $users_list_table->prepare_items();
-    ?>
-    <div class="wrap">
-        <h1><?php esc_html_e( 'Utilisateurs AMAP', 'association-manager' ); ?></h1>
-
-        <?php if ( 'reused' === $notice ) : ?>
-            <div class="notice notice-success"><p><?php esc_html_e( 'Compte WordPress existant réutilisé : rôle(s) et coordonnées mis à jour.', 'association-manager' ); ?></p></div>
-        <?php elseif ( 'invalid' === $notice ) : ?>
-            <div class="notice notice-error"><p><?php esc_html_e( 'Champs obligatoires manquants ou aucun rôle sélectionné.', 'association-manager' ); ?></p></div>
-        <?php elseif ( 'invalid_phone' === $notice ) : ?>
-            <div class="notice notice-error"><p><?php esc_html_e( 'Le téléphone doit être au format 0X XX XX XX XX ou +33 X XX XX XX XX.', 'association-manager' ); ?></p></div>
-        <?php elseif ( 'account_error' === $notice ) : ?>
-            <div class="notice notice-error"><p><?php esc_html_e( 'Impossible de créer le compte WordPress associé à cet email.', 'association-manager' ); ?></p></div>
-        <?php elseif ( 'contact_error' === $notice ) : ?>
-            <div class="notice notice-error"><p><?php esc_html_e( "Le compte a été créé ou mis à jour mais l'enregistrement du téléphone/adresse a échoué.", 'association-manager' ); ?></p></div>
-        <?php elseif ( 'email_taken' === $notice ) : ?>
-            <div class="notice notice-error"><p><?php esc_html_e( 'Cet email est déjà utilisé par un autre compte WordPress.', 'association-manager' ); ?></p></div>
-        <?php elseif ( 'magic_link_sent' === $notice ) : ?>
-            <div class="notice notice-success"><p><?php esc_html_e( 'Lien de connexion envoyé.', 'association-manager' ); ?></p></div>
-        <?php elseif ( 'magic_link_failed' === $notice ) : ?>
-            <div class="notice notice-error">
-                <p>
-                    <?php esc_html_e( "Échec de l'envoi du lien de connexion.", 'association-manager' ); ?>
-                    <?php if ( $magic_link_error ) : ?>
-                        <?php echo esc_html( $magic_link_error ); ?>
-                    <?php endif; ?>
-                </p>
-            </div>
-        <?php endif; ?>
-
-        <?php if ( ! $editing_id ) : ?>
-            <p>
-                <button type="button" class="button button-primary" id="amap-user-add-toggle"><?php esc_html_e( '+ Ajouter un utilisateur', 'association-manager' ); ?></button>
-            </p>
-        <?php endif; ?>
-        <div id="amap-user-form-wrapper"<?php echo $editing_id ? '' : ' hidden'; ?>>
-        <h2>
-            <?php echo $editing_id
-                ? esc_html__( 'Modifier un utilisateur', 'association-manager' )
-                : esc_html__( 'Ajouter un utilisateur', 'association-manager' ); ?>
-        </h2>
-        <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" id="amap-user-form">
-            <?php if ( $editing_id ) : ?>
-                <?php wp_nonce_field( 'amap_edit_user_' . $editing_id ); ?>
-                <input type="hidden" name="action" value="amap_update_user">
-                <input type="hidden" name="id" value="<?php echo esc_attr( $editing_id ); ?>">
-            <?php else : ?>
-                <?php wp_nonce_field( 'amap_add_user' ); ?>
-                <input type="hidden" name="action" value="amap_add_user">
-            <?php endif; ?>
-            <table class="form-table">
-                <tr>
-                    <th><label for="amap-user-last-name"><?php esc_html_e( 'Nom', 'association-manager' ); ?></label></th>
-                    <td><input type="text" id="amap-user-last-name" name="last_name" value="<?php echo esc_attr( $form_data['last_name'] ?? '' ); ?>" required></td>
-                </tr>
-                <tr>
-                    <th><label for="amap-user-first-name"><?php esc_html_e( 'Prénom', 'association-manager' ); ?></label></th>
-                    <td><input type="text" id="amap-user-first-name" name="first_name" value="<?php echo esc_attr( $form_data['first_name'] ?? '' ); ?>" required></td>
-                </tr>
-                <tr>
-                    <th><label for="amap-user-email"><?php esc_html_e( 'Email', 'association-manager' ); ?></label></th>
-                    <td>
-                        <input type="email" id="amap-user-email" name="email" value="<?php echo esc_attr( $form_data['email'] ?? '' ); ?>" required>
-                        <?php if ( ! $editing_id ) : ?>
-                            <p class="description">
-                                <?php esc_html_e( "Si un compte WordPress existe déjà avec cet email, il est réutilisé (identité inchangée) et les rôles cochés ci-dessous lui sont simplement ajoutés — utile pour faire cumuler une nouvelle casquette à un utilisateur existant.", 'association-manager' ); ?>
-                            </p>
-                        <?php endif; ?>
-                    </td>
-                </tr>
-                <tr>
-                    <th><label for="amap-user-phone"><?php esc_html_e( 'Téléphone', 'association-manager' ); ?></label></th>
-                    <td>
-                        <input type="text" inputmode="tel" name="phone" id="amap-user-phone" value="<?php echo esc_attr( $form_data['phone'] ?? '' ); ?>" pattern="(0[1-9]|\+33[1-9])([\s.-]?\d{2}){4}" placeholder="0X XX XX XX XX" required>
-                        <span id="amap-user-phone-error" style="color:#d63638;" hidden><?php esc_html_e( 'Format attendu : 0X XX XX XX XX ou +33 X XX XX XX XX.', 'association-manager' ); ?></span>
-                    </td>
-                </tr>
-                <tr>
-                    <th><label for="amap-user-address"><?php esc_html_e( 'Adresse', 'association-manager' ); ?></label></th>
-                    <td><input type="text" id="amap-user-address" name="address" value="<?php echo esc_attr( $form_data['address'] ?? '' ); ?>"></td>
-                </tr>
-                <tr>
-                    <th><?php esc_html_e( 'Rôles', 'association-manager' ); ?></th>
-                    <td>
-                        <?php foreach ( amap_get_available_roles() as $role_slug => $role_label ) : ?>
-                            <label>
-                                <input type="checkbox" id="amap-user-role-<?php echo esc_attr( $role_slug ); ?>" name="roles[]" value="<?php echo esc_attr( $role_slug ); ?>" <?php checked( in_array( $role_slug, $selected_roles, true ) ); ?>>
-                                <?php echo esc_html( $role_label ); ?>
-                            </label><br>
-                        <?php endforeach; ?>
-                    </td>
-                </tr>
-                <tr id="amap-user-group-row"<?php echo in_array( 'amap_member', $selected_roles, true ) ? '' : ' hidden'; ?>>
-                    <th><label for="amap-user-group"><?php esc_html_e( 'Groupe (point de retrait)', 'association-manager' ); ?></label></th>
-                    <td>
-                        <select id="amap-user-group" name="group_id">
-                            <option value=""><?php esc_html_e( '— aucun pour l\'instant —', 'association-manager' ); ?></option>
-                            <?php foreach ( $groups as $group ) : ?>
-                                <option value="<?php echo esc_attr( $group->id ); ?>" <?php selected( (string) $group->id, $selected_group_id ); ?>>
-                                    <?php echo esc_html( $group->name ); ?>
-                                </option>
-                            <?php endforeach; ?>
-                        </select>
-                        <p class="description"><?php esc_html_e( "Point de retrait de l'adhérent : détermine les contrats qu'il pourra voir et souscrire.", 'association-manager' ); ?></p>
-                    </td>
-                </tr>
-            </table>
-            <p>
-                <?php submit_button( $editing_id ? __( 'Enregistrer', 'association-manager' ) : __( 'Ajouter', 'association-manager' ), 'primary', 'submit', false ); ?>
-                <?php if ( $editing_id ) : ?>
-                    <a href="<?php echo esc_url( admin_url( 'admin.php?page=amap-users' ) ); ?>" class="button">
-                        <?php esc_html_e( 'Annuler', 'association-manager' ); ?>
-                    </a>
-                <?php else : ?>
-                    <button type="button" class="button" id="amap-user-add-cancel"><?php esc_html_e( 'Annuler', 'association-manager' ); ?></button>
-                <?php endif; ?>
-            </p>
-        </form>
-        </div>
-        <script>
-        ( function () {
-            var toggle  = document.getElementById( 'amap-user-add-toggle' );
-            var wrapper = document.getElementById( 'amap-user-form-wrapper' );
-            var cancel  = document.getElementById( 'amap-user-add-cancel' );
-            if ( toggle ) {
-                toggle.addEventListener( 'click', function () {
-                    wrapper.hidden = false;
-                    toggle.hidden  = true;
-                } );
-            }
-            if ( cancel ) {
-                cancel.addEventListener( 'click', function () {
-                    wrapper.hidden = true;
-                    toggle.hidden  = false;
-                } );
-            }
-        } )();
-        </script>
-        <script>
-        ( function () {
-            var memberCheckbox = document.getElementById( 'amap-user-role-amap_member' );
-            var groupRow        = document.getElementById( 'amap-user-group-row' );
-            if ( memberCheckbox && groupRow ) {
-                memberCheckbox.addEventListener( 'change', function () {
-                    groupRow.hidden = ! memberCheckbox.checked;
-                } );
-            }
-        } )();
-        </script>
-        <script>
-        ( function () {
-            var form        = document.getElementById( 'amap-user-form' );
-            var phoneField  = document.getElementById( 'amap-user-phone' );
-            var phoneError  = document.getElementById( 'amap-user-phone-error' );
-            // Même règle que la validation serveur (amap_is_valid_phone) : on ne se fie pas
-            // uniquement à l'attribut HTML "pattern", dont le comportement natif s'est révélé
-            // peu fiable selon les navigateurs.
-            var phonePattern = /^(0[1-9]\d{8}|\+33[1-9]\d{8})$/;
-
-            function isPhoneValid( value ) {
-                return phonePattern.test( value.replace( /[\s.-]/g, '' ) );
-            }
-
-            form.addEventListener( 'submit', function ( event ) {
-                var valid = isPhoneValid( phoneField.value );
-                phoneError.hidden = valid;
-                if ( ! valid ) {
-                    event.preventDefault();
-                    phoneField.focus();
-                }
-            } );
-        } )();
-        </script>
-
-        <form method="get">
-            <input type="hidden" name="page" value="amap-users">
-            <?php
-            $users_list_table->search_box( __( 'Rechercher', 'association-manager' ), 'amap-user' );
-            $users_list_table->display();
-            ?>
-        </form>
-    </div>
-    <?php
-}
-
-/**
- * Fiche producteur agrégée en lecture seule : coordonnées + groupes de livraison + contrats,
- * pour éviter d'avoir à recouper trois pages différentes quand le bureau veut juste consulter la
- * situation d'un producteur. Volontairement pas de formulaire d'édition ici : les modifications
- * restent sur les pages Utilisateurs AMAP/Groupes/Contrats existantes.
- */
-function amap_render_producer_profile_page( $producer_user_id ) {
-    $producer = get_user_by( 'id', $producer_user_id );
-    if ( ! $producer || ! in_array( 'amap_producer', $producer->roles, true ) ) {
-        wp_die( esc_html__( 'Producteur introuvable.', 'association-manager' ) );
-    }
-
-    $contact        = amap_get_user_contact( $producer->ID );
-    $groups         = amap_get_producer_groups( $producer->ID );
-    $contracts      = amap_get_producer_contracts( $producer->ID );
-    $weekday_labels = amap_get_weekday_labels();
-    $contract_types = amap_get_contract_types();
-    ?>
-    <div class="wrap">
-        <h1>
-            <?php
-            printf(
-                /* translators: %s: nom du producteur. */
-                esc_html__( 'Fiche producteur : %s', 'association-manager' ),
-                esc_html( $producer->display_name )
-            );
-            ?>
-        </h1>
-
-        <p><a href="<?php echo esc_url( admin_url( 'admin.php?page=amap-users' ) ); ?>">&larr; <?php esc_html_e( 'Retour à la liste des utilisateurs', 'association-manager' ); ?></a></p>
-
-        <h2><?php esc_html_e( 'Coordonnées', 'association-manager' ); ?></h2>
-        <table class="form-table">
-            <tr>
-                <th><?php esc_html_e( 'Nom', 'association-manager' ); ?></th>
-                <td><?php echo esc_html( $producer->display_name ); ?></td>
-            </tr>
-            <tr>
-                <th><?php esc_html_e( 'Email', 'association-manager' ); ?></th>
-                <td><?php echo esc_html( $producer->user_email ); ?></td>
-            </tr>
-            <tr>
-                <th><?php esc_html_e( 'Téléphone', 'association-manager' ); ?></th>
-                <td><?php echo esc_html( $contact->phone ?? '—' ); ?></td>
-            </tr>
-            <tr>
-                <th><?php esc_html_e( 'Adresse', 'association-manager' ); ?></th>
-                <td><?php echo esc_html( $contact->address ?? '—' ); ?></td>
-            </tr>
-        </table>
-
-        <h2><?php esc_html_e( 'Groupes de livraison rattachés', 'association-manager' ); ?></h2>
-        <?php if ( empty( $groups ) ) : ?>
-            <p><?php esc_html_e( "Ce producteur n'est rattaché à aucun groupe de distribution.", 'association-manager' ); ?></p>
-        <?php else : ?>
-            <table class="widefat striped">
-                <thead>
-                    <tr>
-                        <th><?php esc_html_e( 'Nom', 'association-manager' ); ?></th>
-                        <th><?php esc_html_e( 'Jour', 'association-manager' ); ?></th>
-                        <th><?php esc_html_e( 'Horaire', 'association-manager' ); ?></th>
-                        <th><?php esc_html_e( 'Lieu de livraison', 'association-manager' ); ?></th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php foreach ( $groups as $group ) : ?>
-                        <tr>
-                            <td>
-                                <a href="<?php echo esc_url( admin_url( 'admin.php?page=amap-groups&action=edit&id=' . $group->id ) ); ?>">
-                                    <?php echo esc_html( $group->name ); ?>
-                                </a>
-                            </td>
-                            <td><?php echo esc_html( $weekday_labels[ (int) $group->weekday ] ?? '' ); ?></td>
-                            <td><?php echo esc_html( amap_format_time( $group->start_time ) . ' - ' . amap_format_time( $group->end_time ) ); ?></td>
-                            <td><?php echo esc_html( $group->delivery_place ); ?></td>
-                        </tr>
-                    <?php endforeach; ?>
-                </tbody>
-            </table>
-        <?php endif; ?>
-
-        <h2><?php esc_html_e( 'Contrats', 'association-manager' ); ?></h2>
-        <?php if ( empty( $contracts ) ) : ?>
-            <p><?php esc_html_e( "Ce producteur n'a aucun contrat.", 'association-manager' ); ?></p>
-        <?php else : ?>
-            <table class="widefat striped">
-                <thead>
-                    <tr>
-                        <th><?php esc_html_e( 'Libellé', 'association-manager' ); ?></th>
-                        <th><?php esc_html_e( 'Type', 'association-manager' ); ?></th>
-                        <th><?php esc_html_e( 'Période', 'association-manager' ); ?></th>
-                        <th><?php esc_html_e( 'Actif', 'association-manager' ); ?></th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php foreach ( $contracts as $contract ) : ?>
-                        <tr>
-                            <td>
-                                <a href="<?php echo esc_url( admin_url( 'admin.php?page=amap-contracts&action=edit&id=' . $contract->id ) ); ?>">
-                                    <?php echo esc_html( $contract->label ); ?>
-                                </a>
-                            </td>
-                            <td><?php echo esc_html( $contract_types[ $contract->contract_type ] ?? $contract->contract_type ); ?></td>
-                            <td><?php echo esc_html( $contract->start_date . ' → ' . $contract->end_date ); ?></td>
-                            <td><?php echo $contract->is_active ? esc_html__( 'Oui', 'association-manager' ) : esc_html__( 'Non', 'association-manager' ); ?></td>
-                        </tr>
-                    <?php endforeach; ?>
-                </tbody>
-            </table>
-        <?php endif; ?>
-    </div>
-    <?php
-}
-
 function amap_is_valid_phone( $phone ) {
     // On tolère espaces, points et tirets entre les chiffres, mais on valide sur le
     // numéro "nettoyé" : 10 chiffres commençant par 0, ou +33 suivi de 9 chiffres.
@@ -506,6 +142,12 @@ function amap_handle_add_user() {
 
     check_admin_referer( 'amap_add_user' );
 
+    // Le formulaire (wp-admin ou section "Utilisateurs" de l'espace bureau front) précise sa
+    // page de retour via ce champ caché ; wp_safe_redirect() revalide de toute façon la
+    // destination contre les hôtes autorisés, donc aucun risque à faire confiance à cette valeur
+    // postée telle quelle.
+    $redirect_base = isset( $_POST['redirect_to'] ) ? esc_url_raw( wp_unslash( $_POST['redirect_to'] ) ) : admin_url( 'admin.php?page=amap-users' );
+
     $last_name  = isset( $_POST['last_name'] ) ? sanitize_text_field( wp_unslash( $_POST['last_name'] ) ) : '';
     $first_name = isset( $_POST['first_name'] ) ? sanitize_text_field( wp_unslash( $_POST['first_name'] ) ) : '';
     $email      = isset( $_POST['email'] ) ? sanitize_email( wp_unslash( $_POST['email'] ) ) : '';
@@ -519,13 +161,13 @@ function amap_handle_add_user() {
     if ( '' === $last_name || '' === $first_name || '' === $email || '' === $phone || empty( $roles )
         || ( $group_id && ! amap_get_group( $group_id ) ) ) {
         amap_store_user_form_data( $submitted );
-        wp_safe_redirect( admin_url( 'admin.php?page=amap-users&amap_notice=invalid' ) );
+        wp_safe_redirect( add_query_arg( 'amap_notice', 'invalid', $redirect_base ) );
         exit;
     }
 
     if ( ! amap_is_valid_phone( $phone ) ) {
         amap_store_user_form_data( $submitted );
-        wp_safe_redirect( admin_url( 'admin.php?page=amap-users&amap_notice=invalid_phone' ) );
+        wp_safe_redirect( add_query_arg( 'amap_notice', 'invalid_phone', $redirect_base ) );
         exit;
     }
 
@@ -536,7 +178,7 @@ function amap_handle_add_user() {
     $user = amap_find_or_create_user( $first_name, $last_name, $email );
     if ( is_wp_error( $user ) ) {
         amap_store_user_form_data( $submitted );
-        wp_safe_redirect( admin_url( 'admin.php?page=amap-users&amap_notice=account_error' ) );
+        wp_safe_redirect( add_query_arg( 'amap_notice', 'account_error', $redirect_base ) );
         exit;
     }
 
@@ -555,7 +197,7 @@ function amap_handle_add_user() {
     }
 
     if ( ! amap_save_user_contact( $user->ID, $phone, $address ) ) {
-        wp_safe_redirect( admin_url( 'admin.php?page=amap-users&amap_notice=contact_error' ) );
+        wp_safe_redirect( add_query_arg( 'amap_notice', 'contact_error', $redirect_base ) );
         exit;
     }
 
@@ -570,8 +212,7 @@ function amap_handle_add_user() {
         }
     }
 
-    $redirect_notice = $account_already_existed ? '&amap_notice=reused' : '';
-    wp_safe_redirect( admin_url( 'admin.php?page=amap-users' . $redirect_notice ) );
+    wp_safe_redirect( add_query_arg( 'amap_notice', $account_already_existed ? 'reused' : 'created', $redirect_base ) );
     exit;
 }
 
@@ -600,7 +241,13 @@ function amap_handle_update_user() {
     // l'utilisateur 5 est rejeté si le champ caché "id" a été modifié pour viser un autre ID.
     check_admin_referer( 'amap_edit_user_' . $id );
 
-    $edit_url = admin_url( 'admin.php?page=amap-users&action=edit&id=' . $id );
+    // Le formulaire précise sa page de retour (liste) via ce champ cachée : présent, c'est le
+    // formulaire de la section "Utilisateurs" de l'espace bureau front, absent c'est celui de
+    // wp-admin — détermine aussi vers quelle URL revenir sur ce même utilisateur en cas d'erreur.
+    // wp_safe_redirect() revalide de toute façon la destination contre les hôtes autorisés.
+    $is_front_request = isset( $_POST['redirect_to'] );
+    $redirect_list_url = $is_front_request ? esc_url_raw( wp_unslash( $_POST['redirect_to'] ) ) : admin_url( 'admin.php?page=amap-users' );
+    $edit_url          = $is_front_request ? amap_get_board_user_edit_url( $id ) : admin_url( 'admin.php?page=amap-users&action=edit&id=' . $id );
 
     $last_name  = isset( $_POST['last_name'] ) ? sanitize_text_field( wp_unslash( $_POST['last_name'] ) ) : '';
     $first_name = isset( $_POST['first_name'] ) ? sanitize_text_field( wp_unslash( $_POST['first_name'] ) ) : '';
@@ -615,13 +262,13 @@ function amap_handle_update_user() {
     if ( '' === $last_name || '' === $first_name || '' === $email || '' === $phone || empty( $roles )
         || ( $group_id && ! amap_get_group( $group_id ) ) ) {
         amap_store_user_form_data( $submitted );
-        wp_safe_redirect( $edit_url . '&amap_notice=invalid' );
+        wp_safe_redirect( add_query_arg( 'amap_notice', 'invalid', $edit_url ) );
         exit;
     }
 
     if ( ! amap_is_valid_phone( $phone ) ) {
         amap_store_user_form_data( $submitted );
-        wp_safe_redirect( $edit_url . '&amap_notice=invalid_phone' );
+        wp_safe_redirect( add_query_arg( 'amap_notice', 'invalid_phone', $edit_url ) );
         exit;
     }
 
@@ -630,7 +277,7 @@ function amap_handle_update_user() {
     $email_owner = get_user_by( 'email', $email );
     if ( $email_owner && $email_owner->ID !== $id ) {
         amap_store_user_form_data( $submitted );
-        wp_safe_redirect( $edit_url . '&amap_notice=email_taken' );
+        wp_safe_redirect( add_query_arg( 'amap_notice', 'email_taken', $edit_url ) );
         exit;
     }
 
@@ -645,7 +292,7 @@ function amap_handle_update_user() {
 
     if ( is_wp_error( $updated ) ) {
         amap_store_user_form_data( $submitted );
-        wp_safe_redirect( $edit_url . '&amap_notice=account_error' );
+        wp_safe_redirect( add_query_arg( 'amap_notice', 'account_error', $edit_url ) );
         exit;
     }
 
@@ -668,11 +315,11 @@ function amap_handle_update_user() {
     amap_set_member_group( $id, in_array( 'amap_member', $roles, true ) ? $group_id : 0 );
 
     if ( ! amap_save_user_contact( $id, $phone, $address ) ) {
-        wp_safe_redirect( admin_url( 'admin.php?page=amap-users&amap_notice=contact_error' ) );
+        wp_safe_redirect( add_query_arg( 'amap_notice', 'contact_error', $redirect_list_url ) );
         exit;
     }
 
-    wp_safe_redirect( admin_url( 'admin.php?page=amap-users' ) );
+    wp_safe_redirect( $redirect_list_url );
     exit;
 }
 
@@ -712,6 +359,11 @@ function amap_handle_delete_user() {
     // string via wp_nonce_url(), pas dans un champ de formulaire.
     check_admin_referer( 'amap_delete_user_' . $id );
 
+    // Même principe que amap_handle_add_user()/amap_handle_update_user() : la page de
+    // confirmation (wp-admin ou espace bureau front) précise sa page de retour via ce paramètre,
+    // présent dans l'URL puisque "Supprimer" est un lien, pas un formulaire posté.
+    $redirect_url = isset( $_GET['redirect_to'] ) ? esc_url_raw( wp_unslash( $_GET['redirect_to'] ) ) : admin_url( 'admin.php?page=amap-users' );
+
     // Suppression complète du compte WordPress (identité + rôles), pas seulement des
     // casquettes AMAP : cette page est le point d'entrée unique de gestion des utilisateurs.
     // Réattribution de l'éventuel contenu (articles/pages) de ce compte à la personne qui
@@ -728,6 +380,6 @@ function amap_handle_delete_user() {
     $wpdb->delete( $wpdb->prefix . 'amap_group_members', array( 'member_user_id' => $id ) );
     $wpdb->delete( $wpdb->prefix . 'amap_magic_links', array( 'user_id' => $id ) );
 
-    wp_safe_redirect( admin_url( 'admin.php?page=amap-users' ) );
+    wp_safe_redirect( add_query_arg( 'amap_notice', 'deleted', $redirect_url ) );
     exit;
 }

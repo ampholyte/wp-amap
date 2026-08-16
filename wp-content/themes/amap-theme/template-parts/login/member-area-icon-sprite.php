@@ -41,5 +41,9 @@
             <circle cx="12" cy="12" r="9"></circle>
             <path d="M12 11v5.5M12 8v.01"></path>
         </symbol>
+        <symbol id="amap-icon-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="7"></circle>
+            <path d="M21 21l-4.3-4.3"></path>
+        </symbol>
     </defs>
 </svg>

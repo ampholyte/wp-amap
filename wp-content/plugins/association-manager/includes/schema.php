@@ -55,7 +55,7 @@ function amap_activate() {
     }
 
     // Un membre du bureau doit pouvoir gérer les utilisateurs AMAP au même titre qu'un
-    // administrateur (page d'admin "Utilisateurs AMAP" existante, amap_render_users_page()).
+    // administrateur (section "Utilisateurs" de l'espace bureau, front).
     // amap_manage_groups, amap_manage_contracts et amap_manage_subscriptions sont des
     // capabilities distinctes (pages "Groupes", "Contrats" et "Souscriptions" séparées) : le
     // rattachement producteur↔groupe, les contrats, les souscriptions et la gestion des

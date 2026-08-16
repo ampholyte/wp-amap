@@ -31,6 +31,7 @@ $current_user = wp_get_current_user();
             'is_member'        => $args['is_member'],
             'is_producer'      => $args['is_producer'],
             'can_manage_users' => $args['can_manage_users'],
+            'is_wp_admin'      => $args['is_wp_admin'],
             'active_tab'       => $args['tab'],
         )
     );
@@ -39,10 +40,11 @@ $current_user = wp_get_current_user();
         'template-parts/login/member-area-' . $args['tab'],
         null,
         array(
-            'current_user' => $current_user,
-            'is_member'    => $args['is_member'],
-            'is_producer'  => $args['is_producer'],
-            'is_board'     => $args['is_board'],
+            'current_user'  => $current_user,
+            'is_member'     => $args['is_member'],
+            'is_producer'   => $args['is_producer'],
+            'is_board'      => $args['is_board'],
+            'board_section' => $args['board_section'] ?? 'users',
         )
     );
     ?>

@@ -467,6 +467,49 @@ function amap_store_distribution_volunteer_form_data( array $data ) {
 }
 
 /**
+ * Vérifie qu'une date correspond bien à une distribution réelle de ce groupe : soit une date
+ * normale sur son jour fixe et non concernée par une exception (annulée ou déplacée, la
+ * distribution n'a alors pas lieu à cette date-là), soit la nouvelle date d'une exception
+ * "déplacée" — les bénévoles suivent la distribution physique, pas le calendrier théorique,
+ * contrairement à une exception elle-même (toujours ancrée sur le jour fixe, voir
+ * amap_handle_add_distribution_exception()). Utilisée par
+ * amap_handle_add_distribution_volunteer().
+ */
+function amap_group_distribution_date_is_valid( $group, $date ) {
+    if ( (int) ( new DateTime( $date ) )->format( 'N' ) === ( (int) $group->weekday + 1 ) ) {
+        return ! amap_get_group_distribution_exception_by_date( $group->id, $date );
+    }
+
+    global $wpdb;
+
+    return (bool) $wpdb->get_var(
+        $wpdb->prepare(
+            "SELECT COUNT(*) FROM {$wpdb->prefix}amap_distribution_exceptions
+             WHERE group_id = %d AND exception_type = 'moved' AND new_date = %s",
+            $group->id,
+            $date
+        )
+    );
+}
+
+/**
+ * Supprime les bénévoles déjà inscrits sur une date qui vient d'être annulée ou déplacée : sans
+ * ça, ils restent inscrits sur une date où la distribution n'a plus lieu (voir
+ * amap_handle_add_distribution_exception()/amap_handle_update_distribution_exception()).
+ */
+function amap_delete_distribution_volunteers_for_date( $group_id, $distribution_date ) {
+    global $wpdb;
+
+    $wpdb->delete(
+        $wpdb->prefix . 'amap_distribution_volunteers',
+        array(
+            'group_id'          => $group_id,
+            'distribution_date' => $distribution_date,
+        )
+    );
+}
+
+/**
  * Relance "bénévoles manquants", appelée quotidiennement par amap_run_daily_checks() (WP-Cron,
  * association-manager.php) : pour chaque groupe dont la distribution tombe dans 2 jours, envoie
  * une alerte à l'alias de notification du groupe si moins de 2 bénévoles sont inscrits (règle "2
@@ -543,541 +586,6 @@ function amap_send_missing_volunteers_alert( $group, $distribution_date ) {
     amap_send_email( $group->notification_email, $subject, amap_render_email( $subject, $html_body ) );
 }
 
-function amap_render_groups_page() {
-    if ( ! current_user_can( 'amap_manage_groups' ) ) {
-        return;
-    }
-
-    $notice = isset( $_GET['amap_notice'] ) ? sanitize_key( wp_unslash( $_GET['amap_notice'] ) ) : '';
-
-    // Mode édition : ?action=edit&id=X sur cette même page. Si l'ID ne correspond à aucun
-    // groupe, on retombe silencieusement sur le formulaire d'ajout (même logique que la page
-    // "Utilisateurs AMAP").
-    $editing_id = 0;
-    if ( isset( $_GET['action'], $_GET['id'] ) && 'edit' === $_GET['action'] ) {
-        $editing_id = absint( $_GET['id'] );
-    }
-    $editing_group = $editing_id ? amap_get_group( $editing_id ) : null;
-    if ( $editing_id && ! $editing_group ) {
-        $editing_id = 0;
-    }
-
-    // Mode édition d'une exception : ?exception_action=edit&exception_id=Y, même principe que
-    // size_action/size_id sur la page "Contrats". Ne peut être actif que si $editing_id est déjà
-    // résolu (l'exception appartient forcément au groupe affiché).
-    $exception_editing_id = 0;
-    if ( $editing_id && isset( $_GET['exception_action'], $_GET['exception_id'] ) && 'edit' === $_GET['exception_action'] ) {
-        $exception_editing_id = absint( $_GET['exception_id'] );
-    }
-    $editing_exception = $exception_editing_id ? amap_get_distribution_exception( $exception_editing_id ) : null;
-    if ( $editing_exception && (int) $editing_exception->group_id !== $editing_id ) {
-        $editing_exception   = null;
-        $exception_editing_id = 0;
-    }
-
-    $exception_transient_key = 'amap_distribution_exception_form_' . get_current_user_id();
-    $exception_form_data     = get_transient( $exception_transient_key );
-    if ( false !== $exception_form_data ) {
-        delete_transient( $exception_transient_key );
-    } elseif ( $editing_exception ) {
-        $exception_form_data = array(
-            'distribution_date' => $editing_exception->distribution_date,
-            'exception_type'    => $editing_exception->exception_type,
-            'new_date'          => (string) $editing_exception->new_date,
-            'new_start_time'    => $editing_exception->new_start_time ? amap_format_time( $editing_exception->new_start_time ) : '',
-            'new_end_time'      => $editing_exception->new_end_time ? amap_format_time( $editing_exception->new_end_time ) : '',
-            'new_place'         => (string) $editing_exception->new_place,
-            'reason'            => (string) $editing_exception->reason,
-        );
-    } else {
-        $exception_form_data = array();
-    }
-
-    $volunteer_transient_key = 'amap_distribution_volunteer_form_' . get_current_user_id();
-    $volunteer_form_data     = get_transient( $volunteer_transient_key );
-    if ( false !== $volunteer_form_data ) {
-        delete_transient( $volunteer_transient_key );
-    } else {
-        $volunteer_form_data = array();
-    }
-
-    $transient_key = 'amap_group_form_' . get_current_user_id();
-    $form_data     = get_transient( $transient_key );
-    if ( false !== $form_data ) {
-        delete_transient( $transient_key );
-    } elseif ( $editing_group ) {
-        $form_data = array(
-            'name'                => $editing_group->name,
-            'delivery_place'      => $editing_group->delivery_place,
-            'weekday'             => (string) $editing_group->weekday,
-            'start_time'          => amap_format_time( $editing_group->start_time ),
-            'end_time'            => amap_format_time( $editing_group->end_time ),
-            'notification_email'  => (string) $editing_group->notification_email,
-        );
-    } else {
-        $form_data = array();
-    }
-
-    $groups_list_table = new Amap_Groups_List_Table();
-    $groups_list_table->prepare_items();
-    ?>
-    <div class="wrap">
-        <h1><?php esc_html_e( 'Groupes de distribution', 'association-manager' ); ?></h1>
-
-        <?php if ( 'invalid' === $notice ) : ?>
-            <div class="notice notice-error"><p><?php esc_html_e( 'Champs obligatoires manquants.', 'association-manager' ); ?></p></div>
-        <?php elseif ( 'invalid_time' === $notice ) : ?>
-            <div class="notice notice-error"><p><?php esc_html_e( "L'heure de fin doit être après l'heure de début.", 'association-manager' ); ?></p></div>
-        <?php elseif ( 'invalid_email' === $notice ) : ?>
-            <div class="notice notice-error"><p><?php esc_html_e( "L'adresse de notification n'est pas une adresse email valide.", 'association-manager' ); ?></p></div>
-        <?php endif; ?>
-
-        <?php if ( ! $editing_id ) : ?>
-            <p>
-                <button type="button" class="button button-primary" id="amap-group-add-toggle"><?php esc_html_e( '+ Ajouter un groupe', 'association-manager' ); ?></button>
-            </p>
-        <?php endif; ?>
-        <div id="amap-group-form-wrapper"<?php echo $editing_id ? '' : ' hidden'; ?>>
-        <?php if ( $editing_id && $editing_group ) : ?>
-            <?php $weekday_labels = amap_get_weekday_labels(); ?>
-            <div id="amap-group-view">
-                <table class="widefat">
-                    <tbody>
-                        <tr>
-                            <th><?php esc_html_e( 'Nom', 'association-manager' ); ?></th>
-                            <td><?php echo esc_html( $editing_group->name ); ?></td>
-                        </tr>
-                        <tr>
-                            <th><?php esc_html_e( 'Lieu de livraison', 'association-manager' ); ?></th>
-                            <td><?php echo esc_html( $editing_group->delivery_place ); ?></td>
-                        </tr>
-                        <tr>
-                            <th><?php esc_html_e( 'Jour', 'association-manager' ); ?></th>
-                            <td><?php echo esc_html( $weekday_labels[ (int) $editing_group->weekday ] ?? '' ); ?></td>
-                        </tr>
-                        <tr>
-                            <th><?php esc_html_e( 'Horaire', 'association-manager' ); ?></th>
-                            <td><?php echo esc_html( amap_format_time( $editing_group->start_time ) . ' - ' . amap_format_time( $editing_group->end_time ) ); ?></td>
-                        </tr>
-                        <tr>
-                            <th><?php esc_html_e( 'Adresse de notification', 'association-manager' ); ?></th>
-                            <td><?php echo esc_html( $editing_group->notification_email ? $editing_group->notification_email : '—' ); ?></td>
-                        </tr>
-                    </tbody>
-                </table>
-                <p>
-                    <button type="button" class="button button-primary" id="amap-group-edit-toggle"><?php esc_html_e( 'Modifier les infos', 'association-manager' ); ?></button>
-                    <a href="<?php echo esc_url( admin_url( 'admin.php?page=amap-groups' ) ); ?>" class="button">
-                        <?php esc_html_e( 'Retour à la liste', 'association-manager' ); ?>
-                    </a>
-                </p>
-            </div>
-        <?php endif; ?>
-        <div id="amap-group-edit-form"<?php echo $editing_id ? ' hidden' : ''; ?>>
-        <h2>
-            <?php echo $editing_id
-                ? esc_html__( 'Modifier un groupe', 'association-manager' )
-                : esc_html__( 'Ajouter un groupe', 'association-manager' ); ?>
-        </h2>
-        <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
-            <?php if ( $editing_id ) : ?>
-                <?php wp_nonce_field( 'amap_edit_group_' . $editing_id ); ?>
-                <input type="hidden" name="action" value="amap_update_group">
-                <input type="hidden" name="id" value="<?php echo esc_attr( $editing_id ); ?>">
-            <?php else : ?>
-                <?php wp_nonce_field( 'amap_add_group' ); ?>
-                <input type="hidden" name="action" value="amap_add_group">
-            <?php endif; ?>
-            <table class="form-table">
-                <tr>
-                    <th><label for="amap-group-name"><?php esc_html_e( 'Nom', 'association-manager' ); ?></label></th>
-                    <td><input type="text" id="amap-group-name" name="name" value="<?php echo esc_attr( $form_data['name'] ?? '' ); ?>" required></td>
-                </tr>
-                <tr>
-                    <th><label for="amap-group-delivery-place"><?php esc_html_e( 'Lieu de livraison', 'association-manager' ); ?></label></th>
-                    <td><input type="text" id="amap-group-delivery-place" name="delivery_place" value="<?php echo esc_attr( $form_data['delivery_place'] ?? '' ); ?>" required></td>
-                </tr>
-                <tr>
-                    <th><label for="amap-group-weekday"><?php esc_html_e( 'Jour de la semaine', 'association-manager' ); ?></label></th>
-                    <td>
-                        <select id="amap-group-weekday" name="weekday" required>
-                            <?php foreach ( amap_get_weekday_labels() as $weekday => $weekday_label ) : ?>
-                                <option value="<?php echo esc_attr( $weekday ); ?>" <?php selected( (string) $weekday, $form_data['weekday'] ?? '' ); ?>>
-                                    <?php echo esc_html( $weekday_label ); ?>
-                                </option>
-                            <?php endforeach; ?>
-                        </select>
-                    </td>
-                </tr>
-                <tr>
-                    <th><label for="amap-group-start-time"><?php esc_html_e( 'Heure de début', 'association-manager' ); ?></label></th>
-                    <td><input type="time" id="amap-group-start-time" name="start_time" value="<?php echo esc_attr( $form_data['start_time'] ?? '' ); ?>" required></td>
-                </tr>
-                <tr>
-                    <th><label for="amap-group-end-time"><?php esc_html_e( 'Heure de fin', 'association-manager' ); ?></label></th>
-                    <td><input type="time" id="amap-group-end-time" name="end_time" value="<?php echo esc_attr( $form_data['end_time'] ?? '' ); ?>" required></td>
-                </tr>
-                <tr>
-                    <th><label for="amap-group-notification-email"><?php esc_html_e( 'Adresse de notification', 'association-manager' ); ?></label></th>
-                    <td>
-                        <input type="email" id="amap-group-notification-email" name="notification_email" value="<?php echo esc_attr( $form_data['notification_email'] ?? '' ); ?>">
-                        <p class="description">
-                            <?php esc_html_e( "Optionnelle. Adresse (ex. un alias créé par le bureau) qui recevra un récapitulatif en cas d'annulation ou de déplacement d'une distribution de ce groupe. Laissée vide, aucune notification ne sera envoyée aux adhérents.", 'association-manager' ); ?>
-                        </p>
-                    </td>
-                </tr>
-            </table>
-            <p>
-                <?php submit_button( $editing_id ? __( 'Enregistrer', 'association-manager' ) : __( 'Ajouter', 'association-manager' ), 'primary', 'submit', false ); ?>
-                <?php if ( $editing_id ) : ?>
-                    <button type="button" class="button" id="amap-group-edit-cancel"><?php esc_html_e( 'Annuler', 'association-manager' ); ?></button>
-                <?php else : ?>
-                    <button type="button" class="button" id="amap-group-add-cancel"><?php esc_html_e( 'Annuler', 'association-manager' ); ?></button>
-                <?php endif; ?>
-            </p>
-        </form>
-        </div>
-        </div>
-        <script>
-        ( function () {
-            var toggle  = document.getElementById( 'amap-group-add-toggle' );
-            var wrapper = document.getElementById( 'amap-group-form-wrapper' );
-            var cancel  = document.getElementById( 'amap-group-add-cancel' );
-            if ( toggle ) {
-                toggle.addEventListener( 'click', function () {
-                    wrapper.hidden = false;
-                    toggle.hidden  = true;
-                } );
-            }
-            if ( cancel ) {
-                cancel.addEventListener( 'click', function () {
-                    wrapper.hidden = true;
-                    toggle.hidden  = false;
-                } );
-            }
-        } )();
-        </script>
-        <script>
-        ( function () {
-            var viewBlock  = document.getElementById( 'amap-group-view' );
-            var editForm   = document.getElementById( 'amap-group-edit-form' );
-            var editToggle = document.getElementById( 'amap-group-edit-toggle' );
-            var editCancel = document.getElementById( 'amap-group-edit-cancel' );
-            if ( editToggle ) {
-                editToggle.addEventListener( 'click', function () {
-                    viewBlock.hidden = true;
-                    editForm.hidden  = false;
-                } );
-            }
-            if ( editCancel ) {
-                editCancel.addEventListener( 'click', function () {
-                    editForm.hidden  = true;
-                    viewBlock.hidden = false;
-                } );
-            }
-        } )();
-        </script>
-
-        <?php if ( $editing_id ) : ?>
-            <style>
-                .amap-group-section {
-                    margin-bottom: 20px;
-                    padding: 14px 18px;
-                    background: #fff;
-                    border: 1px solid #dcdcde;
-                    border-radius: 4px;
-                }
-                .amap-group-section summary {
-                    cursor: pointer;
-                }
-                .amap-group-section summary h2 {
-                    display: inline-block;
-                    margin: 0;
-                }
-                .amap-group-section[open] summary {
-                    margin-bottom: 12px;
-                }
-            </style>
-            <?php
-            $producers              = amap_get_producer_users();
-            $attached_producer_ids  = amap_get_group_producer_ids( $editing_id );
-            ?>
-            <details class="amap-group-section" id="amap-group-producers"<?php echo ( 'producers_updated' === $notice ) ? ' open' : ''; ?>>
-                <summary><h2><?php esc_html_e( 'Producteurs rattachés', 'association-manager' ); ?></h2></summary>
-                <?php if ( 'producers_updated' === $notice ) : ?>
-                    <div class="notice notice-success"><p><?php esc_html_e( 'Producteurs rattachés mis à jour.', 'association-manager' ); ?></p></div>
-                <?php endif; ?>
-                <?php if ( empty( $producers ) ) : ?>
-                    <p><?php esc_html_e( "Aucun compte producteur pour le moment.", 'association-manager' ); ?></p>
-                <?php else : ?>
-                    <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
-                        <?php wp_nonce_field( 'amap_update_group_producers_' . $editing_id ); ?>
-                        <input type="hidden" name="action" value="amap_update_group_producers">
-                        <input type="hidden" name="group_id" value="<?php echo esc_attr( $editing_id ); ?>">
-                        <?php foreach ( $producers as $producer ) : ?>
-                            <p>
-                                <label>
-                                    <input
-                                        type="checkbox"
-                                        name="producer_ids[]"
-                                        value="<?php echo esc_attr( $producer->ID ); ?>"
-                                        <?php checked( in_array( (string) $producer->ID, $attached_producer_ids, true ) ); ?>
-                                    >
-                                    <?php echo esc_html( $producer->display_name ); ?>
-                                </label>
-                                <a href="<?php echo esc_url( admin_url( 'admin.php?page=amap-users&action=view_producer&id=' . $producer->ID ) ); ?>">
-                                    <?php esc_html_e( 'Voir la fiche', 'association-manager' ); ?>
-                                </a>
-                            </p>
-                        <?php endforeach; ?>
-                        <p>
-                            <?php submit_button( __( 'Enregistrer les producteurs', 'association-manager' ), 'primary', 'submit', false ); ?>
-                        </p>
-                    </form>
-                <?php endif; ?>
-            </details>
-
-            <?php
-            $exception_type_labels = amap_get_distribution_exception_type_labels();
-            // Reste ouverte si on est en train de modifier une exception (le formulaire d'édition
-            // doit rester visible) ou si un message la concerne (retour après ajout/modification/
-            // suppression) — jamais masquer un message pertinent derrière une section repliée.
-            $exceptions_open = $exception_editing_id || ( 0 === strpos( (string) $notice, 'exception_' ) );
-            ?>
-            <details class="amap-group-section" id="amap-group-exceptions"<?php echo $exceptions_open ? ' open' : ''; ?>>
-                <summary><h2><?php esc_html_e( 'Exceptions de distribution', 'association-manager' ); ?></h2></summary>
-                <p class="description">
-                    <?php esc_html_e( "Annulation ou déplacement ponctuel d'une distribution, décidé par le bureau. Ne concerne qu'une date précise : la distribution normale du groupe n'est pas affectée les autres semaines.", 'association-manager' ); ?>
-                </p>
-                <?php if ( empty( $editing_group->notification_email ) ) : ?>
-                    <div class="notice notice-warning"><p>
-                        <?php esc_html_e( "Aucune adresse de notification configurée pour ce groupe (voir « Modifier les infos » ci-dessus) : les adhérents ne seront pas prévenus d'une exception de distribution.", 'association-manager' ); ?>
-                    </p></div>
-                <?php endif; ?>
-            <?php if ( 'exception_invalid' === $notice ) : ?>
-                <div class="notice notice-error"><p><?php esc_html_e( 'Champs obligatoires manquants ou invalides.', 'association-manager' ); ?></p></div>
-            <?php elseif ( 'exception_invalid_weekday' === $notice ) : ?>
-                <div class="notice notice-error"><p><?php esc_html_e( "La date doit tomber sur le jour de semaine habituel de ce groupe.", 'association-manager' ); ?></p></div>
-            <?php elseif ( 'exception_invalid_moved' === $notice ) : ?>
-                <div class="notice notice-error"><p><?php esc_html_e( "Pour un déplacement, renseignez une nouvelle date, un nouvel horaire (les deux heures) ou un nouveau lieu, et une heure de fin après l'heure de début.", 'association-manager' ); ?></p></div>
-            <?php elseif ( 'exception_duplicate' === $notice ) : ?>
-                <div class="notice notice-error"><p><?php esc_html_e( 'Une exception existe déjà pour ce groupe à cette date.', 'association-manager' ); ?></p></div>
-            <?php elseif ( 'exception_saved' === $notice ) : ?>
-                <div class="notice notice-success"><p><?php esc_html_e( 'Exception de distribution enregistrée.', 'association-manager' ); ?></p></div>
-            <?php elseif ( 'exception_deleted' === $notice ) : ?>
-                <div class="notice notice-success"><p><?php esc_html_e( 'Exception de distribution supprimée.', 'association-manager' ); ?></p></div>
-            <?php endif; ?>
-
-            <?php
-            $exceptions_list_table = new Amap_Distribution_Exceptions_List_Table();
-            $exceptions_list_table->prepare_items( $editing_id );
-            $exceptions_list_table->display();
-            ?>
-
-            <?php if ( ! $exception_editing_id ) : ?>
-                <p>
-                    <button type="button" class="button button-primary" id="amap-exception-add-toggle"><?php esc_html_e( '+ Ajouter une exception', 'association-manager' ); ?></button>
-                </p>
-            <?php endif; ?>
-            <div id="amap-exception-form-wrapper"<?php echo $exception_editing_id ? '' : ' hidden'; ?>>
-            <h3>
-                <?php echo $exception_editing_id
-                    ? esc_html__( 'Modifier une exception', 'association-manager' )
-                    : esc_html__( 'Ajouter une exception', 'association-manager' ); ?>
-            </h3>
-            <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
-                <?php if ( $exception_editing_id ) : ?>
-                    <?php wp_nonce_field( 'amap_edit_distribution_exception_' . $exception_editing_id ); ?>
-                    <input type="hidden" name="action" value="amap_update_distribution_exception">
-                    <input type="hidden" name="id" value="<?php echo esc_attr( $exception_editing_id ); ?>">
-                <?php else : ?>
-                    <?php wp_nonce_field( 'amap_add_distribution_exception_' . $editing_id ); ?>
-                    <input type="hidden" name="action" value="amap_add_distribution_exception">
-                    <input type="hidden" name="group_id" value="<?php echo esc_attr( $editing_id ); ?>">
-                <?php endif; ?>
-                <table class="form-table">
-                    <tr>
-                        <th><label for="amap-exception-distribution-date"><?php esc_html_e( 'Distribution concernée', 'association-manager' ); ?></label></th>
-                        <td>
-                            <input type="date" id="amap-exception-distribution-date" name="distribution_date" value="<?php echo esc_attr( $exception_form_data['distribution_date'] ?? '' ); ?>" required>
-                            <p class="description"><?php esc_html_e( 'Doit tomber sur le jour de semaine habituel de ce groupe.', 'association-manager' ); ?></p>
-                        </td>
-                    </tr>
-                    <tr>
-                        <th><label for="amap-exception-type"><?php esc_html_e( 'Type', 'association-manager' ); ?></label></th>
-                        <td>
-                            <select id="amap-exception-type" name="exception_type" required>
-                                <?php foreach ( $exception_type_labels as $type_slug => $type_label ) : ?>
-                                    <option value="<?php echo esc_attr( $type_slug ); ?>" <?php selected( $type_slug, $exception_form_data['exception_type'] ?? '' ); ?>>
-                                        <?php echo esc_html( $type_label ); ?>
-                                    </option>
-                                <?php endforeach; ?>
-                            </select>
-                        </td>
-                    </tr>
-                    <tr id="amap-exception-new-date-row">
-                        <th><label for="amap-exception-new-date"><?php esc_html_e( 'Nouvelle date', 'association-manager' ); ?></label></th>
-                        <td><input type="date" id="amap-exception-new-date" name="new_date" value="<?php echo esc_attr( $exception_form_data['new_date'] ?? '' ); ?>"></td>
-                    </tr>
-                    <tr id="amap-exception-new-time-row">
-                        <th><?php esc_html_e( 'Nouvel horaire', 'association-manager' ); ?></th>
-                        <td>
-                            <label for="amap-exception-new-start-time"><?php esc_html_e( 'De', 'association-manager' ); ?></label>
-                            <input type="time" id="amap-exception-new-start-time" name="new_start_time" value="<?php echo esc_attr( $exception_form_data['new_start_time'] ?? '' ); ?>">
-                            <label for="amap-exception-new-end-time"><?php esc_html_e( 'à', 'association-manager' ); ?></label>
-                            <input type="time" id="amap-exception-new-end-time" name="new_end_time" value="<?php echo esc_attr( $exception_form_data['new_end_time'] ?? '' ); ?>">
-                        </td>
-                    </tr>
-                    <tr id="amap-exception-new-place-row">
-                        <th><label for="amap-exception-new-place"><?php esc_html_e( 'Nouveau lieu', 'association-manager' ); ?></label></th>
-                        <td><input type="text" id="amap-exception-new-place" name="new_place" value="<?php echo esc_attr( $exception_form_data['new_place'] ?? '' ); ?>"></td>
-                    </tr>
-                    <tr>
-                        <th><label for="amap-exception-reason"><?php esc_html_e( 'Motif', 'association-manager' ); ?></label></th>
-                        <td><textarea id="amap-exception-reason" name="reason" rows="3" class="large-text"><?php echo esc_textarea( $exception_form_data['reason'] ?? '' ); ?></textarea></td>
-                    </tr>
-                </table>
-                <p>
-                    <?php submit_button( $exception_editing_id ? __( 'Enregistrer', 'association-manager' ) : __( 'Ajouter', 'association-manager' ), 'primary', 'submit', false ); ?>
-                    <?php if ( $exception_editing_id ) : ?>
-                        <a href="<?php echo esc_url( admin_url( 'admin.php?page=amap-groups&action=edit&id=' . $editing_id ) ); ?>" class="button">
-                            <?php esc_html_e( 'Annuler', 'association-manager' ); ?>
-                        </a>
-                    <?php else : ?>
-                        <button type="button" class="button" id="amap-exception-add-cancel"><?php esc_html_e( 'Annuler', 'association-manager' ); ?></button>
-                    <?php endif; ?>
-                </p>
-            </form>
-            </div>
-            <script>
-            ( function () {
-                var typeField    = document.getElementById( 'amap-exception-type' );
-                var newDateRow   = document.getElementById( 'amap-exception-new-date-row' );
-                var newTimeRow   = document.getElementById( 'amap-exception-new-time-row' );
-                var newPlaceRow  = document.getElementById( 'amap-exception-new-place-row' );
-
-                function toggleMovedRows() {
-                    var isMoved       = ( 'moved' === typeField.value );
-                    newDateRow.hidden  = ! isMoved;
-                    newTimeRow.hidden  = ! isMoved;
-                    newPlaceRow.hidden = ! isMoved;
-                }
-
-                typeField.addEventListener( 'change', toggleMovedRows );
-                toggleMovedRows();
-            } )();
-            </script>
-            <script>
-            ( function () {
-                var toggle  = document.getElementById( 'amap-exception-add-toggle' );
-                var wrapper = document.getElementById( 'amap-exception-form-wrapper' );
-                var cancel  = document.getElementById( 'amap-exception-add-cancel' );
-                if ( toggle ) {
-                    toggle.addEventListener( 'click', function () {
-                        wrapper.hidden = false;
-                        toggle.hidden  = true;
-                    } );
-                }
-                if ( cancel ) {
-                    cancel.addEventListener( 'click', function () {
-                        wrapper.hidden = true;
-                        toggle.hidden  = false;
-                    } );
-                }
-            } )();
-            </script>
-            </details>
-
-            <?php
-            $eligible_members = amap_get_group_member_users( $editing_id );
-            $current_year     = (int) current_time( 'Y' );
-            // Reste ouverte si un message concerne cette section (retour après ajout/suppression) —
-            // jamais masquer un message pertinent derrière une section repliée.
-            $volunteers_open = ( 0 === strpos( (string) $notice, 'volunteer_' ) );
-            ?>
-            <details class="amap-group-section" id="amap-group-volunteers"<?php echo $volunteers_open ? ' open' : ''; ?>>
-                <summary><h2><?php esc_html_e( 'Bénévoles de distribution', 'association-manager' ); ?></h2></summary>
-                <p class="description">
-                    <?php esc_html_e( "Roster des adhérents bénévoles tenant une distribution (2 à 3 personnes, présentes 15 min avant et après). Chaque adhérent doit en assurer au moins 3 par an (indiqué entre parenthèses dans la liste ci-dessous, sans maximum). Distinct des souscriptions : concerne la présence à la distribution, pas la réception de produits.", 'association-manager' ); ?>
-                </p>
-                <?php if ( 'volunteer_invalid' === $notice ) : ?>
-                    <div class="notice notice-error"><p><?php esc_html_e( 'Champs obligatoires manquants ou invalides.', 'association-manager' ); ?></p></div>
-                <?php elseif ( 'volunteer_invalid_weekday' === $notice ) : ?>
-                    <div class="notice notice-error"><p><?php esc_html_e( 'La date doit tomber sur le jour de semaine habituel de ce groupe.', 'association-manager' ); ?></p></div>
-                <?php elseif ( 'volunteer_duplicate' === $notice ) : ?>
-                    <div class="notice notice-error"><p><?php esc_html_e( 'Cet adhérent est déjà inscrit comme bénévole pour cette distribution.', 'association-manager' ); ?></p></div>
-                <?php elseif ( 'volunteer_full' === $notice ) : ?>
-                    <div class="notice notice-error"><p><?php esc_html_e( 'Cette distribution a déjà 3 bénévoles inscrits, maximum atteint.', 'association-manager' ); ?></p></div>
-                <?php elseif ( 'volunteer_saved' === $notice ) : ?>
-                    <div class="notice notice-success"><p><?php esc_html_e( 'Bénévole ajouté.', 'association-manager' ); ?></p></div>
-                <?php elseif ( 'volunteer_deleted' === $notice ) : ?>
-                    <div class="notice notice-success"><p><?php esc_html_e( 'Bénévole retiré.', 'association-manager' ); ?></p></div>
-                <?php endif; ?>
-
-                <?php
-                $volunteers_list_table = new Amap_Distribution_Volunteers_List_Table();
-                $volunteers_list_table->prepare_items( $editing_id );
-                $volunteers_list_table->display();
-                ?>
-
-                <?php if ( empty( $eligible_members ) ) : ?>
-                    <p><?php esc_html_e( "Aucun adhérent rattaché à ce groupe comme point de retrait pour l'instant.", 'association-manager' ); ?></p>
-                <?php else : ?>
-                    <h3><?php esc_html_e( 'Ajouter un bénévole', 'association-manager' ); ?></h3>
-                    <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
-                        <?php wp_nonce_field( 'amap_add_distribution_volunteer_' . $editing_id ); ?>
-                        <input type="hidden" name="action" value="amap_add_distribution_volunteer">
-                        <input type="hidden" name="group_id" value="<?php echo esc_attr( $editing_id ); ?>">
-                        <table class="form-table">
-                            <tr>
-                                <th><label for="amap-volunteer-date"><?php esc_html_e( 'Distribution concernée', 'association-manager' ); ?></label></th>
-                                <td>
-                                    <input type="date" id="amap-volunteer-date" name="distribution_date" value="<?php echo esc_attr( $volunteer_form_data['distribution_date'] ?? '' ); ?>" required>
-                                    <p class="description"><?php esc_html_e( 'Doit tomber sur le jour de semaine habituel de ce groupe.', 'association-manager' ); ?></p>
-                                </td>
-                            </tr>
-                            <tr>
-                                <th><label for="amap-volunteer-member"><?php esc_html_e( 'Adhérent', 'association-manager' ); ?></label></th>
-                                <td>
-                                    <select id="amap-volunteer-member" name="member_user_id" required>
-                                        <option value=""><?php esc_html_e( '— Choisir —', 'association-manager' ); ?></option>
-                                        <?php foreach ( $eligible_members as $member ) : ?>
-                                            <?php
-                                            $member_year_count   = amap_count_member_distribution_volunteers_in_year( $member->ID, $current_year );
-                                            $member_option_label = sprintf(
-                                                // translators: 1: nom de l'adhérent, 2: nombre de distributions déjà assurées cette année (au moins 3 attendues, sans maximum).
-                                                _n( '%1$s (%2$d distribution cette année)', '%1$s (%2$d distributions cette année)', $member_year_count, 'association-manager' ),
-                                                $member->display_name,
-                                                $member_year_count
-                                            );
-                                            ?>
-                                            <option value="<?php echo esc_attr( $member->ID ); ?>" <?php selected( $member->ID, $volunteer_form_data['member_user_id'] ?? '' ); ?>>
-                                                <?php echo esc_html( $member_option_label ); ?>
-                                            </option>
-                                        <?php endforeach; ?>
-                                    </select>
-                                </td>
-                            </tr>
-                        </table>
-                        <p>
-                            <?php submit_button( __( 'Ajouter un bénévole', 'association-manager' ), 'primary', 'submit', false ); ?>
-                        </p>
-                    </form>
-                <?php endif; ?>
-            </details>
-        <?php endif; ?>
-
-        <form method="get">
-            <input type="hidden" name="page" value="amap-groups">
-            <?php
-            $groups_list_table->search_box( __( 'Rechercher', 'association-manager' ), 'amap-group' );
-            $groups_list_table->display();
-            ?>
-        </form>
-    </div>
-    <?php
-}
-
 add_action( 'admin_post_amap_add_group', 'amap_handle_add_group' );
 
 function amap_handle_add_group() {
@@ -1086,6 +594,14 @@ function amap_handle_add_group() {
     }
 
     check_admin_referer( 'amap_add_group' );
+
+    // Contrairement à wp-admin (formulaire d'ajout et liste sur la même page), la section
+    // "Groupes" de l'espace bureau front a une page "Ajouter" séparée de la liste : une erreur
+    // doit rouvrir CE formulaire ($add_url, déterministe), un succès repart vers la liste
+    // ($list_url, fournie par le champ caché "redirect_to" du formulaire).
+    $is_front_request = isset( $_POST['redirect_to'] );
+    $add_url           = $is_front_request ? amap_get_board_group_add_url() : admin_url( 'admin.php?page=amap-groups' );
+    $list_url          = $is_front_request ? esc_url_raw( wp_unslash( $_POST['redirect_to'] ) ) : $add_url;
 
     $name               = isset( $_POST['name'] ) ? sanitize_text_field( wp_unslash( $_POST['name'] ) ) : '';
     $delivery_place     = isset( $_POST['delivery_place'] ) ? sanitize_text_field( wp_unslash( $_POST['delivery_place'] ) ) : '';
@@ -1098,20 +614,20 @@ function amap_handle_add_group() {
     if ( '' === $name || '' === $delivery_place || ! array_key_exists( (int) $weekday, amap_get_weekday_labels() )
         || ! amap_is_valid_time( $start_time ) || ! amap_is_valid_time( $end_time ) ) {
         amap_store_group_form_data( $submitted );
-        wp_safe_redirect( admin_url( 'admin.php?page=amap-groups&amap_notice=invalid' ) );
+        wp_safe_redirect( add_query_arg( 'amap_notice', 'invalid', $add_url ) );
         exit;
     }
 
     if ( $start_time >= $end_time ) {
         amap_store_group_form_data( $submitted );
-        wp_safe_redirect( admin_url( 'admin.php?page=amap-groups&amap_notice=invalid_time' ) );
+        wp_safe_redirect( add_query_arg( 'amap_notice', 'invalid_time', $add_url ) );
         exit;
     }
 
     // Optionnelle : seule une valeur non vide et malformée est bloquante.
     if ( '' !== $notification_email && ! is_email( $notification_email ) ) {
         amap_store_group_form_data( $submitted );
-        wp_safe_redirect( admin_url( 'admin.php?page=amap-groups&amap_notice=invalid_email' ) );
+        wp_safe_redirect( add_query_arg( 'amap_notice', 'invalid_email', $add_url ) );
         exit;
     }
 
@@ -1128,7 +644,7 @@ function amap_handle_add_group() {
         )
     );
 
-    wp_safe_redirect( admin_url( 'admin.php?page=amap-groups' ) );
+    wp_safe_redirect( add_query_arg( 'amap_notice', 'created', $list_url ) );
     exit;
 }
 
@@ -1146,7 +662,13 @@ function amap_handle_update_group() {
 
     check_admin_referer( 'amap_edit_group_' . $id );
 
-    $edit_url = admin_url( 'admin.php?page=amap-groups&action=edit&id=' . $id );
+    // Même principe que amap_handle_update_subscription() : la présence de "redirect_to"
+    // distingue le formulaire front (espace bureau) de celui de wp-admin. $edit_url reste la page
+    // "Modifier les infos" (où rester en cas d'erreur) ; $view_url est la page de retour en cas de
+    // succès — la fiche du groupe côté front, la même page côté wp-admin (pas de fiche séparée).
+    $is_front_request = isset( $_POST['redirect_to'] );
+    $edit_url          = $is_front_request ? amap_get_board_group_edit_url( $id ) : admin_url( 'admin.php?page=amap-groups&action=edit&id=' . $id );
+    $view_url          = $is_front_request ? esc_url_raw( wp_unslash( $_POST['redirect_to'] ) ) : $edit_url;
 
     $name               = isset( $_POST['name'] ) ? sanitize_text_field( wp_unslash( $_POST['name'] ) ) : '';
     $delivery_place     = isset( $_POST['delivery_place'] ) ? sanitize_text_field( wp_unslash( $_POST['delivery_place'] ) ) : '';
@@ -1159,19 +681,19 @@ function amap_handle_update_group() {
     if ( '' === $name || '' === $delivery_place || ! array_key_exists( (int) $weekday, amap_get_weekday_labels() )
         || ! amap_is_valid_time( $start_time ) || ! amap_is_valid_time( $end_time ) ) {
         amap_store_group_form_data( $submitted );
-        wp_safe_redirect( $edit_url . '&amap_notice=invalid' );
+        wp_safe_redirect( add_query_arg( 'amap_notice', 'invalid', $edit_url ) );
         exit;
     }
 
     if ( $start_time >= $end_time ) {
         amap_store_group_form_data( $submitted );
-        wp_safe_redirect( $edit_url . '&amap_notice=invalid_time' );
+        wp_safe_redirect( add_query_arg( 'amap_notice', 'invalid_time', $edit_url ) );
         exit;
     }
 
     if ( '' !== $notification_email && ! is_email( $notification_email ) ) {
         amap_store_group_form_data( $submitted );
-        wp_safe_redirect( $edit_url . '&amap_notice=invalid_email' );
+        wp_safe_redirect( add_query_arg( 'amap_notice', 'invalid_email', $edit_url ) );
         exit;
     }
 
@@ -1189,7 +711,7 @@ function amap_handle_update_group() {
         array( 'id' => $id )
     );
 
-    wp_safe_redirect( $edit_url );
+    wp_safe_redirect( add_query_arg( 'amap_notice', 'updated', $view_url ) );
     exit;
 }
 
@@ -1207,10 +729,16 @@ function amap_handle_delete_group() {
 
     check_admin_referer( 'amap_delete_group_' . $id );
 
+    // Même principe que amap_handle_delete_user()/amap_handle_delete_subscription() : "Supprimer"
+    // est un lien, pas un formulaire posté, la page de retour arrive donc en paramètre d'URL.
+    $redirect_url = isset( $_GET['redirect_to'] ) ? esc_url_raw( wp_unslash( $_GET['redirect_to'] ) ) : admin_url( 'admin.php?page=amap-groups' );
+
     // Bloque plutôt que de supprimer en cascade : une souscription porte le group_id de son point
     // de retrait au moment de la signature (voir amap_create_tables()) — le supprimer laisserait
     // cette référence orpheline. Le bureau doit d'abord supprimer les souscriptions concernées
-    // depuis la page "Souscriptions".
+    // depuis la page "Souscriptions". Revalidé ici même si la page de confirmation front
+    // (amap_get_board_group_delete_data()) l'a déjà fait, au cas où ce lien serait atteint
+    // directement (favori, lien périmé).
     if ( amap_group_has_subscriptions( $id ) ) {
         wp_die( esc_html__( 'Suppression impossible : des souscriptions ont ce groupe comme point de retrait. Supprimez-les d\'abord depuis la page "Souscriptions".', 'association-manager' ) );
     }
@@ -1227,7 +755,7 @@ function amap_handle_delete_group() {
     $wpdb->delete( $wpdb->prefix . 'amap_distribution_volunteers', array( 'group_id' => $id ) );
     $wpdb->delete( $wpdb->prefix . 'amap_groups', array( 'id' => $id ) );
 
-    wp_safe_redirect( admin_url( 'admin.php?page=amap-groups' ) );
+    wp_safe_redirect( add_query_arg( 'amap_notice', 'deleted', $redirect_url ) );
     exit;
 }
 
@@ -1244,6 +772,10 @@ function amap_handle_update_group_producers() {
     }
 
     check_admin_referer( 'amap_update_group_producers_' . $group_id );
+
+    // Même principe que amap_handle_update_subscription() : le champ caché "redirect_to" indique
+    // l'URL de retour sur la fiche de CE groupe (front ou wp-admin).
+    $view_url = isset( $_POST['redirect_to'] ) ? esc_url_raw( wp_unslash( $_POST['redirect_to'] ) ) : admin_url( 'admin.php?page=amap-groups&action=edit&id=' . $group_id );
 
     // Défense en profondeur : on ne garde que des ID correspondant réellement à un compte
     // portant la casquette amap_producer, même si le HTML du formulaire ne propose que ça.
@@ -1263,7 +795,7 @@ function amap_handle_update_group_producers() {
         );
     }
 
-    wp_safe_redirect( admin_url( 'admin.php?page=amap-groups&action=edit&id=' . $group_id . '&amap_notice=producers_updated' ) );
+    wp_safe_redirect( add_query_arg( 'amap_notice', 'producers_updated', $view_url ) );
     exit;
 }
 
@@ -1288,7 +820,9 @@ function amap_handle_add_distribution_exception() {
 
     check_admin_referer( 'amap_add_distribution_exception_' . $group_id );
 
-    $edit_url = admin_url( 'admin.php?page=amap-groups&action=edit&id=' . $group_id );
+    // Même principe que amap_handle_add_leave() : le champ caché "redirect_to" indique la page
+    // de retour sur CE groupe (front ou wp-admin).
+    $edit_url = isset( $_POST['redirect_to'] ) ? esc_url_raw( wp_unslash( $_POST['redirect_to'] ) ) : admin_url( 'admin.php?page=amap-groups&action=edit&id=' . $group_id );
 
     $distribution_date  = isset( $_POST['distribution_date'] ) ? sanitize_text_field( wp_unslash( $_POST['distribution_date'] ) ) : '';
     $exception_type     = isset( $_POST['exception_type'] ) ? sanitize_key( wp_unslash( $_POST['exception_type'] ) ) : '';
@@ -1302,7 +836,7 @@ function amap_handle_add_distribution_exception() {
     if ( '' === $distribution_date || ! amap_is_valid_date( $distribution_date )
         || ! array_key_exists( $exception_type, amap_get_distribution_exception_type_labels() ) ) {
         amap_store_distribution_exception_form_data( $submitted );
-        wp_safe_redirect( $edit_url . '&amap_notice=exception_invalid' );
+        wp_safe_redirect( add_query_arg( 'amap_notice', 'exception_invalid', $edit_url ) );
         exit;
     }
 
@@ -1311,7 +845,7 @@ function amap_handle_add_distribution_exception() {
     // l'étape 8.
     if ( (int) ( new DateTime( $distribution_date ) )->format( 'N' ) !== ( (int) $group->weekday + 1 ) ) {
         amap_store_distribution_exception_form_data( $submitted );
-        wp_safe_redirect( $edit_url . '&amap_notice=exception_invalid_weekday' );
+        wp_safe_redirect( add_query_arg( 'amap_notice', 'exception_invalid_weekday', $edit_url ) );
         exit;
     }
 
@@ -1329,7 +863,7 @@ function amap_handle_add_distribution_exception() {
 
         if ( $has_new_date && ! amap_is_valid_date( $new_date ) ) {
             amap_store_distribution_exception_form_data( $submitted );
-            wp_safe_redirect( $edit_url . '&amap_notice=exception_invalid_moved' );
+            wp_safe_redirect( add_query_arg( 'amap_notice', 'exception_invalid_moved', $edit_url ) );
             exit;
         }
         $new_date = $has_new_date ? $new_date : null;
@@ -1339,7 +873,7 @@ function amap_handle_add_distribution_exception() {
                 || ! amap_is_valid_time( $new_start_time ) || ! amap_is_valid_time( $new_end_time )
                 || $new_start_time >= $new_end_time ) {
                 amap_store_distribution_exception_form_data( $submitted );
-                wp_safe_redirect( $edit_url . '&amap_notice=exception_invalid_moved' );
+                wp_safe_redirect( add_query_arg( 'amap_notice', 'exception_invalid_moved', $edit_url ) );
                 exit;
             }
         } else {
@@ -1353,14 +887,14 @@ function amap_handle_add_distribution_exception() {
         // pas une exception à la distribution normale du groupe.
         if ( ! $has_new_date && ! $has_new_time && ! $has_new_place ) {
             amap_store_distribution_exception_form_data( $submitted );
-            wp_safe_redirect( $edit_url . '&amap_notice=exception_invalid_moved' );
+            wp_safe_redirect( add_query_arg( 'amap_notice', 'exception_invalid_moved', $edit_url ) );
             exit;
         }
     }
 
     if ( amap_group_has_distribution_exception( $group_id, $distribution_date ) ) {
         amap_store_distribution_exception_form_data( $submitted );
-        wp_safe_redirect( $edit_url . '&amap_notice=exception_duplicate' );
+        wp_safe_redirect( add_query_arg( 'amap_notice', 'exception_duplicate', $edit_url ) );
         exit;
     }
 
@@ -1382,6 +916,10 @@ function amap_handle_add_distribution_exception() {
         )
     );
 
+    // La distribution normale n'a plus lieu à cette date (annulée, ou déplacée ailleurs) : les
+    // bénévoles qui y étaient inscrits n'ont plus de distribution à tenir à cette date.
+    amap_delete_distribution_volunteers_for_date( $group_id, $distribution_date );
+
     $new_exception = amap_get_distribution_exception( $wpdb->insert_id );
     if ( amap_notify_distribution_exception( $new_exception, $group, 'created' ) ) {
         $wpdb->update(
@@ -1391,7 +929,7 @@ function amap_handle_add_distribution_exception() {
         );
     }
 
-    wp_safe_redirect( $edit_url . '&amap_notice=exception_saved' );
+    wp_safe_redirect( add_query_arg( 'amap_notice', 'exception_saved', $edit_url ) );
     exit;
 }
 
@@ -1418,7 +956,10 @@ function amap_handle_update_distribution_exception() {
 
     check_admin_referer( 'amap_edit_distribution_exception_' . $id );
 
-    $edit_url = admin_url( 'admin.php?page=amap-groups&action=edit&id=' . $group_id );
+    // Même principe que amap_handle_update_subscription() : "redirect_to" indique la page de
+    // retour sur CE groupe (front ou wp-admin), utilisée en cas de succès ; $edit_notice_url reste
+    // sur l'édition de cette exception (rouverte) en cas d'erreur.
+    $edit_url = isset( $_POST['redirect_to'] ) ? esc_url_raw( wp_unslash( $_POST['redirect_to'] ) ) : admin_url( 'admin.php?page=amap-groups&action=edit&id=' . $group_id );
 
     $distribution_date  = isset( $_POST['distribution_date'] ) ? sanitize_text_field( wp_unslash( $_POST['distribution_date'] ) ) : '';
     $exception_type     = isset( $_POST['exception_type'] ) ? sanitize_key( wp_unslash( $_POST['exception_type'] ) ) : '';
@@ -1429,18 +970,24 @@ function amap_handle_update_distribution_exception() {
     $reason             = isset( $_POST['reason'] ) ? sanitize_textarea_field( wp_unslash( $_POST['reason'] ) ) : '';
     $submitted          = compact( 'distribution_date', 'exception_type', 'new_date', 'new_start_time', 'new_end_time', 'new_place', 'reason' );
 
-    $edit_notice_url = $edit_url . '&exception_action=edit&exception_id=' . $id;
+    $edit_notice_url = add_query_arg(
+        array(
+            'exception_action' => 'edit',
+            'exception_id'      => $id,
+        ),
+        $edit_url
+    );
 
     if ( '' === $distribution_date || ! amap_is_valid_date( $distribution_date )
         || ! array_key_exists( $exception_type, amap_get_distribution_exception_type_labels() ) ) {
         amap_store_distribution_exception_form_data( $submitted );
-        wp_safe_redirect( $edit_notice_url . '&amap_notice=exception_invalid' );
+        wp_safe_redirect( add_query_arg( 'amap_notice', 'exception_invalid', $edit_notice_url ) );
         exit;
     }
 
     if ( (int) ( new DateTime( $distribution_date ) )->format( 'N' ) !== ( (int) $group->weekday + 1 ) ) {
         amap_store_distribution_exception_form_data( $submitted );
-        wp_safe_redirect( $edit_notice_url . '&amap_notice=exception_invalid_weekday' );
+        wp_safe_redirect( add_query_arg( 'amap_notice', 'exception_invalid_weekday', $edit_notice_url ) );
         exit;
     }
 
@@ -1456,7 +1003,7 @@ function amap_handle_update_distribution_exception() {
 
         if ( $has_new_date && ! amap_is_valid_date( $new_date ) ) {
             amap_store_distribution_exception_form_data( $submitted );
-            wp_safe_redirect( $edit_notice_url . '&amap_notice=exception_invalid_moved' );
+            wp_safe_redirect( add_query_arg( 'amap_notice', 'exception_invalid_moved', $edit_notice_url ) );
             exit;
         }
         $new_date = $has_new_date ? $new_date : null;
@@ -1466,7 +1013,7 @@ function amap_handle_update_distribution_exception() {
                 || ! amap_is_valid_time( $new_start_time ) || ! amap_is_valid_time( $new_end_time )
                 || $new_start_time >= $new_end_time ) {
                 amap_store_distribution_exception_form_data( $submitted );
-                wp_safe_redirect( $edit_notice_url . '&amap_notice=exception_invalid_moved' );
+                wp_safe_redirect( add_query_arg( 'amap_notice', 'exception_invalid_moved', $edit_notice_url ) );
                 exit;
             }
         } else {
@@ -1478,14 +1025,14 @@ function amap_handle_update_distribution_exception() {
 
         if ( ! $has_new_date && ! $has_new_time && ! $has_new_place ) {
             amap_store_distribution_exception_form_data( $submitted );
-            wp_safe_redirect( $edit_notice_url . '&amap_notice=exception_invalid_moved' );
+            wp_safe_redirect( add_query_arg( 'amap_notice', 'exception_invalid_moved', $edit_notice_url ) );
             exit;
         }
     }
 
     if ( amap_group_has_distribution_exception( $group_id, $distribution_date, $id ) ) {
         amap_store_distribution_exception_form_data( $submitted );
-        wp_safe_redirect( $edit_notice_url . '&amap_notice=exception_duplicate' );
+        wp_safe_redirect( add_query_arg( 'amap_notice', 'exception_duplicate', $edit_notice_url ) );
         exit;
     }
 
@@ -1506,6 +1053,10 @@ function amap_handle_update_distribution_exception() {
         array( 'id' => $id )
     );
 
+    // Même principe qu'à la création : la date (éventuellement modifiée par ce formulaire) n'a
+    // plus de distribution normale, les bénévoles qui y étaient inscrits sont à retirer.
+    amap_delete_distribution_volunteers_for_date( $group_id, $distribution_date );
+
     $updated_exception = amap_get_distribution_exception( $id );
     if ( amap_notify_distribution_exception( $updated_exception, $group, 'updated' ) ) {
         $wpdb->update(
@@ -1515,7 +1066,7 @@ function amap_handle_update_distribution_exception() {
         );
     }
 
-    wp_safe_redirect( $edit_url . '&amap_notice=exception_saved' );
+    wp_safe_redirect( add_query_arg( 'amap_notice', 'exception_saved', $edit_url ) );
     exit;
 }
 
@@ -1534,6 +1085,9 @@ function amap_handle_delete_distribution_exception() {
 
     check_admin_referer( 'amap_delete_distribution_exception_' . $id );
 
+    // Même principe que amap_handle_delete_leave() : lien, pas formulaire posté.
+    $edit_url = isset( $_GET['redirect_to'] ) ? esc_url_raw( wp_unslash( $_GET['redirect_to'] ) ) : admin_url( 'admin.php?page=amap-groups&action=edit&id=' . $exception->group_id );
+
     $group = amap_get_group( $exception->group_id );
     if ( $group ) {
         amap_notify_distribution_exception( $exception, $group, 'deleted' );
@@ -1542,9 +1096,7 @@ function amap_handle_delete_distribution_exception() {
     global $wpdb;
     $wpdb->delete( $wpdb->prefix . 'amap_distribution_exceptions', array( 'id' => $id ) );
 
-    wp_safe_redirect(
-        admin_url( 'admin.php?page=amap-groups&action=edit&id=' . $exception->group_id . '&amap_notice=exception_deleted' )
-    );
+    wp_safe_redirect( add_query_arg( 'amap_notice', 'exception_deleted', $edit_url ) );
     exit;
 }
 
@@ -1568,7 +1120,9 @@ function amap_handle_add_distribution_volunteer() {
 
     check_admin_referer( 'amap_add_distribution_volunteer_' . $group_id );
 
-    $edit_url = admin_url( 'admin.php?page=amap-groups&action=edit&id=' . $group_id );
+    // Même principe que amap_handle_add_leave() : le champ caché "redirect_to" indique la page de
+    // retour sur CE groupe (front ou wp-admin).
+    $edit_url = isset( $_POST['redirect_to'] ) ? esc_url_raw( wp_unslash( $_POST['redirect_to'] ) ) : admin_url( 'admin.php?page=amap-groups&action=edit&id=' . $group_id );
 
     $distribution_date = isset( $_POST['distribution_date'] ) ? sanitize_text_field( wp_unslash( $_POST['distribution_date'] ) ) : '';
     $member_user_id     = isset( $_POST['member_user_id'] ) ? absint( $_POST['member_user_id'] ) : 0;
@@ -1576,15 +1130,16 @@ function amap_handle_add_distribution_volunteer() {
 
     if ( '' === $distribution_date || ! amap_is_valid_date( $distribution_date ) || ! $member_user_id ) {
         amap_store_distribution_volunteer_form_data( $submitted );
-        wp_safe_redirect( $edit_url . '&amap_notice=volunteer_invalid' );
+        wp_safe_redirect( add_query_arg( 'amap_notice', 'volunteer_invalid', $edit_url ) );
         exit;
     }
 
-    // Les distributions normales ne sont pas stockées ligne par ligne : la date doit tomber sur le
-    // jour de semaine fixe du groupe, même principe que les exceptions de distribution.
-    if ( (int) ( new DateTime( $distribution_date ) )->format( 'N' ) !== ( (int) $group->weekday + 1 ) ) {
+    // Contrairement aux exceptions (toujours ancrées sur le jour fixe du groupe), un bénévole doit
+    // pouvoir être inscrit sur la date réelle de la distribution : le jour habituel du groupe s'il
+    // n'est pas concerné par une exception, ou la nouvelle date d'une distribution déplacée.
+    if ( ! amap_group_distribution_date_is_valid( $group, $distribution_date ) ) {
         amap_store_distribution_volunteer_form_data( $submitted );
-        wp_safe_redirect( $edit_url . '&amap_notice=volunteer_invalid_weekday' );
+        wp_safe_redirect( add_query_arg( 'amap_notice', 'volunteer_invalid_weekday', $edit_url ) );
         exit;
     }
 
@@ -1598,16 +1153,16 @@ function amap_handle_add_distribution_volunteer() {
 
     if ( amap_group_distribution_has_volunteer( $group_id, $distribution_date, $member_user_id ) ) {
         amap_store_distribution_volunteer_form_data( $submitted );
-        wp_safe_redirect( $edit_url . '&amap_notice=volunteer_duplicate' );
+        wp_safe_redirect( add_query_arg( 'amap_notice', 'volunteer_duplicate', $edit_url ) );
         exit;
     }
 
     // Règle "2 à 3 bénévoles par distribution" (voir metier-producteurs.md) : seul le maximum de 3
-    // est bloquant, le minimum de 2 restant purement informatif à l'affichage (voir
-    // amap_render_groups_page()).
+    // est bloquant, le minimum de 2 restant purement informatif à l'affichage (badge "x/3" coloré,
+    // voir member-area-board-group-view.php dans le thème).
     if ( amap_count_group_distribution_volunteers( $group_id, $distribution_date ) >= 3 ) {
         amap_store_distribution_volunteer_form_data( $submitted );
-        wp_safe_redirect( $edit_url . '&amap_notice=volunteer_full' );
+        wp_safe_redirect( add_query_arg( 'amap_notice', 'volunteer_full', $edit_url ) );
         exit;
     }
 
@@ -1621,7 +1176,7 @@ function amap_handle_add_distribution_volunteer() {
         )
     );
 
-    wp_safe_redirect( $edit_url . '&amap_notice=volunteer_saved' );
+    wp_safe_redirect( add_query_arg( 'amap_notice', 'volunteer_saved', $edit_url ) );
     exit;
 }
 
@@ -1640,11 +1195,12 @@ function amap_handle_delete_distribution_volunteer() {
 
     check_admin_referer( 'amap_delete_distribution_volunteer_' . $id );
 
+    // Même principe que amap_handle_delete_leave() : lien, pas formulaire posté.
+    $edit_url = isset( $_GET['redirect_to'] ) ? esc_url_raw( wp_unslash( $_GET['redirect_to'] ) ) : admin_url( 'admin.php?page=amap-groups&action=edit&id=' . $volunteer->group_id );
+
     global $wpdb;
     $wpdb->delete( $wpdb->prefix . 'amap_distribution_volunteers', array( 'id' => $id ) );
 
-    wp_safe_redirect(
-        admin_url( 'admin.php?page=amap-groups&action=edit&id=' . $volunteer->group_id . '&amap_notice=volunteer_deleted' )
-    );
+    wp_safe_redirect( add_query_arg( 'amap_notice', 'volunteer_deleted', $edit_url ) );
     exit;
 }

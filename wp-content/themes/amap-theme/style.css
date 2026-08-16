@@ -1,7 +1,7 @@
 /*
 Theme Name: AMAP Theme
 Description: Thème minimal développé sur mesure pour le site de l'AMAP.
-Version: 0.3.9
+Version: 0.4.14
 Author: Association AMAP
 Text Domain: amap-theme
 */
@@ -66,6 +66,15 @@ body.amap-app {
 /* Reset minimal */
 * {
     box-sizing: border-box;
+}
+
+/* Sans ce !important, l'attribut hidden natif ne fait rien sur un élément dont une classe pose
+   déjà son propre display (ex. .amap-field { display: flex }) : une règle d'auteur l'emporte
+   toujours sur le style par défaut du navigateur ([hidden] { display: none }), quelle que soit la
+   spécificité — trouvé sur le champ "Groupe" du formulaire Ajouter un utilisateur (espace
+   bureau), resté visible alors que "Adhérent" n'était pas coché. */
+[hidden] {
+    display: none !important;
 }
 
 /* Contenu réservé aux lecteurs d'écran (ex. équivalent textuel d'une icône décorative) */
@@ -299,7 +308,8 @@ select:focus {
 button,
 input[type="submit"],
 .button-primary,
-.button-secondary {
+.button-secondary,
+.button-danger {
     display: inline-block;
     padding: var(--space-2) var(--space-4);
     border: 1px solid transparent;
@@ -330,11 +340,23 @@ input[type="submit"]:hover,
     border-color: var(--color-border);
 }
 
+/* Action destructrice (ex. "Supprimer définitivement" sur une page de confirmation de
+   suppression, espace bureau) : rouge plein, jamais utilisé pour une action anodine. */
+.button-danger {
+    background: var(--color-error);
+    color: #fff;
+}
+
+.button-danger:hover {
+    opacity: 0.85;
+}
+
 /* Espace membre : boutons plus compacts que le reste du site (maquettes), notamment "Déclarer un
    congé"/"Souscrire" au fil des cartes plutôt que des appels à l'action de page comme sur le site
    public. */
 body.amap-app .button-primary,
-body.amap-app .button-secondary {
+body.amap-app .button-secondary,
+body.amap-app .button-danger {
     padding: 0.5rem 0.9rem;
     border-radius: var(--radius-sm);
     font-size: 0.85rem;
@@ -369,6 +391,27 @@ body.amap-app .button-secondary {
     background: var(--color-info-bg);
     border-color: var(--color-info);
     color: var(--color-info);
+}
+
+.amap-notice--warning {
+    background: var(--color-warning-bg);
+    border-color: var(--color-warning);
+    color: var(--color-warning);
+}
+
+/* Rappel "Contrats arrivant à échéance" (espace bureau, toutes sections) : seul .amap-notice à
+   afficher une liste plutôt qu'une simple phrase. */
+.amap-notice__title {
+    margin: 0 0 var(--space-2);
+    font-weight: 700;
+}
+
+.amap-notice__list {
+    margin: 0;
+    padding-left: 1.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
 }
 
 /* Espace membre : "Mes infos" — accueil (Bonjour X + casquettes) + carte d'informations */
@@ -891,6 +934,7 @@ body.amap-app .amap-topbar {
        le remplacer, doublant l'espace au-dessus/en-dessous des onglets. */
     display: flex;
     flex-wrap: nowrap;
+    align-items: center;
     gap: var(--space-2);
     overflow-x: auto;
 }
@@ -914,6 +958,20 @@ body.amap-app .amap-topbar {
 .amap-nav-item.is-active {
     background: var(--color-primary);
     color: #fff;
+}
+
+/* Badge "Admin" de la nav : même gabarit que les autres onglets (.amap-nav-item, pas
+   .amap-role-badge — trop petit, pas iso avec ses voisins), teinte warning pour rester
+   identifiable comme un badge plutôt qu'un onglet de contenu comme les autres. */
+.amap-nav-item--admin {
+    background: var(--color-warning-bg);
+    color: var(--color-warning);
+}
+
+.amap-nav-item--admin:hover {
+    background: var(--color-warning-bg);
+    color: var(--color-warning);
+    opacity: 0.85;
 }
 
 /* Espace membre : liste des contrats de l'adhérent ("Mes contrats") */
@@ -1577,6 +1635,12 @@ details.amap-detail[open] > summary .icon {
     gap: var(--space-3);
 }
 
+/* Variante 3 colonnes (ex. jour/heure de début/heure de fin d'un groupe) — .amap-field-row reste
+   à 2 colonnes par défaut (cas largement majoritaire). */
+.amap-field-row--3 {
+    grid-template-columns: 1fr 1fr 1fr;
+}
+
 .amap-field {
     display: flex;
     flex-direction: column;
@@ -1596,9 +1660,11 @@ details.amap-detail[open] > summary .icon {
     color: var(--color-text-muted);
 }
 
-.amap-field input {
-    /* Même chose que .amap-field label ci-dessus, pour la marge globale du site sur <input>
-       (:where(input...) { margin-bottom: var(--space-3); ... }). */
+.amap-field input,
+.amap-field select,
+.amap-field textarea {
+    /* Même chose que .amap-field label ci-dessus, pour la marge globale du site sur <input>/
+       <select>/<textarea> (:where(input...), textarea, select { margin-bottom: var(--space-3); ... }). */
     margin: 0;
     width: 100%;
     max-width: none;
@@ -1607,13 +1673,53 @@ details.amap-detail[open] > summary .icon {
     border-radius: var(--radius-sm);
     font-size: 0.95rem;
     font-family: inherit;
-    background: var(--color-bg);
+    background: var(--color-surface);
     color: var(--color-text);
 }
 
-.amap-field input:focus-visible {
+.amap-field textarea {
+    resize: vertical;
+}
+
+/* Champ figé (ex. Adhérent en modification d'une souscription) : rendu visuellement distinct
+   d'un champ modifiable plutôt que de dépendre du style "disabled" par défaut du navigateur. */
+.amap-field input:disabled {
+    background: var(--color-bg-alt);
+    color: var(--color-text-muted);
+    cursor: not-allowed;
+}
+
+.amap-field input:focus-visible,
+.amap-field select:focus-visible,
+.amap-field textarea:focus-visible {
     outline: 2px solid var(--color-primary);
     outline-offset: 1px;
+}
+
+/* Rôles cumulables d'un utilisateur AMAP (espace bureau, section "Utilisateurs") : cases à
+   cocher masquées (.sr-only) + pastille stylée, même principe que .amap-date-option (Déclarer un
+   congé) plutôt que des cases à cocher brutes. */
+.amap-role-toggle {
+    display: flex;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+}
+
+.amap-role-toggle__option {
+    padding: 0.45rem 0.9rem;
+    border: 1px solid var(--color-border);
+    border-radius: 999px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--color-text-muted);
+    cursor: pointer;
+    background: var(--color-surface);
+}
+
+.amap-role-toggle__option.is-checked {
+    background: var(--color-primary);
+    border-color: var(--color-primary);
+    color: #fff;
 }
 
 .amap-field__hint {
@@ -1686,6 +1792,879 @@ ol {
 
 li {
     margin-bottom: var(--space-1);
+}
+
+/* Espace bureau : sous-navigation des 4 sections (member-area-board.php), hiérarchie volontairement
+   plus discrète que .amap-nav (soulignement plutôt que pastille pleine) pour se lire comme
+   "à l'intérieur" de l'onglet Espace bureau — même principe que .subtabs des maquettes. */
+.amap-subnav {
+    display: flex;
+    gap: var(--space-4);
+    overflow-x: auto;
+}
+
+.amap-subnav-item {
+    flex: none;
+    text-decoration: none;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--color-text-muted);
+    padding-bottom: var(--space-2);
+    border-bottom: 2px solid transparent;
+    white-space: nowrap;
+}
+
+.amap-subnav-item.is-active {
+    color: var(--color-text);
+    border-bottom-color: var(--color-primary);
+}
+
+/* Titre de section + action principale (ex. "Utilisateurs" + "+ Ajouter un utilisateur") — pas
+   .amap-page-head, réservée aux sous-pages avec lien retour (empilé, pas de bouton d'action). */
+.amap-list-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+}
+
+.amap-search-bar {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    padding: 0.6rem 0.9rem;
+}
+
+.amap-search-bar .icon {
+    color: var(--color-text-muted);
+}
+
+.amap-search-bar input {
+    /* Neutralise la marge globale du site sur <input> (:where(input...) { margin-bottom: ... }),
+       qui s'ajouterait sinon au gap de ce conteneur flex — même piège que .amap-field input. */
+    margin: 0;
+    border: none;
+    outline: none;
+    flex: 1;
+    max-width: none;
+    font: inherit;
+    background: transparent;
+    color: var(--color-text);
+}
+
+/* Liste compacte à lignes divisées, partagée par les 4 écrans du bureau (Utilisateurs, Groupes,
+   Contrats, Souscriptions) : un seul conteneur carte, chaque élément est une ligne séparée par un
+   filet, pas de carte individuelle par ligne — avec ~100 adhérents, une carte par ligne pesait
+   trop visuellement pour une simple liste de contacts. */
+.amap-admin-list {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-card);
+    overflow: hidden;
+}
+
+.amap-admin-row {
+    padding: var(--space-3) var(--space-4);
+    border-top: 1px solid var(--color-border);
+}
+
+.amap-admin-row:first-child {
+    border-top: none;
+}
+
+.amap-admin-row--restricted {
+    background: var(--color-bg-alt);
+}
+
+.amap-admin-row__top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+}
+
+.amap-admin-row__id {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+}
+
+.amap-admin-row__name {
+    font-weight: 700;
+}
+
+.amap-admin-row__actions {
+    display: flex;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+    font-size: 0.85rem;
+}
+
+.amap-admin-row__actions a {
+    text-decoration: none;
+    font-weight: 600;
+    color: var(--color-primary-dark);
+}
+
+.amap-admin-row__actions a.is-danger {
+    color: var(--color-error);
+}
+
+.amap-admin-row__meta {
+    margin: var(--space-1) 0 0;
+    font-size: 0.85rem;
+    color: var(--color-text-muted);
+}
+
+/* Souscriptions : contrat + producteur juste sous l'adhérent (2e palier de lecture), meta
+   (groupe/taille/date) resserrée contre cette ligne plutôt que le espacement habituel — les 2
+   lignes se lisent comme un seul bloc de détail sous l'identité de l'adhérent. */
+.amap-admin-row__contract {
+    margin: var(--space-1) 0 0;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--color-text);
+}
+
+.amap-admin-row__producer {
+    font-weight: 400;
+    color: var(--color-text-muted);
+}
+
+.amap-admin-row__contract + .amap-admin-row__meta {
+    margin-top: 0.15rem;
+}
+
+/* Barre de recherche + filtre par contrat (section "Souscriptions") : un seul formulaire, le
+   filtre se soumet en direct au changement (onchange="this.form.submit()"), la recherche au
+   submit habituel (Entrée). */
+.amap-filters-row {
+    display: flex;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+}
+
+.amap-filters-row .amap-search-bar {
+    flex: 1;
+    min-width: 14rem;
+}
+
+.amap-contract-filter {
+    /* Un <select> natif se dimensionne sur son option la plus longue quel que soit min-width (les
+       libellés de contrat peuvent être longs) : une largeur explicite est nécessaire, sinon il
+       écrase la barre de recherche à côté (flex:1 ne lui laisse alors presque plus de place). */
+    flex: 0 0 auto;
+    width: 15rem;
+    padding: 0.6rem 0.9rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    background: var(--color-surface);
+    color: var(--color-text);
+    font: inherit;
+}
+
+/* Rôle : mêmes teintes que les composants déjà établis ailleurs (panier = vert primaire, grille =
+   orange accent) ; "Bureau" réutilise le bleu info, jusqu'ici seulement utilisé pour le statut
+   "à venir" d'un contrat, jamais pour un badge de rôle. */
+.amap-role-badge {
+    display: inline-block;
+    padding: 0.2rem 0.6rem;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+/* .amap-page-head est en colonne (align-items:stretch par défaut) : sans ça, le badge s'étire
+   sur toute la largeur au lieu de rester une pastille compacte — même bug que le bouton
+   "Modifier les infos" plus haut dans ce fichier. Ciblé au contexte fiche producteur : ne touche
+   pas .amap-role-badge dans .amap-admin-row__id (ligne Utilisateurs), où l'alignement vertical
+   centré actuel reste correct. */
+.amap-page-head > .amap-role-badge {
+    align-self: flex-start;
+}
+
+.amap-role-badge--member {
+    background: var(--color-primary-bg);
+    color: var(--color-primary-dark);
+}
+
+.amap-role-badge--producer {
+    background: var(--color-accent-bg);
+    color: var(--color-accent-dark);
+}
+
+.amap-role-badge--board {
+    background: var(--color-info-bg);
+    color: var(--color-info);
+}
+
+/* Compte administrateur WordPress (section "Utilisateurs") : badge plutôt qu'une phrase sous la
+   ligne — teinte "warning", distincte des 3 rôles cumulables ci-dessus, pour signaler un état à
+   part (modification/suppression indisponibles ici) sans phrase d'explication séparée. */
+.amap-role-badge--admin {
+    background: var(--color-warning-bg);
+    color: var(--color-warning);
+}
+
+/* Statut de paiement d'une souscription (espace bureau) : vert si payé, neutre sinon (pas rouge —
+   "non payé" n'est pas forcément un problème, juste un état). */
+.amap-paid-badge {
+    display: inline-block;
+    padding: 0.2rem 0.6rem;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.amap-paid-badge--yes {
+    background: var(--color-success-bg);
+    color: var(--color-success);
+}
+
+.amap-paid-badge--no {
+    background: var(--color-bg-alt);
+    color: var(--color-text-muted);
+}
+
+.amap-pagination {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    font-size: 0.85rem;
+    color: var(--color-text-muted);
+    font-variant-numeric: tabular-nums;
+}
+
+.amap-pagination__nav {
+    display: flex;
+    gap: var(--space-2);
+}
+
+.amap-pagination__btn {
+    width: 2rem;
+    height: 2rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    background: var(--color-surface);
+    color: var(--color-text);
+    text-decoration: none;
+}
+
+.amap-pagination__btn--next {
+    transform: scaleX(-1);
+}
+
+.amap-pagination__btn.is-disabled {
+    opacity: 0.4;
+}
+
+/* Page de confirmation de suppression (espace bureau, les 4 écrans) : page dédiée plutôt qu'un
+   confirm() JS natif, avec un état "bloqué" (fond neutre, pas de bouton de suppression) quand une
+   règle métier empêche la suppression. */
+.amap-danger-card {
+    display: flex;
+    gap: var(--space-3);
+    padding: var(--space-4);
+    border-radius: var(--radius);
+    background: var(--color-error-bg);
+}
+
+.amap-danger-card .icon {
+    flex-shrink: 0;
+    margin-top: 0.15em;
+    color: var(--color-error);
+}
+
+.amap-danger-card p {
+    margin: 0;
+}
+
+.amap-danger-card .amap-danger-card__title {
+    font-weight: 700;
+    color: var(--color-error);
+    margin-bottom: var(--space-1);
+}
+
+.amap-danger-card p:last-child {
+    color: var(--color-text);
+}
+
+.amap-danger-card--blocked {
+    background: var(--color-bg-alt);
+}
+
+.amap-danger-card--blocked .icon {
+    color: var(--color-text-muted);
+}
+
+.amap-danger-card--blocked .amap-danger-card__title {
+    color: var(--color-text);
+}
+
+/* Champ "Adhérent" cherchable (texte + liste filtrée en direct), section "Souscriptions" de
+   l'espace bureau : remplace un <select> d'environ 200 noms, trop long à parcourir. Même principe
+   que .amap-field pour l'input (bordure/rayon/police cohérents avec le reste du formulaire). */
+.amap-combo {
+    position: relative;
+}
+
+.amap-combo__list {
+    position: absolute;
+    top: calc(100% + var(--space-1));
+    left: 0;
+    right: 0;
+    z-index: 5;
+    margin: 0;
+    padding: var(--space-1) 0;
+    list-style: none;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    box-shadow: var(--shadow-card);
+    max-height: 220px;
+    overflow-y: auto;
+}
+
+.amap-combo__list li {
+    padding: 0.5rem 0.9rem;
+    font-size: 0.9rem;
+    cursor: pointer;
+}
+
+.amap-combo__list li.is-active {
+    background: var(--color-bg-alt);
+}
+
+.amap-combo__list mark {
+    background: none;
+    color: var(--color-primary-dark);
+    font-weight: 700;
+}
+
+.amap-field--inline {
+    justify-content: flex-end;
+}
+
+.amap-checkbox-field {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--color-text);
+    cursor: pointer;
+}
+
+.amap-checkbox-field input {
+    width: auto;
+}
+
+/* "Montant dû" (résumé de prix) et "Congés", formulaire "Modifier une souscription" (espace
+   bureau) : même carte que .amap-profile-form, sous le formulaire plutôt que dedans. */
+.amap-summary-card,
+.amap-leave-section {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+    padding: var(--space-4);
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-card);
+}
+
+.amap-summary-card h3,
+.amap-leave-section h3 {
+    margin: 0;
+    font-size: 1rem;
+}
+
+.amap-leave-count {
+    margin: 0;
+    font-size: 0.85rem;
+    color: var(--color-text-muted);
+}
+
+.amap-leave-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.amap-leave-list li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    padding: var(--space-2) 0;
+    border-top: 1px solid var(--color-border);
+    font-size: 0.9rem;
+}
+
+.amap-leave-list li:first-child {
+    border-top: none;
+}
+
+.amap-leave-list a {
+    text-decoration: none;
+    font-weight: 600;
+    color: var(--color-error);
+    font-size: 0.85rem;
+}
+
+/* Empilé (label puis cases de date puis bouton) plutôt qu'en ligne : depuis le passage aux mêmes
+   cases jour/date que "Déclarer un congé" (.amap-date-options, souvent sur plusieurs lignes), un
+   agencement en ligne avec align-items:flex-end désalignait le bouton par rapport à une grille de
+   plusieurs rangées. */
+.amap-leave-add-form {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-3);
+}
+
+.amap-leave-add-form .amap-field {
+    width: 100%;
+}
+
+/* Fiche groupe (espace bureau) : 3 accordéons repliés par défaut (Producteurs rattachés,
+   Exceptions de distribution, Bénévoles de distribution) — même principe que <details>/<summary>
+   natif déjà utilisé ailleurs (.amap-detail), chevron qui pivote à l'ouverture. */
+.amap-disclosure {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-card);
+    padding: var(--space-4);
+}
+
+.amap-disclosure > summary {
+    cursor: pointer;
+    font-weight: 700;
+    font-size: 1rem;
+    list-style: none;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+}
+
+.amap-disclosure > summary::-webkit-details-marker {
+    display: none;
+}
+
+.amap-disclosure > summary .icon {
+    color: var(--color-text-muted);
+    transition: transform 0.15s;
+}
+
+.amap-disclosure[open] > summary {
+    margin-bottom: var(--space-3);
+}
+
+.amap-disclosure[open] > summary .icon {
+    transform: rotate(180deg);
+}
+
+.amap-disclosure__body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+}
+
+.amap-disclosure__body h3 {
+    margin: 0;
+    font-size: 0.95rem;
+}
+
+.amap-disclosure__hint {
+    margin: 0;
+    font-size: 0.85rem;
+    color: var(--color-text-muted);
+}
+
+/* "Producteurs rattachés" : une case à cocher par producteur + lien vers sa fiche wp-admin. */
+.amap-checklist-form {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-2);
+}
+
+.amap-checklist-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    font-size: 0.9rem;
+    font-weight: 400;
+    width: 100%;
+}
+
+/* Regroupe case à cocher + nom pour que "Voir la fiche" reste seul contre le bord droit
+   (justify-content: space-between ci-dessus), aligné d'une ligne à l'autre quelle que soit la
+   longueur du nom. */
+.amap-checklist-item__main {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.amap-checklist-item input {
+    width: auto;
+    margin: 0;
+}
+
+.amap-checklist-item a {
+    font-size: 0.8rem;
+    color: var(--color-primary-dark);
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+/* "Exceptions de distribution" : une ligne par exception (date + type + détails + motif). */
+.amap-exception-list {
+    display: flex;
+    flex-direction: column;
+}
+
+.amap-exception-row {
+    padding: var(--space-3) 0;
+    border-top: 1px solid var(--color-border);
+}
+
+.amap-exception-row:first-child {
+    border-top: none;
+}
+
+.amap-exception-row__top {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+}
+
+.amap-exception-row__date {
+    font-weight: 700;
+    font-size: 0.95rem;
+}
+
+.amap-exception-row__meta {
+    margin: var(--space-1) 0 0;
+    font-size: 0.85rem;
+    color: var(--color-text-muted);
+}
+
+.amap-exception-row__actions {
+    display: flex;
+    gap: var(--space-3);
+    margin-top: var(--space-1);
+    font-size: 0.85rem;
+}
+
+.amap-exception-row__actions a {
+    text-decoration: none;
+    font-weight: 600;
+    color: var(--color-primary-dark);
+}
+
+.amap-exception-row__actions a.is-danger {
+    color: var(--color-error);
+}
+
+/* "Bénévoles de distribution" : une ligne par distribution (pas par bénévole), même principe que
+   Amap_Distribution_Volunteers_List_Table côté wp-admin — les 2-3 bénévoles d'une même
+   distribution restent groupés dans une seule ligne plutôt que répétés. */
+.amap-volunteer-list {
+    display: flex;
+    flex-direction: column;
+}
+
+.amap-volunteer-row {
+    padding: var(--space-3) 0;
+    border-top: 1px solid var(--color-border);
+}
+
+.amap-volunteer-row:first-child {
+    border-top: none;
+}
+
+.amap-volunteer-row__top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+}
+
+.amap-volunteer-row__date {
+    font-weight: 700;
+    font-size: 0.95rem;
+}
+
+.amap-volunteer-count {
+    display: inline-block;
+    padding: 0.2rem 0.6rem;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.amap-volunteer-count--ok {
+    background: var(--color-success-bg);
+    color: var(--color-success);
+}
+
+.amap-volunteer-count--low {
+    background: var(--color-error-bg);
+    color: var(--color-error);
+}
+
+.amap-volunteer-names {
+    list-style: none;
+    margin: var(--space-1) 0 0;
+    padding: 0;
+    font-size: 0.85rem;
+}
+
+.amap-volunteer-names li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.2rem 0;
+    gap: var(--space-2);
+}
+
+.amap-volunteer-names a {
+    text-decoration: none;
+    font-weight: 600;
+    color: var(--color-error);
+    font-size: 0.8rem;
+}
+
+/* Formulaires nichés dans un accordéon (ajout/modif d'exception, ajout de bénévole) : pas de
+   fond/bordure propre (déjà porté par .amap-disclosure autour), seulement l'espacement vertical
+   entre champs — même principe que .amap-leave-add-form, sinon les champs (et le dernier vers les
+   boutons) restent collés faute de marge par défaut sur .amap-field/.amap-field-row. */
+.amap-exception-form,
+.amap-volunteer-form,
+.amap-mini-form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+    margin-top: var(--space-3);
+}
+
+/* Statut d'un contrat (actif/inactif à la souscription) : vert si actif, neutre sinon — même
+   principe que .amap-paid-badge (un statut fermé n'est pas un problème, juste un état). */
+.amap-status-pill {
+    display: inline-block;
+    padding: 0.2rem 0.6rem;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.amap-status-pill--active {
+    background: var(--color-success-bg);
+    color: var(--color-success);
+}
+
+.amap-status-pill--inactive {
+    background: var(--color-bg-alt);
+    color: var(--color-text-muted);
+}
+
+/* Sous-listes des contrats (tailles de panier, familles de remise, catalogue produits) : lignes
+   compactes, plus denses que .amap-admin-list (pas de recherche/pagination, souvent une poignée
+   d'éléments). */
+.amap-mini-list {
+    display: flex;
+    flex-direction: column;
+}
+
+.amap-mini-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--space-2) var(--space-3);
+    padding: var(--space-2) 0;
+    border-top: 1px solid var(--color-border);
+    font-size: 0.9rem;
+}
+
+.amap-mini-row:first-child {
+    border-top: none;
+}
+
+.amap-mini-row__label {
+    font-weight: 600;
+}
+
+.amap-mini-row__value {
+    color: var(--color-text-muted);
+    margin-right: auto;
+}
+
+.amap-mini-row__actions {
+    display: flex;
+    gap: var(--space-3);
+    font-size: 0.85rem;
+    white-space: nowrap;
+}
+
+.amap-mini-row__actions a {
+    text-decoration: none;
+    font-weight: 600;
+    color: var(--color-primary-dark);
+}
+
+.amap-mini-row__actions a.is-danger {
+    color: var(--color-error);
+}
+
+/* Variante "ligne entièrement cliquable" (fiche producteur en lecture seule : chaque ligne
+   groupe/contrat mène directement à sa vraie fiche, pas d'actions Modifier/Supprimer séparées ici
+   puisque cette page n'en propose aucune). */
+.amap-mini-row--link {
+    text-decoration: none;
+    color: inherit;
+    border-radius: var(--radius-sm);
+    margin: 0 calc(-1 * var(--space-2));
+    padding-left: var(--space-2);
+    padding-right: var(--space-2);
+}
+
+.amap-mini-row--link:hover {
+    background: var(--color-bg-alt);
+}
+
+.amap-mini-row__chevron {
+    color: var(--color-text-muted);
+    transform: scaleX(-1);
+}
+
+/* "Dates de livraison" : un accordéon imbriqué par groupe de distribution du producteur (dans
+   l'accordéon "Dates de livraison" lui-même). Fond distinct ("sunken") + bordure + rayon propres
+   (pas juste un filet de séparation) pour que chaque groupe se lise comme sa propre carte
+   cliquable — sans ça, rien ne distinguait visuellement l'en-tête d'un simple texte, ce qui
+   masquait qu'il fallait cliquer dessus pour afficher les dates. */
+.amap-delivery-group {
+    background: var(--color-bg-alt);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    padding: var(--space-3);
+}
+
+.amap-delivery-group + .amap-delivery-group {
+    margin-top: var(--space-3);
+}
+
+.amap-delivery-group > summary {
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 0.9rem;
+    list-style: none;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+}
+
+.amap-delivery-group > summary::-webkit-details-marker {
+    display: none;
+}
+
+.amap-delivery-group > summary .icon {
+    color: var(--color-text-muted);
+    transition: transform 0.15s;
+}
+
+.amap-delivery-group[open] > summary {
+    margin-bottom: var(--space-3);
+}
+
+.amap-delivery-group[open] > summary .icon {
+    transform: rotate(180deg);
+}
+
+.amap-checkbox-date-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    font-size: 0.9rem;
+}
+
+.amap-checkbox-date-list li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+}
+
+.amap-checkbox-date-list label {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-weight: 400;
+}
+
+.amap-checkbox-date-list input {
+    width: auto;
+    margin: 0;
+}
+
+.amap-checkbox-date-list__actions {
+    display: flex;
+    gap: var(--space-3);
+    font-size: 0.85rem;
+    white-space: nowrap;
+}
+
+.amap-checkbox-date-list__actions a {
+    text-decoration: none;
+    font-weight: 600;
+    color: var(--color-primary-dark);
+}
+
+.amap-checkbox-date-list__actions a.is-danger {
+    color: var(--color-error);
+}
+
+/* Aide au "cochage" avant génération en masse des dates de livraison (ex. "une semaine sur 2") :
+   purement cosmétique côté client, le serveur ne traite que les cases réellement cochées à la
+   soumission. */
+.amap-frequency-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: 0.85rem;
+}
+
+.amap-frequency-row input {
+    width: 4rem;
+    margin: 0;
 }
 
 /* Toujours en dernier dans ce fichier : à spécificité égale, une règle plus tardive dans la
@@ -1771,14 +2750,33 @@ li {
     }
 
     .amap-form-actions .button-primary,
-    .amap-form-actions .button-secondary {
+    .amap-form-actions .button-secondary,
+    .amap-form-actions .button-danger {
         width: 100%;
         text-align: center;
     }
 
     /* "Modifier mes informations" : Nom/Prénom passent l'un sous l'autre plutôt que compressés
        côte à côte. */
-    .amap-field-row {
+    .amap-field-row,
+    .amap-field-row--3 {
         grid-template-columns: 1fr;
+    }
+
+    /* Formulaire d'ajout de congé (espace bureau, formulaire Modifier une souscription) : bouton
+       pleine largeur, cible tactile plus confortable (déjà empilé par défaut, voir plus haut). */
+    .amap-leave-add-form {
+        align-items: stretch;
+    }
+
+    /* Recherche + filtre par contrat (section "Souscriptions") : empilés plutôt que compressés
+       côte à côte. */
+    .amap-filters-row {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .amap-contract-filter {
+        width: 100%;
     }
 }

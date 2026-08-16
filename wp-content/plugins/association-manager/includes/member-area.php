@@ -25,6 +25,31 @@ function amap_hide_admin_bar_on_member_area( $show ) {
     return $show;
 }
 
+add_action( 'admin_bar_menu', 'amap_add_member_area_admin_bar_link', 100 );
+
+/**
+ * Lien retour vers l'espace membre front dans la barre d'outils WordPress, visible partout
+ * (y compris en wp-admin) — pendant réciproque du lien "Espace bureau" (member-area-nav.php, qui
+ * va de l'espace membre vers wp-admin) : un bureau cumule très souvent aussi la casquette
+ * adhérent ou producteur, et navigue entre les deux univers. N'apparaît jamais sur la page
+ * "Espace adhérent" elle-même, dont la barre d'outils est déjà entièrement masquée (voir
+ * amap_hide_admin_bar_on_member_area() ci-dessus).
+ */
+function amap_add_member_area_admin_bar_link( $wp_admin_bar ) {
+    $user = wp_get_current_user();
+    if ( ! array_intersect( array( 'amap_member', 'amap_producer', 'amap_board' ), (array) $user->roles ) ) {
+        return;
+    }
+
+    $wp_admin_bar->add_node(
+        array(
+            'id'    => 'amap-member-area',
+            'title' => esc_html__( 'Mon espace membre', 'association-manager' ),
+            'href'  => amap_get_member_area_url(),
+        )
+    );
+}
+
 add_action( 'template_redirect', 'amap_maybe_render_member_area', 5 );
 
 /**
@@ -47,12 +72,18 @@ function amap_maybe_render_member_area() {
     // particulière : accessibles dès qu'au moins une casquette AMAP est portée.
     $is_amap_user     = $is_member || $is_producer || $is_board;
     $can_manage_users = current_user_can( 'amap_manage_users' );
+    // La barre d'outils WordPress est entièrement masquée sur cette page (amap_hide_admin_bar_on_member_area()) :
+    // un administrateur WordPress n'a donc plus aucun moyen de revenir vers wp-admin depuis ici,
+    // d'où ce badge dédié dans la nav (member-area-nav.php), réservé à ce rôle précis.
+    $is_wp_admin      = current_user_can( 'manage_options' );
     $action           = isset( $_GET['amap_member_action'] ) ? sanitize_key( wp_unslash( $_GET['amap_member_action'] ) ) : '';
     $notice           = isset( $_GET['amap_member_notice'] ) ? sanitize_key( wp_unslash( $_GET['amap_member_notice'] ) ) : '';
 
     // Un onglet par casquette portée (dans cet ordre de priorité par défaut), plus "profile"
-    // toujours accessible dès qu'au moins une casquette AMAP est portée. "Espace bureau" n'est
-    // pas un onglet : lien direct vers wp-admin (member-area-nav.php).
+    // toujours accessible dès qu'au moins une casquette AMAP est portée. "Espace bureau" migre
+    // progressivement de wp-admin vers cet onglet, section par section (voir
+    // member-area-board.php) : pour l'instant seule "Utilisateurs" y a du contenu réel, les 3
+    // autres sections restent des liens directs vers wp-admin le temps d'être migrées à leur tour.
     $available_tabs = array();
     if ( $is_member ) {
         $available_tabs[] = 'member';
@@ -60,11 +91,86 @@ function amap_maybe_render_member_area() {
     if ( $is_producer ) {
         $available_tabs[] = 'producer';
     }
+    if ( $can_manage_users ) {
+        $available_tabs[] = 'board';
+    }
     if ( $is_amap_user ) {
         $available_tabs[] = 'profile';
     }
     $requested_tab = isset( $_GET['amap_tab'] ) ? sanitize_key( wp_unslash( $_GET['amap_tab'] ) ) : '';
     $tab           = in_array( $requested_tab, $available_tabs, true ) ? $requested_tab : reset( $available_tabs );
+
+    $can_manage_subscriptions = current_user_can( 'amap_manage_subscriptions' );
+    $can_manage_groups        = current_user_can( 'amap_manage_groups' );
+    $can_manage_contracts     = current_user_can( 'amap_manage_contracts' );
+
+    // Sous-section de l'onglet "Espace bureau" ("Utilisateurs"/"Souscriptions"/"Groupes"/"Contrats")
+    // et action éventuelle dessus (ajout/modification/suppression, chacune sur sa propre page
+    // plutôt qu'un panneau repliable — voir project_espace_bureau_design_consolide).
+    $board_section = isset( $_GET['amap_board_section'] ) ? sanitize_key( wp_unslash( $_GET['amap_board_section'] ) ) : 'users';
+    if ( ! in_array( $board_section, array( 'users', 'subscriptions', 'groups', 'contracts' ), true ) ) {
+        $board_section = 'users';
+    }
+    $board_action = isset( $_GET['amap_board_action'] ) ? sanitize_key( wp_unslash( $_GET['amap_board_action'] ) ) : '';
+
+    $board_user_form_data = null;
+    if ( $can_manage_users && 'board' === $tab && 'users' === $board_section && in_array( $board_action, array( 'add_user', 'edit_user' ), true ) ) {
+        $board_user_form_data = amap_get_board_user_form_data( 'edit_user' === $board_action ? absint( $_GET['id'] ?? 0 ) : 0 );
+    }
+
+    $board_user_delete_data = null;
+    if ( $can_manage_users && 'board' === $tab && 'users' === $board_section && 'delete_user' === $board_action ) {
+        $board_user_delete_data = amap_get_board_user_delete_data( absint( $_GET['id'] ?? 0 ) );
+    }
+
+    // Fiche producteur en lecture seule : rattachée à la section "Utilisateurs" (même capability),
+    // mais atteignable aussi depuis un lien sur la fiche groupe (amap_get_board_producer_profile_url()) —
+    // $board_section n'a donc pas besoin de valoir 'users' ici, contrairement aux autres actions de
+    // cette section.
+    $board_producer_profile_data = null;
+    if ( $can_manage_users && 'board' === $tab && 'view_producer_profile' === $board_action ) {
+        $board_producer_profile_data = amap_get_board_producer_profile_data( absint( $_GET['id'] ?? 0 ) );
+    }
+
+    $board_subscription_form_data = null;
+    if ( $can_manage_subscriptions && 'board' === $tab && 'subscriptions' === $board_section && in_array( $board_action, array( 'add_subscription', 'edit_subscription' ), true ) ) {
+        $board_subscription_form_data = amap_get_board_subscription_form_data( 'edit_subscription' === $board_action ? absint( $_GET['id'] ?? 0 ) : 0 );
+    }
+
+    $board_subscription_delete_data = null;
+    if ( $can_manage_subscriptions && 'board' === $tab && 'subscriptions' === $board_section && 'delete_subscription' === $board_action ) {
+        $board_subscription_delete_data = amap_get_board_subscription_delete_data( absint( $_GET['id'] ?? 0 ) );
+    }
+
+    $board_group_form_data = null;
+    if ( $can_manage_groups && 'board' === $tab && 'groups' === $board_section && in_array( $board_action, array( 'add_group', 'edit_group' ), true ) ) {
+        $board_group_form_data = amap_get_board_group_form_data( 'edit_group' === $board_action ? absint( $_GET['id'] ?? 0 ) : 0 );
+    }
+
+    $board_group_delete_data = null;
+    if ( $can_manage_groups && 'board' === $tab && 'groups' === $board_section && 'delete_group' === $board_action ) {
+        $board_group_delete_data = amap_get_board_group_delete_data( absint( $_GET['id'] ?? 0 ) );
+    }
+
+    $board_group_view_data = null;
+    if ( $can_manage_groups && 'board' === $tab && 'groups' === $board_section && 'view_group' === $board_action ) {
+        $board_group_view_data = amap_get_board_group_view_data( absint( $_GET['id'] ?? 0 ) );
+    }
+
+    $board_contract_form_data = null;
+    if ( $can_manage_contracts && 'board' === $tab && 'contracts' === $board_section && in_array( $board_action, array( 'add_contract', 'edit_contract' ), true ) ) {
+        $board_contract_form_data = amap_get_board_contract_form_data( 'edit_contract' === $board_action ? absint( $_GET['id'] ?? 0 ) : 0 );
+    }
+
+    $board_contract_delete_data = null;
+    if ( $can_manage_contracts && 'board' === $tab && 'contracts' === $board_section && 'delete_contract' === $board_action ) {
+        $board_contract_delete_data = amap_get_board_contract_delete_data( absint( $_GET['id'] ?? 0 ) );
+    }
+
+    $board_contract_view_data = null;
+    if ( $can_manage_contracts && 'board' === $tab && 'contracts' === $board_section && 'view_contract' === $board_action ) {
+        $board_contract_view_data = amap_get_board_contract_view_data( absint( $_GET['id'] ?? 0 ) );
+    }
 
     // Le formulaire de souscription valide (et wp_die()/redirige si besoin) AVANT tout affichage
     // — même principe que amap_maybe_render_magic_link_confirmation() — pour ne jamais laisser
@@ -105,18 +211,44 @@ function amap_maybe_render_member_area() {
         get_template_part( 'template-parts/login/member-area-subscribe', null, $subscribe_form_data );
     } elseif ( $leave_form_data ) {
         get_template_part( 'template-parts/login/member-area-leave', null, $leave_form_data );
+    } elseif ( $board_user_form_data ) {
+        get_template_part( 'template-parts/login/member-area-board-user-form', null, $board_user_form_data );
+    } elseif ( $board_user_delete_data ) {
+        get_template_part( 'template-parts/login/member-area-board-user-delete', null, $board_user_delete_data );
+    } elseif ( $board_producer_profile_data ) {
+        get_template_part( 'template-parts/login/member-area-board-producer-profile', null, $board_producer_profile_data );
+    } elseif ( $board_subscription_form_data ) {
+        get_template_part( 'template-parts/login/member-area-board-subscription-form', null, $board_subscription_form_data );
+    } elseif ( $board_subscription_delete_data ) {
+        get_template_part( 'template-parts/login/member-area-board-subscription-delete', null, $board_subscription_delete_data );
+    } elseif ( $board_group_form_data ) {
+        get_template_part( 'template-parts/login/member-area-board-group-form', null, $board_group_form_data );
+    } elseif ( $board_group_delete_data ) {
+        get_template_part( 'template-parts/login/member-area-board-group-delete', null, $board_group_delete_data );
+    } elseif ( $board_group_view_data ) {
+        get_template_part( 'template-parts/login/member-area-board-group-view', null, $board_group_view_data );
+    } elseif ( $board_contract_form_data ) {
+        get_template_part( 'template-parts/login/member-area-board-contract-form', null, $board_contract_form_data );
+    } elseif ( $board_contract_delete_data ) {
+        get_template_part( 'template-parts/login/member-area-board-contract-delete', null, $board_contract_delete_data );
+    } elseif ( $board_contract_view_data ) {
+        get_template_part( 'template-parts/login/member-area-board-contract-view', null, $board_contract_view_data );
     } else {
         get_template_part(
             'template-parts/login/member-area',
             null,
             array(
-                'is_member'        => $is_member,
-                'is_producer'      => $is_producer,
-                'is_board'         => $is_board,
-                'is_amap_user'     => $is_amap_user,
-                'can_manage_users' => $can_manage_users,
-                'tab'              => $tab,
-                'notice'           => $notice,
+                'is_member'            => $is_member,
+                'is_producer'          => $is_producer,
+                'is_board'             => $is_board,
+                'is_amap_user'         => $is_amap_user,
+                'can_manage_users'     => $can_manage_users,
+                'can_manage_groups'    => $can_manage_groups,
+                'can_manage_contracts' => $can_manage_contracts,
+                'is_wp_admin'          => $is_wp_admin,
+                'tab'                  => $tab,
+                'board_section'        => $board_section,
+                'notice'               => $notice,
             )
         );
     }
@@ -125,6 +257,939 @@ function amap_maybe_render_member_area() {
     <?php
     get_footer( 'app' );
     exit;
+}
+
+/**
+ * Utilisateurs AMAP pour la section "Utilisateurs" de l'onglet "Espace bureau"
+ * (member-area-board-users.php) — même requête que Amap_Users_List_Table::prepare_items() côté
+ * wp-admin, réécrite sans WP_List_Table (réservée à wp-admin). Pas de tri par colonne cliquable
+ * ici (la maquette n'en prévoit pas) : toujours trié par nom de famille.
+ */
+function amap_get_board_users_list_data() {
+    $per_page     = 20;
+    $current_page = max( 1, isset( $_GET['amap_board_page'] ) ? absint( $_GET['amap_board_page'] ) : 1 );
+    $search       = isset( $_GET['amap_board_search'] ) ? sanitize_text_field( wp_unslash( $_GET['amap_board_search'] ) ) : '';
+
+    $query_args = array(
+        'role__in' => array( 'amap_member', 'amap_producer', 'amap_board' ),
+        'number'   => $per_page,
+        'paged'    => $current_page,
+        'orderby'  => 'meta_value',
+        'meta_key' => 'last_name',
+        'order'    => 'ASC',
+    );
+
+    if ( '' !== $search ) {
+        $query_args['search']         = '*' . $search . '*';
+        $query_args['search_columns'] = array( 'user_login', 'user_email', 'display_name' );
+    }
+
+    $user_query = new WP_User_Query( $query_args );
+    $total      = $user_query->get_total();
+
+    return array(
+        'users'        => $user_query->get_results(),
+        'total'        => $total,
+        'per_page'     => $per_page,
+        'current_page' => $current_page,
+        'total_pages'  => (int) ceil( $total / $per_page ),
+        'search'       => $search,
+        'notice'       => isset( $_GET['amap_notice'] ) ? sanitize_key( wp_unslash( $_GET['amap_notice'] ) ) : '',
+    );
+}
+
+/**
+ * Données du formulaire "Ajouter"/"Modifier un utilisateur" (member-area-board-user-form.php),
+ * section "Utilisateurs" de l'espace bureau — même logique de préremplissage que
+ * amap_render_users_page() côté wp-admin (transient d'erreur en priorité, sinon valeurs
+ * actuelles en modification, sinon vide en création). $editing_id à 0 signifie "Ajouter".
+ */
+function amap_get_board_user_form_data( $editing_id ) {
+    $editing_user = $editing_id ? amap_get_amap_user( $editing_id ) : null;
+    // Un compte administrateur ne peut pas être modifié ici (voir amap_handle_update_user()) :
+    // retombe sur le formulaire d'ajout plutôt que d'afficher un formulaire dont la soumission
+    // serait de toute façon refusée côté serveur.
+    if ( $editing_user && in_array( 'administrator', $editing_user->roles, true ) ) {
+        $editing_user = null;
+        $editing_id   = 0;
+    }
+    if ( $editing_id && ! $editing_user ) {
+        $editing_id = 0;
+    }
+
+    $transient_key = 'amap_user_form_' . get_current_user_id();
+    $form_data     = get_transient( $transient_key );
+    if ( false !== $form_data ) {
+        delete_transient( $transient_key );
+    } elseif ( $editing_user ) {
+        $contact      = amap_get_user_contact( $editing_user->ID );
+        $member_group = amap_get_member_group( $editing_user->ID );
+        $form_data    = array(
+            'last_name'  => $editing_user->last_name,
+            'first_name' => $editing_user->first_name,
+            'email'      => $editing_user->user_email,
+            'phone'      => $contact->phone ?? '',
+            'address'    => $contact->address ?? '',
+            'roles'      => array_intersect( $editing_user->roles, array_keys( amap_get_available_roles() ) ),
+            'group_id'   => $member_group ? (string) $member_group->id : '',
+        );
+    } else {
+        $form_data = array();
+    }
+
+    return array(
+        'editing_id' => $editing_id,
+        'form_data'  => $form_data,
+        'groups'     => amap_get_groups(),
+        'notice'     => isset( $_GET['amap_notice'] ) ? sanitize_key( wp_unslash( $_GET['amap_notice'] ) ) : '',
+    );
+}
+
+/**
+ * Données de la page de confirmation de suppression d'un utilisateur AMAP
+ * (member-area-board-user-delete.php) — revalide les mêmes garde-fous que
+ * amap_handle_delete_user() (compte administrateur, producteur avec contrats, adhérent avec
+ * souscriptions) pour afficher le bon message avant de proposer le bouton de suppression, plutôt
+ * que de découvrir le blocage seulement après avoir cliqué (page dédiée plutôt qu'un simple lien
+ * confirm() JS, voir project_espace_bureau_design_consolide).
+ */
+function amap_get_board_user_delete_data( $id ) {
+    $user = $id ? amap_get_amap_user( $id ) : null;
+    if ( ! $user ) {
+        wp_die( esc_html__( 'Utilisateur introuvable.', 'association-manager' ) );
+    }
+
+    $blocked_reason = null;
+    if ( in_array( 'administrator', $user->roles, true ) ) {
+        $blocked_reason = __( 'Ce compte porte le rôle administrateur WordPress : suppression indisponible depuis cet écran.', 'association-manager' );
+    } elseif ( in_array( 'amap_producer', $user->roles, true ) && amap_get_producer_contracts( $id ) ) {
+        $blocked_reason = __( 'Ce producteur a des contrats enregistrés. Supprimez-les d\'abord depuis « Contrats ».', 'association-manager' );
+    } elseif ( in_array( 'amap_member', $user->roles, true ) && amap_member_has_subscriptions( $id ) ) {
+        $blocked_reason = __( 'Cet adhérent a des souscriptions enregistrées. Supprimez-les d\'abord depuis « Souscriptions ».', 'association-manager' );
+    }
+
+    return array(
+        'user'           => $user,
+        'blocked_reason' => $blocked_reason,
+    );
+}
+
+/**
+ * Données de la fiche producteur en lecture seule (member-area-board-producer-profile.php) :
+ * coordonnées + groupes de livraison rattachés + contrats — même agrégation que
+ * amap_render_producer_profile_page() côté wp-admin, mais sans aucune action de modification :
+ * cette page ne fait que rassembler et rediriger vers les vraies fiches (groupe/contrat) où ces
+ * informations se gèrent réellement.
+ */
+function amap_get_board_producer_profile_data( $producer_user_id ) {
+    $producer = $producer_user_id ? amap_get_amap_user( $producer_user_id ) : null;
+    if ( ! $producer || ! in_array( 'amap_producer', $producer->roles, true ) ) {
+        wp_die( esc_html__( 'Producteur introuvable.', 'association-manager' ) );
+    }
+
+    return array(
+        'producer'  => $producer,
+        'contact'   => amap_get_user_contact( $producer->ID ),
+        'groups'    => amap_get_producer_groups( $producer->ID ),
+        'contracts' => amap_get_producer_contracts( $producer->ID ),
+    );
+}
+
+/**
+ * Souscriptions pour la section "Souscriptions" de l'onglet "Espace bureau"
+ * (member-area-board-subscriptions.php) — triée par date de signature récente par défaut, avec
+ * recherche libre (adhérent/contrat/producteur) et filtre par contrat, contrairement à
+ * Amap_Subscriptions_List_Table côté wp-admin (aucune colonne ne s'y prêtait dans ce tableau,
+ * voir amap_render_subscriptions_page()) : filtrage fait en PHP après récupération de toutes les
+ * souscriptions plutôt qu'en SQL (jointures member_user_id/contract_id/producer_user_id sur 3
+ * tables), les volumes d'une AMAP restant faibles.
+ */
+function amap_get_board_subscriptions_list_data() {
+    global $wpdb;
+
+    $per_page        = 20;
+    $current_page    = max( 1, isset( $_GET['amap_board_page'] ) ? absint( $_GET['amap_board_page'] ) : 1 );
+    $search          = isset( $_GET['amap_board_search'] ) ? sanitize_text_field( wp_unslash( $_GET['amap_board_search'] ) ) : '';
+    $contract_filter = isset( $_GET['amap_subscription_contract_id'] ) ? absint( $_GET['amap_subscription_contract_id'] ) : 0;
+    $table           = $wpdb->prefix . 'amap_subscriptions';
+
+    $subscriptions = $wpdb->get_results( "SELECT * FROM {$table} ORDER BY signed_at DESC" );
+
+    if ( $contract_filter ) {
+        $subscriptions = array_values(
+            array_filter(
+                $subscriptions,
+                static function ( $subscription ) use ( $contract_filter ) {
+                    return (int) $subscription->contract_id === $contract_filter;
+                }
+            )
+        );
+    }
+
+    if ( '' !== $search ) {
+        $subscriptions = array_values(
+            array_filter(
+                $subscriptions,
+                static function ( $subscription ) use ( $search ) {
+                    $contract = amap_get_contract( $subscription->contract_id );
+                    $member   = get_user_by( 'id', $subscription->member_user_id );
+                    $producer = $contract ? get_user_by( 'id', $contract->producer_user_id ) : null;
+
+                    $haystack = implode(
+                        ' ',
+                        array_filter(
+                            array(
+                                $contract ? $contract->label : '',
+                                $member ? $member->display_name : '',
+                                $producer ? $producer->display_name : '',
+                            )
+                        )
+                    );
+
+                    return false !== stripos( $haystack, $search );
+                }
+            )
+        );
+    }
+
+    $total = count( $subscriptions );
+    $page_subscriptions = array_slice( $subscriptions, ( $current_page - 1 ) * $per_page, $per_page );
+
+    return array(
+        'subscriptions'   => $page_subscriptions,
+        'total'           => $total,
+        'current_page'    => $current_page,
+        'total_pages'     => (int) ceil( $total / $per_page ),
+        'search'          => $search,
+        'contract_filter' => $contract_filter,
+        'contracts'       => amap_get_contracts(),
+        'notice'          => isset( $_GET['amap_notice'] ) ? sanitize_key( wp_unslash( $_GET['amap_notice'] ) ) : '',
+    );
+}
+
+/**
+ * Données du formulaire "Ajouter"/"Modifier une souscription" (member-area-board-subscription-
+ * form.php), section "Souscriptions" de l'espace bureau — même préparation que
+ * amap_render_subscriptions_page() côté wp-admin (contrats sélectionnables, données JS pour le
+ * filtrage dynamique groupe/taille/produits, congés si le contrat est basket_recurring).
+ * $editing_id à 0 signifie "Ajouter".
+ */
+function amap_get_board_subscription_form_data( $editing_id ) {
+    $editing_subscription = $editing_id ? amap_get_subscription( $editing_id ) : null;
+    if ( $editing_id && ! $editing_subscription ) {
+        $editing_id = 0;
+    }
+
+    $editing_subscription_items = $editing_subscription ? amap_get_subscription_items( $editing_subscription->id ) : array();
+
+    $transient_key = 'amap_subscription_form_' . get_current_user_id();
+    $form_data     = get_transient( $transient_key );
+    if ( false !== $form_data ) {
+        delete_transient( $transient_key );
+    } elseif ( $editing_subscription ) {
+        $prefill_quantities = array();
+        foreach ( $editing_subscription_items as $item ) {
+            $prefill_quantities[ (int) $item->contract_delivery_date_id ][ (int) $item->contract_product_id ] = (int) $item->quantity;
+        }
+
+        $form_data = array(
+            'contract_id'    => (string) $editing_subscription->contract_id,
+            'member_user_id' => (string) $editing_subscription->member_user_id,
+            'group_id'       => (string) $editing_subscription->group_id,
+            'basket_size_id' => null !== $editing_subscription->basket_size_id ? (string) $editing_subscription->basket_size_id : '',
+            'signed_at'      => $editing_subscription->signed_at,
+            'is_paid'        => (bool) $editing_subscription->is_paid,
+            'paid_at'        => $editing_subscription->paid_at,
+            'quantities'     => $prefill_quantities,
+        );
+    } else {
+        $form_data = array( 'signed_at' => current_time( 'Y-m-d' ) );
+        // Raccourci "Ajouter une souscription" depuis la ligne d'un adhérent (section
+        // "Utilisateurs", amap_get_board_user_add_subscription...) : pré-remplit l'adhérent,
+        // évite la recherche dans le champ Adhérent pour le cas le plus courant.
+        if ( ! empty( $_GET['member_user_id'] ) ) {
+            $form_data['member_user_id'] = (string) absint( $_GET['member_user_id'] );
+        }
+    }
+
+    $members   = amap_get_member_users();
+    $contracts = amap_get_contracts();
+
+    // Seuls les contrats actifs sont proposés pour une nouvelle souscription ; en édition, le
+    // contrat déjà choisi reste proposé même désactivé depuis, pour ne pas casser une
+    // souscription existante.
+    $selectable_contracts = array_values(
+        array_filter(
+            $contracts,
+            static function ( $contract ) {
+                return (bool) $contract->is_active;
+            }
+        )
+    );
+    if ( $editing_subscription ) {
+        $selectable_contract_ids = array_map( 'intval', wp_list_pluck( $selectable_contracts, 'id' ) );
+        if ( ! in_array( (int) $editing_subscription->contract_id, $selectable_contract_ids, true ) ) {
+            $editing_subscription_contract = amap_get_contract( $editing_subscription->contract_id );
+            if ( $editing_subscription_contract ) {
+                $selectable_contracts[] = $editing_subscription_contract;
+            }
+        }
+    }
+
+    // Données nécessaires au filtrage JS des champs "Groupe"/"Taille de panier"/"Produits" selon
+    // le contrat choisi, précalculées pour tous les contrats proposés plutôt qu'en Ajax (volumes
+    // faibles) — même structure que côté wp-admin.
+    $contracts_js_data = array();
+    foreach ( $selectable_contracts as $contract ) {
+        $producer_groups = amap_get_producer_groups( $contract->producer_user_id );
+        $basket_sizes    = 'basket_recurring' === $contract->contract_type ? amap_get_contract_basket_sizes( $contract->id ) : array();
+        $products        = 'product_grid' === $contract->contract_type ? amap_get_contract_products( $contract->id ) : array();
+
+        $delivery_dates_by_group = array();
+        if ( 'product_grid' === $contract->contract_type ) {
+            foreach ( amap_get_contract_delivery_dates( $contract->id ) as $delivery_date_row ) {
+                $delivery_dates_by_group[ (int) $delivery_date_row->group_id ][] = array(
+                    'id'    => (int) $delivery_date_row->id,
+                    'label' => date_i18n( 'j F Y', strtotime( $delivery_date_row->delivery_date ) ),
+                );
+            }
+        }
+
+        $contracts_js_data[ (int) $contract->id ] = array(
+            'type'                    => $contract->contract_type,
+            'groups'                  => array_map(
+                static function ( $group ) {
+                    return array(
+                        'id'    => (int) $group->id,
+                        'label' => $group->name,
+                    );
+                },
+                $producer_groups
+            ),
+            'basket_sizes'            => array_map(
+                static function ( $size ) {
+                    return array(
+                        'id'    => (int) $size->id,
+                        'label' => $size->label . ' (' . number_format_i18n( (float) $size->price, 2 ) . ' €)',
+                    );
+                },
+                $basket_sizes
+            ),
+            'products'                => array_map(
+                static function ( $product ) {
+                    return array(
+                        'id'    => (int) $product->id,
+                        'label' => $product->label . ' (' . number_format_i18n( (float) $product->price, 2 ) . ' €)',
+                    );
+                },
+                $products
+            ),
+            'delivery_dates_by_group' => $delivery_dates_by_group,
+        );
+    }
+
+    // Congés : uniquement pour une souscription déjà existante à un contrat basket_recurring
+    // (rien à afficher tant que la souscription elle-même n'a pas été créée).
+    $leaves_data = null;
+    if ( $editing_subscription ) {
+        $leaves_contract = amap_get_contract( $editing_subscription->contract_id );
+        if ( $leaves_contract && 'basket_recurring' === $leaves_contract->contract_type ) {
+            $leaves       = amap_get_leaves( $editing_id );
+            $max_leaves   = (int) $leaves_contract->max_leaves;
+            $leaves_full  = count( $leaves ) >= $max_leaves;
+            $leaves_group = amap_get_group( $editing_subscription->group_id );
+
+            $taken_dates            = wp_list_pluck( $leaves, 'leave_date' );
+            $leaves_available_dates = array();
+            if ( $leaves_group && ! $leaves_full ) {
+                foreach ( amap_get_weekday_dates_in_range( $leaves_contract->start_date, $leaves_contract->end_date, (int) $leaves_group->weekday, (int) $leaves_contract->frequency_weeks ) as $candidate_date ) {
+                    if ( ! in_array( $candidate_date, $taken_dates, true ) ) {
+                        $leaves_available_dates[] = $candidate_date;
+                    }
+                }
+            }
+
+            $leaves_data = array(
+                'leaves'          => $leaves,
+                'max_leaves'      => $max_leaves,
+                'leaves_full'     => $leaves_full,
+                'available_dates' => $leaves_available_dates,
+            );
+        }
+    }
+
+    return array(
+        'editing_id'             => $editing_id,
+        'editing_subscription'   => $editing_subscription,
+        'form_data'              => $form_data,
+        'members'                => $members,
+        'selectable_contracts'   => $selectable_contracts,
+        'contracts_js_data'      => $contracts_js_data,
+        'leaves_data'            => $leaves_data,
+        'price_summary'          => $editing_subscription ? amap_get_subscription_price_summary( $editing_id ) : null,
+        'notice'                 => isset( $_GET['amap_notice'] ) ? sanitize_key( wp_unslash( $_GET['amap_notice'] ) ) : '',
+    );
+}
+
+/**
+ * Données de la page de confirmation de suppression d'une souscription
+ * (member-area-board-subscription-delete.php) — aucune règle métier ne bloque cette suppression
+ * (contrairement à Utilisateurs/Groupes/Contrats), donc pas de $blocked_reason ici.
+ */
+function amap_get_board_subscription_delete_data( $id ) {
+    $subscription = $id ? amap_get_subscription( $id ) : null;
+    if ( ! $subscription ) {
+        wp_die( esc_html__( 'Souscription introuvable.', 'association-manager' ) );
+    }
+
+    $contract = amap_get_contract( $subscription->contract_id );
+    $member   = get_user_by( 'id', $subscription->member_user_id );
+
+    return array(
+        'subscription' => $subscription,
+        'contract'     => $contract,
+        'member'       => $member,
+    );
+}
+
+/**
+ * Groupes pour la section "Groupes" de l'onglet "Espace bureau"
+ * (member-area-board-groups.php) — même requête que Amap_Groups_List_Table::prepare_items() côté
+ * wp-admin (recherche sur nom/lieu de livraison, tri fixe par jour/horaire, pas de tri par colonne
+ * cliquable ici), réécrite sans WP_List_Table. Compte des producteurs/adhérents rattachés en 2
+ * requêtes groupées plutôt qu'une par ligne, même principe que
+ * Amap_Groups_List_Table::load_related_counts().
+ */
+function amap_get_board_groups_list_data() {
+    global $wpdb;
+
+    $per_page     = 20;
+    $current_page = max( 1, isset( $_GET['amap_board_page'] ) ? absint( $_GET['amap_board_page'] ) : 1 );
+    $search       = isset( $_GET['amap_board_search'] ) ? sanitize_text_field( wp_unslash( $_GET['amap_board_search'] ) ) : '';
+    $table        = $wpdb->prefix . 'amap_groups';
+
+    $where        = '';
+    $where_params = array();
+    if ( '' !== $search ) {
+        $where          = 'WHERE name LIKE %s OR delivery_place LIKE %s';
+        $like           = '%' . $wpdb->esc_like( $search ) . '%';
+        $where_params[] = $like;
+        $where_params[] = $like;
+    }
+
+    $total = $where_params
+        ? (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$table} {$where}", $where_params ) )
+        : (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$table}" );
+
+    $query_params   = $where_params;
+    $query_params[] = $per_page;
+    $query_params[] = ( $current_page - 1 ) * $per_page;
+
+    $groups = $wpdb->get_results(
+        $wpdb->prepare(
+            "SELECT * FROM {$table} {$where} ORDER BY weekday ASC, start_time ASC LIMIT %d OFFSET %d",
+            $query_params
+        )
+    );
+
+    $producer_counts = array();
+    $member_counts    = array();
+    $group_ids        = wp_list_pluck( $groups, 'id' );
+    if ( $group_ids ) {
+        $placeholders = implode( ',', array_fill( 0, count( $group_ids ), '%d' ) );
+
+        $producer_rows = $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT group_id, COUNT(*) AS cnt FROM {$wpdb->prefix}amap_group_producers WHERE group_id IN ({$placeholders}) GROUP BY group_id",
+                $group_ids
+            )
+        );
+        foreach ( $producer_rows as $row ) {
+            $producer_counts[ (int) $row->group_id ] = (int) $row->cnt;
+        }
+
+        $member_rows = $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT group_id, COUNT(*) AS cnt FROM {$wpdb->prefix}amap_group_members WHERE group_id IN ({$placeholders}) GROUP BY group_id",
+                $group_ids
+            )
+        );
+        foreach ( $member_rows as $row ) {
+            $member_counts[ (int) $row->group_id ] = (int) $row->cnt;
+        }
+    }
+
+    return array(
+        'groups'          => $groups,
+        'producer_counts' => $producer_counts,
+        'member_counts'   => $member_counts,
+        'total'           => $total,
+        'current_page'    => $current_page,
+        'total_pages'     => (int) ceil( $total / $per_page ),
+        'search'          => $search,
+        'notice'          => isset( $_GET['amap_notice'] ) ? sanitize_key( wp_unslash( $_GET['amap_notice'] ) ) : '',
+    );
+}
+
+/**
+ * Données du formulaire "Ajouter"/"Modifier les infos du groupe" (member-area-board-group-form.php)
+ * — même logique de préremplissage que amap_render_groups_page() côté wp-admin (transient
+ * d'erreur en priorité, sinon valeurs actuelles en modification, sinon vide en création).
+ * $editing_id à 0 signifie "Ajouter".
+ */
+function amap_get_board_group_form_data( $editing_id ) {
+    $editing_group = $editing_id ? amap_get_group( $editing_id ) : null;
+    if ( $editing_id && ! $editing_group ) {
+        $editing_id = 0;
+    }
+
+    $transient_key = 'amap_group_form_' . get_current_user_id();
+    $form_data     = get_transient( $transient_key );
+    if ( false !== $form_data ) {
+        delete_transient( $transient_key );
+    } elseif ( $editing_group ) {
+        $form_data = array(
+            'name'               => $editing_group->name,
+            'delivery_place'     => $editing_group->delivery_place,
+            'weekday'            => (string) $editing_group->weekday,
+            'start_time'         => amap_format_time( $editing_group->start_time ),
+            'end_time'           => amap_format_time( $editing_group->end_time ),
+            'notification_email' => (string) $editing_group->notification_email,
+        );
+    } else {
+        $form_data = array();
+    }
+
+    return array(
+        'editing_id' => $editing_id,
+        'form_data'  => $form_data,
+        'notice'     => isset( $_GET['amap_notice'] ) ? sanitize_key( wp_unslash( $_GET['amap_notice'] ) ) : '',
+    );
+}
+
+/**
+ * Données de la page de confirmation de suppression d'un groupe (member-area-board-group-delete.php)
+ * — revalide la même règle que amap_handle_delete_group() (souscriptions ayant ce groupe comme
+ * point de retrait) pour afficher le bon message avant de proposer le bouton de suppression.
+ */
+function amap_get_board_group_delete_data( $id ) {
+    $group = $id ? amap_get_group( $id ) : null;
+    if ( ! $group ) {
+        wp_die( esc_html__( 'Groupe introuvable.', 'association-manager' ) );
+    }
+
+    $blocked_reason = null;
+    if ( amap_group_has_subscriptions( $id ) ) {
+        $blocked_reason = __( 'Des souscriptions ont ce groupe comme point de retrait. Supprimez-les d\'abord depuis la page « Souscriptions » si vous souhaitez tout de même supprimer ce groupe.', 'association-manager' );
+    }
+
+    return array(
+        'group'          => $group,
+        'blocked_reason' => $blocked_reason,
+    );
+}
+
+/**
+ * Données de la fiche d'un groupe (member-area-board-group-view.php) : infos + les 3 sections
+ * nichées côté wp-admin (Producteurs rattachés / Exceptions de distribution / Bénévoles de
+ * distribution) — même préparation que la branche "édition" de amap_render_groups_page().
+ * Bénévoles regroupés par date de distribution (une "ligne" par distribution, pas par bénévole),
+ * même principe que Amap_Distribution_Volunteers_List_Table::prepare_items().
+ */
+function amap_get_board_group_view_data( $id ) {
+    $group = $id ? amap_get_group( $id ) : null;
+    if ( ! $group ) {
+        wp_die( esc_html__( 'Groupe introuvable.', 'association-manager' ) );
+    }
+
+    // Exceptions : mode édition ?exception_action=edit&exception_id=Y, même principe que la
+    // souscription en édition sur la page "Souscriptions".
+    $exception_editing_id = 0;
+    if ( isset( $_GET['exception_action'], $_GET['exception_id'] ) && 'edit' === $_GET['exception_action'] ) {
+        $exception_editing_id = absint( $_GET['exception_id'] );
+    }
+    $editing_exception = $exception_editing_id ? amap_get_distribution_exception( $exception_editing_id ) : null;
+    if ( $editing_exception && (int) $editing_exception->group_id !== $id ) {
+        $editing_exception    = null;
+        $exception_editing_id = 0;
+    }
+
+    $exception_transient_key = 'amap_distribution_exception_form_' . get_current_user_id();
+    $exception_form_data     = get_transient( $exception_transient_key );
+    if ( false !== $exception_form_data ) {
+        delete_transient( $exception_transient_key );
+    } elseif ( $editing_exception ) {
+        $exception_form_data = array(
+            'distribution_date' => $editing_exception->distribution_date,
+            'exception_type'    => $editing_exception->exception_type,
+            'new_date'          => (string) $editing_exception->new_date,
+            'new_start_time'    => $editing_exception->new_start_time ? amap_format_time( $editing_exception->new_start_time ) : '',
+            'new_end_time'      => $editing_exception->new_end_time ? amap_format_time( $editing_exception->new_end_time ) : '',
+            'new_place'         => (string) $editing_exception->new_place,
+            'reason'            => (string) $editing_exception->reason,
+        );
+    } else {
+        $exception_form_data = array();
+    }
+
+    $volunteer_transient_key = 'amap_distribution_volunteer_form_' . get_current_user_id();
+    $volunteer_form_data     = get_transient( $volunteer_transient_key );
+    if ( false !== $volunteer_form_data ) {
+        delete_transient( $volunteer_transient_key );
+    } else {
+        $volunteer_form_data = array();
+    }
+
+    $volunteers_by_date = array();
+    foreach ( amap_get_distribution_volunteers( $id ) as $volunteer ) {
+        $volunteers_by_date[ $volunteer->distribution_date ][] = $volunteer;
+    }
+    $volunteer_groups = array();
+    foreach ( $volunteers_by_date as $distribution_date => $date_volunteers ) {
+        $volunteer_groups[] = array(
+            'distribution_date' => $distribution_date,
+            'volunteers'        => $date_volunteers,
+        );
+    }
+
+    return array(
+        'group'                 => $group,
+        'producers'             => amap_get_producer_users(),
+        'attached_producer_ids' => amap_get_group_producer_ids( $id ),
+        'exceptions'            => amap_get_distribution_exceptions( $id ),
+        'exception_editing_id'  => $exception_editing_id,
+        'exception_form_data'   => $exception_form_data,
+        'volunteer_groups'      => $volunteer_groups,
+        'volunteer_form_data'   => $volunteer_form_data,
+        'eligible_members'      => amap_get_group_member_users( $id ),
+        'current_year'          => (int) current_time( 'Y' ),
+        'notice'                => isset( $_GET['amap_notice'] ) ? sanitize_key( wp_unslash( $_GET['amap_notice'] ) ) : '',
+    );
+}
+
+/**
+ * Contrats pour la section "Contrats" de l'onglet "Espace bureau" (member-area-board-contracts.php)
+ * — même requête que Amap_Contracts_List_Table::prepare_items() côté wp-admin (recherche sur le
+ * libellé, tri par défaut is_active DESC puis start_date DESC), avec les mêmes compteurs
+ * souscriptions/paiements préchargés en une seule requête groupée chacun (pas de N+1).
+ */
+function amap_get_board_contracts_list_data() {
+    global $wpdb;
+
+    $per_page     = 20;
+    $current_page = max( 1, isset( $_GET['amap_board_page'] ) ? absint( $_GET['amap_board_page'] ) : 1 );
+    $search       = isset( $_GET['amap_board_search'] ) ? sanitize_text_field( wp_unslash( $_GET['amap_board_search'] ) ) : '';
+    $table        = $wpdb->prefix . 'amap_contracts';
+    // JOIN sur wp_users : la recherche porte aussi bien sur le libellé du contrat que sur le nom
+    // du producteur, plus simple pour le bureau qui pense souvent "au nom du producteur" plutôt
+    // qu'au libellé exact du contrat. SELECT c.* (jamais *) pour ne récupérer que les colonnes du
+    // contrat, sans collision avec les colonnes de wp_users.
+    $from         = "{$table} c LEFT JOIN {$wpdb->users} u ON u.ID = c.producer_user_id";
+
+    $where        = '';
+    $where_params = array();
+    if ( '' !== $search ) {
+        $where          = 'WHERE c.label LIKE %s OR u.display_name LIKE %s';
+        $like           = '%' . $wpdb->esc_like( $search ) . '%';
+        $where_params[] = $like;
+        $where_params[] = $like;
+    }
+
+    $total = $where_params
+        ? (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$from} {$where}", $where_params ) )
+        : (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$table}" );
+
+    $query_params   = $where_params;
+    $query_params[] = $per_page;
+    $query_params[] = ( $current_page - 1 ) * $per_page;
+
+    $contracts = $wpdb->get_results(
+        $wpdb->prepare(
+            "SELECT c.* FROM {$from} {$where} ORDER BY c.is_active DESC, c.start_date DESC LIMIT %d OFFSET %d",
+            $query_params
+        )
+    );
+
+    $subscription_counts      = array();
+    $paid_subscription_counts = array();
+    $contract_ids             = wp_list_pluck( $contracts, 'id' );
+    if ( $contract_ids ) {
+        $placeholders = implode( ',', array_fill( 0, count( $contract_ids ), '%d' ) );
+
+        $subscription_rows = $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT contract_id, COUNT(*) AS cnt FROM {$wpdb->prefix}amap_subscriptions WHERE contract_id IN ({$placeholders}) GROUP BY contract_id",
+                $contract_ids
+            )
+        );
+        foreach ( $subscription_rows as $row ) {
+            $subscription_counts[ (int) $row->contract_id ] = (int) $row->cnt;
+        }
+
+        $paid_rows = $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT contract_id, COUNT(*) AS cnt FROM {$wpdb->prefix}amap_subscriptions WHERE is_paid = 1 AND contract_id IN ({$placeholders}) GROUP BY contract_id",
+                $contract_ids
+            )
+        );
+        foreach ( $paid_rows as $row ) {
+            $paid_subscription_counts[ (int) $row->contract_id ] = (int) $row->cnt;
+        }
+    }
+
+    $producer_names = array();
+    foreach ( amap_get_producer_users() as $producer ) {
+        $producer_names[ $producer->ID ] = $producer->display_name;
+    }
+
+    return array(
+        'contracts'                => $contracts,
+        'producer_names'           => $producer_names,
+        'subscription_counts'      => $subscription_counts,
+        'paid_subscription_counts' => $paid_subscription_counts,
+        'total'                    => $total,
+        'current_page'             => $current_page,
+        'total_pages'              => (int) ceil( $total / $per_page ),
+        'search'                   => $search,
+        'notice'                   => isset( $_GET['amap_notice'] ) ? sanitize_key( wp_unslash( $_GET['amap_notice'] ) ) : '',
+    );
+}
+
+/**
+ * Données du formulaire "Ajouter"/"Modifier les infos du contrat" (member-area-board-contract-form.php)
+ * — même logique de préremplissage que amap_render_contracts_page() côté wp-admin.
+ * $editing_id à 0 signifie "Ajouter". `producer_group_counts` sert au message d'avertissement JS
+ * si le producteur choisi n'a encore aucun groupe de distribution rattaché (voir
+ * amap_render_contracts_page()).
+ */
+function amap_get_board_contract_form_data( $editing_id ) {
+    $editing_contract = $editing_id ? amap_get_contract( $editing_id ) : null;
+    if ( $editing_id && ! $editing_contract ) {
+        $editing_id = 0;
+    }
+
+    $transient_key = 'amap_contract_form_' . get_current_user_id();
+    $form_data     = get_transient( $transient_key );
+    if ( false !== $form_data ) {
+        delete_transient( $transient_key );
+    } elseif ( $editing_contract ) {
+        $form_data = array(
+            'label'            => $editing_contract->label,
+            'producer_user_id' => (string) $editing_contract->producer_user_id,
+            'contract_type'    => $editing_contract->contract_type,
+            'start_date'       => $editing_contract->start_date,
+            'end_date'         => $editing_contract->end_date,
+            'frequency_weeks'  => null !== $editing_contract->frequency_weeks ? (string) $editing_contract->frequency_weeks : '',
+            'max_leaves'       => null !== $editing_contract->max_leaves ? (string) $editing_contract->max_leaves : '',
+            'is_active'        => (bool) $editing_contract->is_active,
+        );
+    } else {
+        // Un nouveau contrat est ouvert à la souscription tant que le bureau ne l'a pas
+        // explicitement fermé.
+        $form_data = array( 'is_active' => true );
+    }
+
+    $producers              = amap_get_producer_users();
+    $producer_group_counts = array();
+    foreach ( $producers as $producer ) {
+        $producer_group_counts[ $producer->ID ] = count( amap_get_producer_groups( $producer->ID ) );
+    }
+
+    return array(
+        'editing_id'             => $editing_id,
+        'producers'              => $producers,
+        'producer_group_counts'  => $producer_group_counts,
+        'form_data'              => $form_data,
+        'notice'                 => isset( $_GET['amap_notice'] ) ? sanitize_key( wp_unslash( $_GET['amap_notice'] ) ) : '',
+    );
+}
+
+/**
+ * Données de la page de confirmation de suppression d'un contrat (member-area-board-contract-delete.php)
+ * — revalide la même règle que amap_handle_delete_contract() (souscriptions enregistrées).
+ */
+function amap_get_board_contract_delete_data( $id ) {
+    $contract = $id ? amap_get_contract( $id ) : null;
+    if ( ! $contract ) {
+        wp_die( esc_html__( 'Contrat introuvable.', 'association-manager' ) );
+    }
+
+    $blocked_reason = null;
+    if ( amap_contract_has_subscriptions( $id ) ) {
+        $blocked_reason = __( 'Ce contrat a des souscriptions enregistrées. Supprimez-les d\'abord depuis la page « Souscriptions » si vous souhaitez tout de même supprimer ce contrat.', 'association-manager' );
+    }
+
+    return array(
+        'contract'       => $contract,
+        'producer'       => get_user_by( 'id', $contract->producer_user_id ),
+        'blocked_reason' => $blocked_reason,
+    );
+}
+
+/**
+ * Données de la fiche d'un contrat (member-area-board-contract-view.php) : infos + les sections
+ * propres à son type — Tailles de panier pour "panier récurrent" ; Familles de remise, Catalogue
+ * produits et Dates de livraison pour "grille produits". Même préparation que la branche
+ * "édition" de amap_render_contracts_page(), mais en accordéons <details> plutôt qu'en onglets JS
+ * (même principe que la fiche groupe, member-area-board-group-view.php) : pas besoin
+ * d'`active_tab`, chaque section s'ouvre selon la notice ou l'édition en cours qui la concerne.
+ */
+function amap_get_board_contract_view_data( $id ) {
+    $contract = $id ? amap_get_contract( $id ) : null;
+    if ( ! $contract ) {
+        wp_die( esc_html__( 'Contrat introuvable.', 'association-manager' ) );
+    }
+
+    // Taille de panier : mode édition ?size_action=edit&size_id=Y, même principe que les
+    // exceptions de distribution sur la fiche groupe.
+    $size_editing_id = 0;
+    if ( isset( $_GET['size_action'], $_GET['size_id'] ) && 'edit' === $_GET['size_action'] ) {
+        $size_editing_id = absint( $_GET['size_id'] );
+    }
+    $size_editing = $size_editing_id ? amap_get_contract_basket_size( $size_editing_id ) : null;
+    if ( $size_editing && (int) $size_editing->contract_id !== $id ) {
+        $size_editing    = null;
+        $size_editing_id = 0;
+    }
+
+    $size_transient_key = 'amap_contract_basket_size_form_' . get_current_user_id();
+    $size_form_data      = get_transient( $size_transient_key );
+    if ( false !== $size_form_data ) {
+        delete_transient( $size_transient_key );
+    } elseif ( $size_editing ) {
+        $size_form_data = array(
+            'label' => $size_editing->label,
+            'price' => (string) $size_editing->price,
+        );
+    } else {
+        $size_form_data = array();
+    }
+
+    // Produit du catalogue : mode édition ?product_action=edit&product_id=Y.
+    $product_editing_id = 0;
+    if ( isset( $_GET['product_action'], $_GET['product_id'] ) && 'edit' === $_GET['product_action'] ) {
+        $product_editing_id = absint( $_GET['product_id'] );
+    }
+    $product_editing = $product_editing_id ? amap_get_contract_product( $product_editing_id ) : null;
+    if ( $product_editing && (int) $product_editing->contract_id !== $id ) {
+        $product_editing    = null;
+        $product_editing_id = 0;
+    }
+
+    $product_transient_key = 'amap_contract_product_form_' . get_current_user_id();
+    $product_form_data      = get_transient( $product_transient_key );
+    if ( false !== $product_form_data ) {
+        delete_transient( $product_transient_key );
+    } elseif ( $product_editing ) {
+        $product_form_data = array(
+            'label'             => $product_editing->label,
+            'price'             => (string) $product_editing->price,
+            'discount_group_id' => (string) $product_editing->discount_group_id,
+        );
+    } else {
+        $product_form_data = array();
+    }
+
+    // Famille de remise : mode édition ?discount_action=edit&discount_id=Y.
+    $discount_group_editing_id = 0;
+    if ( isset( $_GET['discount_action'], $_GET['discount_id'] ) && 'edit' === $_GET['discount_action'] ) {
+        $discount_group_editing_id = absint( $_GET['discount_id'] );
+    }
+    $discount_group_editing = $discount_group_editing_id ? amap_get_contract_discount_group( $discount_group_editing_id ) : null;
+    if ( $discount_group_editing && (int) $discount_group_editing->contract_id !== $id ) {
+        $discount_group_editing    = null;
+        $discount_group_editing_id = 0;
+    }
+
+    $discount_group_transient_key = 'amap_contract_discount_group_form_' . get_current_user_id();
+    $discount_group_form_data      = get_transient( $discount_group_transient_key );
+    if ( false !== $discount_group_form_data ) {
+        delete_transient( $discount_group_transient_key );
+    } elseif ( $discount_group_editing ) {
+        $discount_group_form_data = array(
+            'label'           => $discount_group_editing->label,
+            'price'           => (string) $discount_group_editing->price,
+            'bought_quantity' => (string) $discount_group_editing->bought_quantity,
+            'billed_quantity' => (string) $discount_group_editing->billed_quantity,
+        );
+    } else {
+        $discount_group_form_data = array();
+    }
+
+    // Date de livraison : mode édition ?date_action=edit&date_id=Y.
+    $delivery_date_editing_id = 0;
+    if ( isset( $_GET['date_action'], $_GET['date_id'] ) && 'edit' === $_GET['date_action'] ) {
+        $delivery_date_editing_id = absint( $_GET['date_id'] );
+    }
+    $delivery_date_editing = $delivery_date_editing_id ? amap_get_contract_delivery_date( $delivery_date_editing_id ) : null;
+    if ( $delivery_date_editing && (int) $delivery_date_editing->contract_id !== $id ) {
+        $delivery_date_editing    = null;
+        $delivery_date_editing_id = 0;
+    }
+
+    $delivery_date_transient_key = 'amap_contract_delivery_date_form_' . get_current_user_id();
+    $delivery_date_form_data      = get_transient( $delivery_date_transient_key );
+    if ( false !== $delivery_date_form_data ) {
+        delete_transient( $delivery_date_transient_key );
+    } elseif ( $delivery_date_editing ) {
+        $delivery_date_form_data = array(
+            'group_id'      => (string) $delivery_date_editing->group_id,
+            'delivery_date' => $delivery_date_editing->delivery_date,
+        );
+    } else {
+        $delivery_date_form_data = array();
+    }
+
+    // Dates de livraison groupées par groupe de distribution du producteur — une section
+    // d'accordéon par groupe, avec ses dates existantes et ses dates candidates à la génération en
+    // masse (occurrences du jour fixe du groupe sur toute la période du contrat, moins celles déjà
+    // enregistrées), même principe que amap_render_contracts_page().
+    $delivery_date_groups = array();
+    if ( 'product_grid' === $contract->contract_type ) {
+        $dates_by_group = array();
+        foreach ( amap_get_contract_delivery_dates( $id ) as $date_row ) {
+            $dates_by_group[ (int) $date_row->group_id ][] = $date_row;
+        }
+
+        foreach ( amap_get_producer_groups( $contract->producer_user_id ) as $producer_group ) {
+            $existing_dates   = $dates_by_group[ (int) $producer_group->id ] ?? array();
+            $existing_strings = wp_list_pluck( $existing_dates, 'delivery_date' );
+            $candidate_dates  = array_values(
+                array_diff(
+                    amap_get_weekday_dates_in_range( $contract->start_date, $contract->end_date, (int) $producer_group->weekday ),
+                    $existing_strings
+                )
+            );
+
+            $delivery_date_groups[] = array(
+                'group'           => $producer_group,
+                'dates'           => $existing_dates,
+                'candidate_dates' => $candidate_dates,
+            );
+        }
+    }
+
+    return array(
+        'contract'                 => $contract,
+        'producer'                 => get_user_by( 'id', $contract->producer_user_id ),
+        'basket_sizes'             => 'basket_recurring' === $contract->contract_type ? amap_get_contract_basket_sizes( $id ) : array(),
+        'size_editing_id'          => $size_editing_id,
+        'size_form_data'           => $size_form_data,
+        'discount_groups'          => 'product_grid' === $contract->contract_type ? amap_get_contract_discount_groups( $id ) : array(),
+        'discount_group_editing_id' => $discount_group_editing_id,
+        'discount_group_form_data' => $discount_group_form_data,
+        'products'                 => 'product_grid' === $contract->contract_type ? amap_get_contract_products( $id ) : array(),
+        'product_editing_id'       => $product_editing_id,
+        'product_form_data'        => $product_form_data,
+        'delivery_date_groups'     => $delivery_date_groups,
+        'delivery_date_editing_id' => $delivery_date_editing_id,
+        'delivery_date_editing'    => $delivery_date_editing,
+        'delivery_date_form_data'  => $delivery_date_form_data,
+        'generate_group_id'        => isset( $_GET['generate_group_id'] ) ? absint( $_GET['generate_group_id'] ) : 0,
+        'generated_count'          => isset( $_GET['generated_count'] ) ? absint( $_GET['generated_count'] ) : 0,
+        'deleted_count'            => isset( $_GET['deleted_count'] ) ? absint( $_GET['deleted_count'] ) : 0,
+        'notice'                   => isset( $_GET['amap_notice'] ) ? sanitize_key( wp_unslash( $_GET['amap_notice'] ) ) : '',
+    );
 }
 
 /**
