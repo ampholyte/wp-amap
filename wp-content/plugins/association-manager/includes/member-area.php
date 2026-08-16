@@ -185,10 +185,10 @@ function amap_maybe_render_member_area() {
         $leave_form_data = amap_get_member_leave_form_data( $user );
     }
 
-    // Export CSV : jamais de page à rendre, amap_handle_export_contract_roster() /
-    // amap_handle_export_contract_products() / amap_handle_export_contract_season_summary()
-    // envoient le fichier et terminent la requête elles-mêmes — doit donc s'exécuter avant
-    // get_header().
+    // Export CSV/PDF : jamais de page à rendre, amap_handle_export_contract_roster() /
+    // amap_handle_export_contract_products() / amap_handle_export_contract_season_summary() /
+    // amap_handle_export_subscription_contract_pdf() envoient le fichier et terminent la requête
+    // elles-mêmes — doit donc s'exécuter avant get_header().
     if ( $is_producer && 'export_contract_roster' === $action ) {
         amap_handle_export_contract_roster( $user );
     }
@@ -199,6 +199,10 @@ function amap_maybe_render_member_area() {
 
     if ( $is_producer && 'export_contract_season_summary' === $action ) {
         amap_handle_export_contract_season_summary( $user );
+    }
+
+    if ( $is_member && 'export_subscription_contract_pdf' === $action ) {
+        amap_handle_export_subscription_contract_pdf( $user );
     }
 
     get_header( 'app' );
@@ -1644,6 +1648,43 @@ function amap_handle_export_contract_season_summary( $producer ) {
     }
 
     fclose( $output );
+    exit;
+}
+
+/**
+ * Valide ?amap_member_action=export_subscription_contract_pdf&subscription_id=X (bouton
+ * "Télécharger le contrat" d'une carte de member-area-subscription-item.php) et envoie le détail
+ * du contrat en PDF — même contenu que l'email de confirmation de souscription
+ * (amap_get_subscription_confirmation_email_body(), voir subscriptions.php), recalculé à l'instant
+ * du téléchargement plutôt que figé à la signature. wp_die() sur une souscription trafiquée ou
+ * n'appartenant pas à l'adhérent connecté : l'UI ne propose jamais un tel lien.
+ */
+function amap_handle_export_subscription_contract_pdf( $member ) {
+    $subscription_id = isset( $_GET['subscription_id'] ) ? absint( $_GET['subscription_id'] ) : 0;
+    $subscription    = $subscription_id ? amap_get_subscription( $subscription_id ) : null;
+    $contract        = $subscription ? amap_get_contract( $subscription->contract_id ) : null;
+
+    if ( ! $subscription || ! $contract || (int) $subscription->member_user_id !== $member->ID ) {
+        wp_die( esc_html__( 'Export non autorisé.', 'association-manager' ) );
+    }
+
+    $html_body = amap_get_subscription_confirmation_email_body( $subscription_id );
+
+    // translators: %s: libellé du contrat.
+    $subject = sprintf( __( 'Détail du contrat — %s', 'association-manager' ), $contract->label );
+
+    require_once dirname( __DIR__ ) . '/vendor/autoload.php';
+
+    $dompdf = new \Dompdf\Dompdf();
+    $dompdf->loadHtml( amap_render_email( $subject, $html_body ) );
+    $dompdf->setPaper( 'A4' );
+    $dompdf->render();
+
+    nocache_headers();
+    $dompdf->stream(
+        sanitize_file_name( $contract->label . '.pdf' ),
+        array( 'Attachment' => true )
+    );
     exit;
 }
 

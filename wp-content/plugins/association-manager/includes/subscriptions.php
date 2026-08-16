@@ -688,22 +688,23 @@ function amap_get_available_contracts_for_member( $member_user_id ) {
 }
 
 /**
- * Envoie l'email de confirmation après une souscription front réussie
- * (amap_handle_add_member_subscription()) — récupère elle-même contrat/producteur/groupe/taille
- * depuis $subscription_id, même principe de jointure que amap_get_member_subscriptions(). Ne
- * distingue pas les souscriptions saisies côté admin : appelée uniquement depuis le parcours
- * front, la saisie de secours par le bureau n'en a pas besoin.
+ * Construit le corps HTML du récap de souscription (contrat, producteur, groupe, produits,
+ * montant) — partagé entre l'email de confirmation (amap_send_subscription_confirmation_email())
+ * et le PDF téléchargeable depuis l'espace membre (amap_handle_export_subscription_contract_pdf()
+ * dans member-area.php). Recalcule toujours depuis $subscription_id plutôt que de figer un
+ * contenu au moment de la signature : un adhérent qui télécharge son contrat plus tard voit l'état
+ * actuel (ex. après une correction du bureau), comme le ferait un nouvel envoi de l'email.
  */
-function amap_send_subscription_confirmation_email( $subscription_id ) {
+function amap_get_subscription_confirmation_email_body( $subscription_id ) {
     $subscription = amap_get_subscription( $subscription_id );
     if ( ! $subscription ) {
-        return;
+        return '';
     }
 
     $contract = amap_get_contract( $subscription->contract_id );
     $member   = get_user_by( 'id', $subscription->member_user_id );
     if ( ! $contract || ! $member ) {
-        return;
+        return '';
     }
 
     $producer = get_user_by( 'id', $contract->producer_user_id );
@@ -744,6 +745,29 @@ function amap_send_subscription_confirmation_email( $subscription_id ) {
     if ( $price_summary_html ) {
         $html_body .= '<h3>' . esc_html__( 'Montant dû', 'association-manager' ) . '</h3>';
         $html_body .= $price_summary_html;
+    }
+
+    return $html_body;
+}
+
+/**
+ * Envoie l'email de confirmation après une souscription front réussie
+ * (amap_handle_add_member_subscription()) — récupère elle-même contrat/producteur/groupe/taille
+ * depuis $subscription_id, même principe de jointure que amap_get_member_subscriptions(). Ne
+ * distingue pas les souscriptions saisies côté admin : appelée uniquement depuis le parcours
+ * front, la saisie de secours par le bureau n'en a pas besoin.
+ */
+function amap_send_subscription_confirmation_email( $subscription_id ) {
+    $subscription = amap_get_subscription( $subscription_id );
+    $contract     = $subscription ? amap_get_contract( $subscription->contract_id ) : null;
+    $member       = $subscription ? get_user_by( 'id', $subscription->member_user_id ) : null;
+    if ( ! $contract || ! $member ) {
+        return;
+    }
+
+    $html_body = amap_get_subscription_confirmation_email_body( $subscription_id );
+    if ( ! $html_body ) {
+        return;
     }
 
     // translators: %s: libellé du contrat.

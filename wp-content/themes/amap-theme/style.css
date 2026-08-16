@@ -607,6 +607,13 @@ body.amap-app .amap-topbar {
     width: auto;
 }
 
+.amap-topbar__actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.amap-topbar__home,
 .amap-topbar__logout {
     font-size: 0.9rem;
     color: var(--color-text-muted);
@@ -615,6 +622,7 @@ body.amap-app .amap-topbar {
     border-radius: var(--radius);
 }
 
+.amap-topbar__home:hover,
 .amap-topbar__logout:hover {
     background: var(--color-bg-alt);
     color: var(--color-text);

@@ -29,7 +29,12 @@
             <span class="amap-topbar__name"><?php bloginfo( 'name' ); ?></span>
         <?php endif; ?>
     </div>
-    <a class="amap-topbar__logout" href="<?php echo esc_url( wp_logout_url( amap_get_member_area_url() ) ); ?>">
-        <?php esc_html_e( 'Déconnexion', 'association-manager' ); ?>
-    </a>
+    <div class="amap-topbar__actions">
+        <a class="amap-topbar__home" href="<?php echo esc_url( home_url( '/' ) ); ?>">
+            <?php esc_html_e( 'Retour au site', 'association-manager' ); ?>
+        </a>
+        <a class="amap-topbar__logout" href="<?php echo esc_url( wp_logout_url( amap_get_member_area_url() ) ); ?>">
+            <?php esc_html_e( 'Déconnexion', 'association-manager' ); ?>
+        </a>
+    </div>
 </header>

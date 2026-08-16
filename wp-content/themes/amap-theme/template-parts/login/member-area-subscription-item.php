@@ -172,4 +172,10 @@ $type_label      = $args['contract_types'][ $item['contract']->contract_type ] ?
             ?>
         </p>
     <?php endif; ?>
+
+    <div class="amap-actions">
+        <a class="button-secondary" href="<?php echo esc_url( amap_get_member_subscription_contract_pdf_url( $item['subscription']->id ) ); ?>">
+            <?php esc_html_e( 'Télécharger le contrat (PDF)', 'association-manager' ); ?>
+        </a>
+    </div>
 </li>

@@ -1,0 +1,7 @@
+{
+    "name": "amap/association-manager",
+    "description": "Génération PDF du détail de contrat (espace membre).",
+    "require": {
+        "dompdf/dompdf": "^3.0"
+    }
+}

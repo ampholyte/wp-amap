@@ -16,7 +16,7 @@
 <nav class="amap-nav">
     <?php if ( $args['is_member'] ) : ?>
         <a class="amap-nav-item<?php echo ( 'member' === $args['active_tab'] ) ? ' is-active' : ''; ?>" href="<?php echo esc_url( amap_get_member_area_tab_url( 'member' ) ); ?>">
-            <?php esc_html_e( 'Espace adhérent', 'association-manager' ); ?>
+            <?php esc_html_e( 'Espace membre', 'association-manager' ); ?>
         </a>
     <?php endif; ?>
     <?php if ( $args['is_producer'] ) : ?>

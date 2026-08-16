@@ -148,6 +148,21 @@ function amap_get_member_leave_url( $subscription_id ) {
 }
 
 /**
+ * URL de téléchargement du détail de contrat en PDF (amap_handle_export_subscription_contract_pdf()
+ * dans member-area.php), depuis le bouton "Télécharger le contrat" d'une carte de
+ * member-area-subscription-item.php.
+ */
+function amap_get_member_subscription_contract_pdf_url( $subscription_id ) {
+    return add_query_arg(
+        array(
+            'amap_member_action' => 'export_subscription_contract_pdf',
+            'subscription_id'    => $subscription_id,
+        ),
+        amap_get_member_area_url()
+    );
+}
+
+/**
  * URL de l'onglet "Espace bureau" (member-area-board.php). Pas de paramètre de section :
  * "Utilisateurs" est la section par défaut tant qu'aucune n'est précisée.
  */
