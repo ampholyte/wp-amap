@@ -689,11 +689,10 @@ function amap_get_available_contracts_for_member( $member_user_id ) {
 
 /**
  * Construit le corps HTML du récap de souscription (contrat, producteur, groupe, produits,
- * montant) — partagé entre l'email de confirmation (amap_send_subscription_confirmation_email())
- * et le PDF téléchargeable depuis l'espace membre (amap_handle_export_subscription_contract_pdf()
- * dans member-area.php). Recalcule toujours depuis $subscription_id plutôt que de figer un
- * contenu au moment de la signature : un adhérent qui télécharge son contrat plus tard voit l'état
- * actuel (ex. après une correction du bureau), comme le ferait un nouvel envoi de l'email.
+ * montant), envoyé par l'email de confirmation (amap_send_subscription_confirmation_email()).
+ * Recalcule toujours depuis $subscription_id plutôt que de figer un contenu au moment de la
+ * signature : un adhérent qui reçoit un nouvel envoi de l'email voit l'état actuel (ex. après une
+ * correction du bureau).
  */
 function amap_get_subscription_confirmation_email_body( $subscription_id ) {
     $subscription = amap_get_subscription( $subscription_id );
@@ -1091,6 +1090,184 @@ function amap_get_subscription_price_summary_html( $subscription_id ) {
             </tr>
         </tbody>
     </table>
+    <?php
+    return ob_get_clean();
+}
+
+/**
+ * Liste à plat (une ligne par date × produit commandé, triée chronologiquement) des produits
+ * d'une souscription product_grid — contrairement à amap_get_subscription_recap_html() qui
+ * imbrique une liste de produits par date (<ul> de <ul>) : cette imbrication, correcte dans un
+ * email (jamais paginé), casse mal une fois découpée sur plusieurs pages PDF. Une table à plat
+ * avec un <thead> répété par page (amap_get_subscription_contract_pdf_html()) se comporte
+ * correctement quel que soit le nombre de dates.
+ */
+function amap_get_subscription_product_lines( $subscription_id ) {
+    $lines = array();
+
+    foreach ( amap_get_subscription_items( $subscription_id ) as $item ) {
+        $delivery_date = amap_get_contract_delivery_date( $item->contract_delivery_date_id );
+        $product       = amap_get_contract_product( $item->contract_product_id );
+        if ( ! $delivery_date || ! $product ) {
+            continue;
+        }
+
+        $lines[] = array(
+            'date'     => $delivery_date->delivery_date,
+            'product'  => $product->label,
+            'quantity' => (int) $item->quantity,
+        );
+    }
+
+    usort(
+        $lines,
+        static function ( $a, $b ) {
+            return array( $a['date'], $a['product'] ) <=> array( $b['date'], $b['product'] );
+        }
+    );
+
+    return $lines;
+}
+
+/**
+ * Document HTML complet du PDF de détail de contrat (amap_handle_export_subscription_contract_pdf()
+ * dans member-area.php) — volontairement indépendant du gabarit d'email (amap_render_email()) :
+ * ce dernier enveloppe tout le contenu dans une seule "carte" (table avec bordures/fond sur une
+ * unique ligne), pensée pour un client mail qui ne pagine jamais. Passée telle quelle à Dompdf,
+ * cette carte se retrouve mal découpée dès que le contenu dépasse une page (bordures et fond
+ * dupliqués/coupés au changement de page). Ici, pas de carte englobante, et les tableaux utilisent
+ * un <thead> (répété automatiquement par Dompdf sur chaque page) plutôt que des <ul> imbriquées.
+ */
+function amap_get_subscription_contract_pdf_html( $subscription_id ) {
+    $subscription = amap_get_subscription( $subscription_id );
+    if ( ! $subscription ) {
+        return '';
+    }
+
+    $contract = amap_get_contract( $subscription->contract_id );
+    $member   = get_user_by( 'id', $subscription->member_user_id );
+    if ( ! $contract || ! $member ) {
+        return '';
+    }
+
+    $producer = get_user_by( 'id', $contract->producer_user_id );
+    $group    = amap_get_group( $subscription->group_id );
+
+    $basket_size = null;
+    if ( $subscription->basket_size_id ) {
+        $basket_size = amap_get_contract_basket_size( $subscription->basket_size_id );
+    }
+
+    $product_lines = ( 'product_grid' === $contract->contract_type )
+        ? amap_get_subscription_product_lines( $subscription_id )
+        : array();
+
+    $price_summary = amap_get_subscription_price_summary( $subscription_id );
+
+    ob_start();
+    ?>
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<style>
+    body { font-family: DejaVu Sans, sans-serif; font-size: 12px; color: #2b2a26; }
+    h1 { font-size: 18px; margin: 0 0 16px; color: #2c4d35; }
+    h2 { font-size: 14px; margin: 24px 0 8px; color: #2c4d35; border-bottom: 1px solid #ccc; padding-bottom: 4px; }
+    p { margin: 0 0 4px; }
+    table.amap-pdf-table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+    table.amap-pdf-table thead { display: table-header-group; }
+    table.amap-pdf-table th, table.amap-pdf-table td { padding: 4px 8px; border-bottom: 1px solid #ddd; text-align: left; }
+    table.amap-pdf-table th { background: #f3f1ea; }
+    table.amap-pdf-table td.amap-pdf-table__num, table.amap-pdf-table th.amap-pdf-table__num { text-align: right; white-space: nowrap; }
+    table.amap-pdf-table tr.amap-pdf-table__total td { font-weight: 700; border-top: 2px solid #999; border-bottom: none; }
+</style>
+</head>
+<body>
+    <h1><?php echo esc_html( get_bloginfo( 'name' ) ); ?> — <?php esc_html_e( 'Détail du contrat', 'association-manager' ); ?></h1>
+
+    <p><strong><?php esc_html_e( 'Adhérent', 'association-manager' ); ?> :</strong> <?php echo esc_html( $member->display_name ); ?></p>
+    <p><strong><?php esc_html_e( 'Contrat', 'association-manager' ); ?> :</strong> <?php echo esc_html( $contract->label ); ?></p>
+    <p><strong><?php esc_html_e( 'Producteur', 'association-manager' ); ?> :</strong> <?php echo esc_html( $producer ? $producer->display_name : '—' ); ?></p>
+    <p><strong><?php esc_html_e( 'Groupe (point de retrait)', 'association-manager' ); ?> :</strong> <?php echo esc_html( $group ? $group->name : '—' ); ?></p>
+    <p><strong><?php esc_html_e( 'Date de signature', 'association-manager' ); ?> :</strong> <?php echo esc_html( $subscription->signed_at ); ?></p>
+    <?php if ( $basket_size ) : ?>
+        <p>
+            <strong><?php esc_html_e( 'Taille de panier', 'association-manager' ); ?> :</strong>
+            <?php echo esc_html( $basket_size->label ); ?> (<?php echo esc_html( number_format_i18n( (float) $basket_size->price, 2 ) ); ?> €)
+        </p>
+    <?php endif; ?>
+
+    <?php if ( $product_lines ) : ?>
+        <h2><?php esc_html_e( 'Produits commandés', 'association-manager' ); ?></h2>
+        <table class="amap-pdf-table">
+            <thead>
+                <tr>
+                    <th><?php esc_html_e( 'Date', 'association-manager' ); ?></th>
+                    <th><?php esc_html_e( 'Produit', 'association-manager' ); ?></th>
+                    <th class="amap-pdf-table__num"><?php esc_html_e( 'Quantité', 'association-manager' ); ?></th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php foreach ( $product_lines as $line ) : ?>
+                    <tr>
+                        <td><?php echo esc_html( date_i18n( 'j F Y', strtotime( $line['date'] ) ) ); ?></td>
+                        <td><?php echo esc_html( $line['product'] ); ?></td>
+                        <td class="amap-pdf-table__num"><?php echo esc_html( $line['quantity'] ); ?></td>
+                    </tr>
+                <?php endforeach; ?>
+            </tbody>
+        </table>
+    <?php endif; ?>
+
+    <?php if ( ! empty( $price_summary['lines'] ) ) : ?>
+        <h2><?php esc_html_e( 'Montant dû', 'association-manager' ); ?></h2>
+        <table class="amap-pdf-table">
+            <thead>
+                <tr>
+                    <th><?php esc_html_e( 'Produit', 'association-manager' ); ?></th>
+                    <th class="amap-pdf-table__num"><?php esc_html_e( 'Montant', 'association-manager' ); ?></th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php foreach ( $price_summary['lines'] as $line ) : ?>
+                    <tr>
+                        <td>
+                            <?php echo esc_html( $line['label'] ); ?><br>
+                            <small>
+                                <?php if ( $line['bought_quantity'] !== $line['billed_quantity'] ) : ?>
+                                    <?php
+                                    printf(
+                                        /* translators: 1: quantité achetée. 2: quantité facturée. */
+                                        esc_html__( '%1$d achetés → %2$d facturés', 'association-manager' ),
+                                        $line['bought_quantity'],
+                                        $line['billed_quantity']
+                                    );
+                                    ?>
+                                <?php else : ?>
+                                    <?php
+                                    printf(
+                                        /* translators: 1: quantité commandée. 2: prix unitaire. */
+                                        esc_html__( '%1$d × %2$s €', 'association-manager' ),
+                                        $line['bought_quantity'],
+                                        esc_html( number_format_i18n( $line['unit_price'], 2 ) )
+                                    );
+                                    ?>
+                                <?php endif; ?>
+                            </small>
+                        </td>
+                        <td class="amap-pdf-table__num"><?php echo esc_html( number_format_i18n( $line['amount'], 2 ) ); ?> €</td>
+                    </tr>
+                <?php endforeach; ?>
+                <tr class="amap-pdf-table__total">
+                    <td><?php esc_html_e( 'Total', 'association-manager' ); ?></td>
+                    <td class="amap-pdf-table__num"><?php echo esc_html( number_format_i18n( $price_summary['total'], 2 ) ); ?> €</td>
+                </tr>
+            </tbody>
+        </table>
+    <?php endif; ?>
+</body>
+</html>
     <?php
     return ob_get_clean();
 }

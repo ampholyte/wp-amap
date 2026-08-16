@@ -1654,10 +1654,11 @@ function amap_handle_export_contract_season_summary( $producer ) {
 /**
  * Valide ?amap_member_action=export_subscription_contract_pdf&subscription_id=X (bouton
  * "Télécharger le contrat" d'une carte de member-area-subscription-item.php) et envoie le détail
- * du contrat en PDF — même contenu que l'email de confirmation de souscription
- * (amap_get_subscription_confirmation_email_body(), voir subscriptions.php), recalculé à l'instant
- * du téléchargement plutôt que figé à la signature. wp_die() sur une souscription trafiquée ou
- * n'appartenant pas à l'adhérent connecté : l'UI ne propose jamais un tel lien.
+ * du contrat en PDF, via un gabarit dédié (amap_get_subscription_contract_pdf_html(), voir
+ * subscriptions.php) plutôt que le gabarit d'email — ce dernier n'est pas pensé pour être paginé
+ * et se découpe mal sur plusieurs pages. Recalculé à l'instant du téléchargement plutôt que figé à
+ * la signature. wp_die() sur une souscription trafiquée ou n'appartenant pas à l'adhérent
+ * connecté : l'UI ne propose jamais un tel lien.
  */
 function amap_handle_export_subscription_contract_pdf( $member ) {
     $subscription_id = isset( $_GET['subscription_id'] ) ? absint( $_GET['subscription_id'] ) : 0;
@@ -1668,15 +1669,10 @@ function amap_handle_export_subscription_contract_pdf( $member ) {
         wp_die( esc_html__( 'Export non autorisé.', 'association-manager' ) );
     }
 
-    $html_body = amap_get_subscription_confirmation_email_body( $subscription_id );
-
-    // translators: %s: libellé du contrat.
-    $subject = sprintf( __( 'Détail du contrat — %s', 'association-manager' ), $contract->label );
-
     require_once dirname( __DIR__ ) . '/vendor/autoload.php';
 
     $dompdf = new \Dompdf\Dompdf();
-    $dompdf->loadHtml( amap_render_email( $subject, $html_body ) );
+    $dompdf->loadHtml( amap_get_subscription_contract_pdf_html( $subscription_id ) );
     $dompdf->setPaper( 'A4' );
     $dompdf->render();
 
