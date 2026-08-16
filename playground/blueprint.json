@@ -65,6 +65,10 @@
         },
         {
             "step": "wp-cli",
+            "command": "wp user add-role admin amap_producer"
+        },
+        {
+            "step": "wp-cli",
             "command": "wp user update admin --user_email=admin-demo@example.com --first_name=Admin --last_name=Démo --display_name='Admin (démo)'"
         },
         {
@@ -73,15 +77,87 @@
         },
         {
             "step": "wp-cli",
-            "command": "wp user create producteur-demo producteur-demo@example.com --role=amap_producer --user_pass=demo1234 --first_name=Producteur --last_name=Démo --display_name='Producteur (démo)'"
+            "command": "wp user add-role bureau-demo amap_member"
         },
         {
             "step": "wp-cli",
-            "command": "wp user create adherent-demo adherent-demo@example.com --role=amap_member --user_pass=demo1234 --first_name=Adhérent --last_name=Démo --display_name='Adhérent (démo)'"
+            "command": "wp user create maraicher-demo maraicher-demo@example.com --role=amap_producer --user_pass=demo1234 --first_name=Antoine --last_name=Lemoine --display_name='Antoine Lemoine (Maraîcher)'"
+        },
+        {
+            "step": "wp-cli",
+            "command": "wp user create boulanger1-demo boulanger1-demo@example.com --role=amap_producer --user_pass=demo1234 --first_name=Julie --last_name=Marchand --display_name='Julie Marchand (Boulangère)'"
+        },
+        {
+            "step": "wp-cli",
+            "command": "wp user create boulanger2-demo boulanger2-demo@example.com --role=amap_producer --user_pass=demo1234 --first_name=Thomas --last_name=Lefebvre --display_name='Thomas Lefebvre (Boulanger)'"
+        },
+        {
+            "step": "wp-cli",
+            "command": "wp user create laitier-demo laitier-demo@example.com --role=amap_producer --user_pass=demo1234 --first_name=Sophie --last_name=Caron --display_name='Sophie Caron (Productrice laitière)'"
+        },
+        {
+            "step": "wp-cli",
+            "command": "wp user create camille.bernard camille.bernard@example.com --role=amap_member --user_pass=demo1234 --first_name=Camille --last_name=Bernard --display_name='Camille Bernard'"
+        },
+        {
+            "step": "wp-cli",
+            "command": "wp user create lucas.petit lucas.petit@example.com --role=amap_member --user_pass=demo1234 --first_name=Lucas --last_name=Petit --display_name='Lucas Petit'"
+        },
+        {
+            "step": "wp-cli",
+            "command": "wp user create manon.girard manon.girard@example.com --role=amap_member --user_pass=demo1234 --first_name=Manon --last_name=Girard --display_name='Manon Girard'"
+        },
+        {
+            "step": "wp-cli",
+            "command": "wp user create hugo.roux hugo.roux@example.com --role=amap_member --user_pass=demo1234 --first_name=Hugo --last_name=Roux --display_name='Hugo Roux'"
+        },
+        {
+            "step": "wp-cli",
+            "command": "wp user create chloe.fontaine chloe.fontaine@example.com --role=amap_member --user_pass=demo1234 --first_name=Chloé --last_name=Fontaine --display_name='Chloé Fontaine'"
+        },
+        {
+            "step": "wp-cli",
+            "command": "wp user create nathan.faure nathan.faure@example.com --role=amap_member --user_pass=demo1234 --first_name=Nathan --last_name=Faure --display_name='Nathan Faure'"
+        },
+        {
+            "step": "wp-cli",
+            "command": "wp user create emma.rousseau emma.rousseau@example.com --role=amap_member --user_pass=demo1234 --first_name=Emma --last_name=Rousseau --display_name='Emma Rousseau'"
+        },
+        {
+            "step": "wp-cli",
+            "command": "wp user create louis.blanc louis.blanc@example.com --role=amap_member --user_pass=demo1234 --first_name=Louis --last_name=Blanc --display_name='Louis Blanc'"
+        },
+        {
+            "step": "wp-cli",
+            "command": "wp user create lea.guerin lea.guerin@example.com --role=amap_member --user_pass=demo1234 --first_name=Léa --last_name=Guérin --display_name='Léa Guérin'"
+        },
+        {
+            "step": "wp-cli",
+            "command": "wp user create enzo.muller enzo.muller@example.com --role=amap_member --user_pass=demo1234 --first_name=Enzo --last_name=Muller --display_name='Enzo Muller'"
         },
         {
             "step": "runPHP",
-            "code": "<?php require_once '/wordpress/wp-load.php'; global $wpdb; $producer = get_user_by('login','producteur-demo'); $member = get_user_by('login','adherent-demo'); $admin = get_user_by('login','admin'); $wpdb->insert($wpdb->prefix.'amap_groups', array('name'=>'Groupe Démo','delivery_place'=>'Salle des fêtes','weekday'=>2,'start_time'=>'18:00:00','end_time'=>'19:30:00')); $group_id = $wpdb->insert_id; $wpdb->insert($wpdb->prefix.'amap_group_producers', array('group_id'=>$group_id,'producer_user_id'=>$producer->ID)); $wpdb->insert($wpdb->prefix.'amap_group_members', array('group_id'=>$group_id,'member_user_id'=>$member->ID)); $wpdb->insert($wpdb->prefix.'amap_group_members', array('group_id'=>$group_id,'member_user_id'=>$admin->ID)); $wpdb->insert($wpdb->prefix.'amap_contracts', array('producer_user_id'=>$producer->ID,'contract_type'=>'basket_recurring','label'=>'Panier légumes hebdomadaire','start_date'=>'2026-01-01','end_date'=>'2026-12-31','frequency_weeks'=>1,'max_leaves'=>4,'is_active'=>1)); $recurring_id = $wpdb->insert_id; $wpdb->insert($wpdb->prefix.'amap_contract_basket_sizes', array('contract_id'=>$recurring_id,'label'=>'Petit panier','price'=>12.00)); $small_size_id = $wpdb->insert_id; $wpdb->insert($wpdb->prefix.'amap_contract_basket_sizes', array('contract_id'=>$recurring_id,'label'=>'Grand panier','price'=>20.00)); $wpdb->insert($wpdb->prefix.'amap_contracts', array('producer_user_id'=>$producer->ID,'contract_type'=>'product_grid','label'=>'Plateau de fromages trimestriel','start_date'=>'2026-01-01','end_date'=>'2026-12-31','is_active'=>1)); $grid_id = $wpdb->insert_id; $wpdb->insert($wpdb->prefix.'amap_contract_products', array('contract_id'=>$grid_id,'label'=>'Fromage de chèvre','price'=>6.50)); $cheese_id = $wpdb->insert_id; $wpdb->insert($wpdb->prefix.'amap_contract_products', array('contract_id'=>$grid_id,'label'=>'Yaourts (lot de 4)','price'=>4.00)); $yogurt_id = $wpdb->insert_id; $wpdb->insert($wpdb->prefix.'amap_contract_delivery_dates', array('contract_id'=>$grid_id,'group_id'=>$group_id,'delivery_date'=>'2026-09-02')); $date1_id = $wpdb->insert_id; $wpdb->insert($wpdb->prefix.'amap_contract_delivery_dates', array('contract_id'=>$grid_id,'group_id'=>$group_id,'delivery_date'=>'2026-09-09')); $date2_id = $wpdb->insert_id; $wpdb->insert($wpdb->prefix.'amap_subscriptions', array('contract_id'=>$recurring_id,'member_user_id'=>$admin->ID,'group_id'=>$group_id,'basket_size_id'=>$small_size_id,'signed_at'=>'2026-01-15')); $wpdb->insert($wpdb->prefix.'amap_subscriptions', array('contract_id'=>$grid_id,'member_user_id'=>$admin->ID,'group_id'=>$group_id,'basket_size_id'=>null,'signed_at'=>'2026-01-15')); $grid_sub_id = $wpdb->insert_id; foreach (array($date1_id, $date2_id) as $date_id) { $wpdb->insert($wpdb->prefix.'amap_subscription_items', array('subscription_id'=>$grid_sub_id,'contract_product_id'=>$cheese_id,'contract_delivery_date_id'=>$date_id,'quantity'=>1)); $wpdb->insert($wpdb->prefix.'amap_subscription_items', array('subscription_id'=>$grid_sub_id,'contract_product_id'=>$yogurt_id,'contract_delivery_date_id'=>$date_id,'quantity'=>2)); }"
+            "code": "<?php require_once '/wordpress/wp-load.php'; global $wpdb; $wpdb->insert( $wpdb->prefix . 'amap_groups', array( 'name' => 'Groupe Mercredi', 'delivery_place' => 'Salle des fêtes', 'weekday' => 2, 'start_time' => '18:30:00', 'end_time' => '19:30:00', ) ); $group_wed_id = $wpdb->insert_id; $wpdb->insert( $wpdb->prefix . 'amap_groups', array( 'name' => 'Groupe Jeudi', 'delivery_place' => 'Local associatif', 'weekday' => 3, 'start_time' => '18:45:00', 'end_time' => '19:45:00', ) ); $group_thu_id = $wpdb->insert_id; $producer_logins = array( 'maraicher-demo', 'boulanger1-demo', 'boulanger2-demo', 'laitier-demo' ); foreach ( $producer_logins as $login ) { $producer = get_user_by( 'login', $login ); if ( ! $producer ) { continue; } $wpdb->insert( $wpdb->prefix . 'amap_group_producers', array( 'group_id' => $group_wed_id, 'producer_user_id' => $producer->ID ) ); $wpdb->insert( $wpdb->prefix . 'amap_group_producers', array( 'group_id' => $group_thu_id, 'producer_user_id' => $producer->ID ) ); } $people = array( 'admin' => array( '0601000001', '1 rue de la Mairie', $group_thu_id ), 'bureau-demo' => array( '0601000002', '2 rue de la Mairie', $group_wed_id ), 'camille.bernard' => array( '0601000011', '3 rue des Lilas', $group_wed_id ), 'lucas.petit' => array( '0601000012', '4 rue des Lilas', $group_wed_id ), 'manon.girard' => array( '0601000013', '5 rue des Lilas', $group_wed_id ), 'hugo.roux' => array( '0601000014', '6 rue des Lilas', $group_wed_id ), 'chloe.fontaine' => array( '0601000015', '7 rue des Lilas', $group_wed_id ), 'nathan.faure' => array( '0601000016', '8 rue des Lilas', $group_wed_id ), 'emma.rousseau' => array( '0601000017', '9 rue des Chênes', $group_thu_id ), 'louis.blanc' => array( '0601000018', '10 rue des Chênes', $group_thu_id ), 'lea.guerin' => array( '0601000019', '11 rue des Chênes', $group_thu_id ), 'enzo.muller' => array( '0601000020', '12 rue des Chênes', $group_thu_id ), 'maraicher-demo' => array( '0601000031', 'Ferme du Vallon', null ), 'boulanger1-demo' => array( '0601000032', 'Fournil de la Place', null ), 'boulanger2-demo' => array( '0601000033', 'Fournil du Marché', null ), 'laitier-demo' => array( '0601000034', 'Ferme des Trois Chênes', null ), ); foreach ( $people as $login => $info ) { list( $phone, $address, $group_id ) = $info; $user = get_user_by( 'login', $login ); if ( ! $user ) { continue; } $wpdb->insert( $wpdb->prefix . 'amap_users', array( 'user_id' => $user->ID, 'phone' => $phone, 'address' => $address, ) ); if ( $group_id ) { $wpdb->insert( $wpdb->prefix . 'amap_group_members', array( 'group_id' => $group_id, 'member_user_id' => $user->ID, ) ); } }"
+        },
+        {
+            "step": "runPHP",
+            "code": "<?php require_once '/wordpress/wp-load.php'; global $wpdb; $producer = get_user_by( 'login', 'maraicher-demo' ); $add_basket_contract = function( $label, $start, $end, $frequency_weeks, $max_leaves ) use ( $wpdb, $producer ) { $wpdb->insert( $wpdb->prefix . 'amap_contracts', array( 'producer_user_id' => $producer->ID, 'contract_type' => 'basket_recurring', 'label' => $label, 'start_date' => $start, 'end_date' => $end, 'frequency_weeks' => $frequency_weeks, 'max_leaves' => $max_leaves, 'is_active' => 1, ) ); $contract_id = $wpdb->insert_id; foreach ( array( array( 'Petit panier', 10.00 ), array( 'Moyen panier', 15.00 ), array( 'Grand panier', 20.00 ), ) as $size ) { $wpdb->insert( $wpdb->prefix . 'amap_contract_basket_sizes', array( 'contract_id' => $contract_id, 'label' => $size[0], 'price' => $size[1], ) ); } }; $add_basket_contract( 'Panier hebdomadaire 2025-2026', '2025-10-01', '2026-09-30', 1, 4 ); $add_basket_contract( 'Panier bimensuel 2025-2026', '2025-10-01', '2026-09-30', 2, 2 ); $add_basket_contract( 'Panier hebdomadaire 2026-2027', '2026-10-01', '2027-09-30', 1, 4 ); $add_basket_contract( 'Panier bimensuel 2026-2027', '2026-10-01', '2027-09-30', 2, 2 );"
+        },
+        {
+            "step": "runPHP",
+            "code": "<?php require_once '/wordpress/wp-load.php'; global $wpdb; $producer = get_user_by( 'login', 'laitier-demo' ); $groups = amap_get_groups(); $add_grid_contract = function( $label, $start, $end ) use ( $wpdb, $producer, $groups ) { $wpdb->insert( $wpdb->prefix . 'amap_contracts', array( 'producer_user_id' => $producer->ID, 'contract_type' => 'product_grid', 'label' => $label, 'start_date' => $start, 'end_date' => $end, 'is_active' => 1, ) ); $contract_id = $wpdb->insert_id; $wpdb->insert( $wpdb->prefix . 'amap_contract_discount_groups', array( 'contract_id' => $contract_id, 'label' => 'Yaourt', 'price' => 1.00, 'bought_quantity' => 6, 'billed_quantity' => 5, ) ); $discount_group_id = $wpdb->insert_id; $yogurts = array( 'Yaourt vanille', 'Yaourt fraise', 'Yaourt framboise', 'Yaourt banane', 'Yaourt chocolat', 'Yaourt pêche' ); foreach ( $yogurts as $flavor ) { $wpdb->insert( $wpdb->prefix . 'amap_contract_products', array( 'contract_id' => $contract_id, 'label' => $flavor, 'price' => 1.00, 'discount_group_id' => $discount_group_id, ) ); } $other_products = array( array( 'Lait', 1.00 ), array( 'Beurre', 3.50 ), ); foreach ( $other_products as $product ) { $wpdb->insert( $wpdb->prefix . 'amap_contract_products', array( 'contract_id' => $contract_id, 'label' => $product[0], 'price' => $product[1], ) ); } foreach ( $groups as $group ) { $dates = amap_get_weekday_dates_in_range( $start, $end, (int) $group->weekday, 1 ); foreach ( $dates as $delivery_date ) { $wpdb->insert( $wpdb->prefix . 'amap_contract_delivery_dates', array( 'contract_id' => $contract_id, 'group_id' => $group->id, 'delivery_date' => $delivery_date, ) ); } } }; $add_grid_contract( 'Grille laitière - Août/Septembre 2026', '2026-08-01', '2026-09-30' ); $add_grid_contract( 'Grille laitière - Octobre-Décembre 2026', '2026-10-01', '2026-12-31' );"
+        },
+        {
+            "step": "runPHP",
+            "code": "<?php require_once '/wordpress/wp-load.php'; global $wpdb; $producer = get_user_by( 'login', 'boulanger1-demo' ); $groups = amap_get_groups(); $products = array( array( 'Baguette', 1.10 ), array( 'Pain nordique', 3.50 ), array( 'Pain du chef', 5.00 ), array( 'Pain au chocolat', 3.00 ), array( 'Brioche', 8.00 ), ); $add_grid_contract = function( $label, $start, $end ) use ( $wpdb, $producer, $groups, $products ) { $wpdb->insert( $wpdb->prefix . 'amap_contracts', array( 'producer_user_id' => $producer->ID, 'contract_type' => 'product_grid', 'label' => $label, 'start_date' => $start, 'end_date' => $end, 'is_active' => 1, ) ); $contract_id = $wpdb->insert_id; foreach ( $products as $product ) { $wpdb->insert( $wpdb->prefix . 'amap_contract_products', array( 'contract_id' => $contract_id, 'label' => $product[0], 'price' => $product[1], ) ); } foreach ( $groups as $group ) { $dates = amap_get_weekday_dates_in_range( $start, $end, (int) $group->weekday, 1 ); foreach ( $dates as $delivery_date ) { $wpdb->insert( $wpdb->prefix . 'amap_contract_delivery_dates', array( 'contract_id' => $contract_id, 'group_id' => $group->id, 'delivery_date' => $delivery_date, ) ); } } }; $add_grid_contract( 'Grille pain - Août/Septembre 2026', '2026-08-01', '2026-09-03' ); $add_grid_contract( 'Grille pain - Octobre-Décembre 2026', '2026-10-01', '2026-12-31' );"
+        },
+        {
+            "step": "runPHP",
+            "code": "<?php require_once '/wordpress/wp-load.php'; global $wpdb; $producer = get_user_by( 'login', 'boulanger2-demo' ); $groups = amap_get_groups(); $products = array( array( 'Tradition', 1.30 ), array( 'Pain aux graines', 4.00 ), array( 'Pain châtaigne', 5.00 ), array( 'Buns x4', 4.00 ), array( 'Cramique', 10.00 ), ); $add_grid_contract = function( $label, $start, $end ) use ( $wpdb, $producer, $groups, $products ) { $wpdb->insert( $wpdb->prefix . 'amap_contracts', array( 'producer_user_id' => $producer->ID, 'contract_type' => 'product_grid', 'label' => $label, 'start_date' => $start, 'end_date' => $end, 'is_active' => 1, ) ); $contract_id = $wpdb->insert_id; foreach ( $products as $product ) { $wpdb->insert( $wpdb->prefix . 'amap_contract_products', array( 'contract_id' => $contract_id, 'label' => $product[0], 'price' => $product[1], ) ); } foreach ( $groups as $group ) { $dates = amap_get_weekday_dates_in_range( $start, $end, (int) $group->weekday, 1 ); foreach ( $dates as $delivery_date ) { $wpdb->insert( $wpdb->prefix . 'amap_contract_delivery_dates', array( 'contract_id' => $contract_id, 'group_id' => $group->id, 'delivery_date' => $delivery_date, ) ); } } }; $add_grid_contract( 'Grille pain - Août/Septembre 2026', '2026-08-01', '2026-09-03' ); $add_grid_contract( 'Grille pain - Octobre-Décembre 2026', '2026-10-01', '2026-12-31' );"
+        },
+        {
+            "step": "runPHP",
+            "code": "<?php require_once '/wordpress/wp-load.php'; global $wpdb; $today = '2026-08-16'; $random_date_between = function( $start, $end ) { $start_ts = strtotime( $start ); $end_ts = strtotime( $end ); if ( $end_ts <= $start_ts ) { return $start; } return gmdate( 'Y-m-d', mt_rand( $start_ts, $end_ts ) ); }; foreach ( amap_get_groups() as $group ) { $group_id = (int) $group->id; foreach ( amap_get_group_member_users( $group_id ) as $member ) { $member_id = (int) $member->ID; $available = amap_get_available_contracts_for_member( $member_id ); if ( empty( $available ) ) { continue; } shuffle( $available ); $picked = array_slice( $available, 0, min( count( $available ), mt_rand( 2, 5 ) ) ); foreach ( $picked as $entry ) { $contract = $entry['contract']; $signed_lower = max( '2025-09-15', gmdate( 'Y-m-d', strtotime( '-30 days', strtotime( $contract->start_date ) ) ) ); if ( $signed_lower > $today ) { $signed_lower = $today; } $signed_at = $random_date_between( $signed_lower, $today ); $is_paid = ( mt_rand( 1, 100 ) <= 70 ) ? 1 : 0; $paid_at = $is_paid ? $random_date_between( $signed_at, $today ) : null; if ( 'basket_recurring' === $contract->contract_type ) { $sizes = amap_get_contract_basket_sizes( $contract->id ); if ( empty( $sizes ) ) { continue; } $size = $sizes[ array_rand( $sizes ) ]; $wpdb->insert( $wpdb->prefix . 'amap_subscriptions', array( 'contract_id' => $contract->id, 'member_user_id' => $member_id, 'group_id' => $group_id, 'basket_size_id' => $size->id, 'signed_at' => $signed_at, 'is_paid' => $is_paid, 'paid_at' => $paid_at, ) ); $subscription_id = $wpdb->insert_id; $distribution_dates = amap_get_weekday_dates_in_range( $contract->start_date, $contract->end_date, (int) $group->weekday, (int) $contract->frequency_weeks ); $candidate_leaves = array_values( array_filter( $distribution_dates, function( $date ) use ( $signed_at ) { return $date >= $signed_at; } ) ); $max_leaves = min( (int) $contract->max_leaves, count( $candidate_leaves ) ); if ( $max_leaves > 0 && mt_rand( 1, 100 ) <= 60 ) { $leave_count = mt_rand( 1, $max_leaves ); shuffle( $candidate_leaves ); foreach ( array_slice( $candidate_leaves, 0, $leave_count ) as $leave_date ) { $wpdb->insert( $wpdb->prefix . 'amap_leaves', array( 'subscription_id' => $subscription_id, 'leave_date' => $leave_date, 'declared_at' => $random_date_between( $signed_at, min( $leave_date, $today ) ), ) ); } } } else { $wpdb->insert( $wpdb->prefix . 'amap_subscriptions', array( 'contract_id' => $contract->id, 'member_user_id' => $member_id, 'group_id' => $group_id, 'basket_size_id' => null, 'signed_at' => $signed_at, 'is_paid' => $is_paid, 'paid_at' => $paid_at, ) ); $subscription_id = $wpdb->insert_id; $products = amap_get_contract_products( $contract->id ); $group_dates = array_values( array_filter( amap_get_contract_delivery_dates( $contract->id ), function( $date_row ) use ( $group_id ) { return (int) $date_row->group_id === $group_id; } ) ); foreach ( $group_dates as $date_row ) { foreach ( $products as $product ) { if ( mt_rand( 1, 100 ) > 40 ) { continue; } $wpdb->insert( $wpdb->prefix . 'amap_subscription_items', array( 'subscription_id' => $subscription_id, 'contract_product_id' => $product->id, 'contract_delivery_date_id' => $date_row->id, 'quantity' => mt_rand( 1, 3 ), ) ); } } } } } }"
         }
     ]
 }
