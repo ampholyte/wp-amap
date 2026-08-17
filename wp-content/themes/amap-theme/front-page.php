@@ -35,6 +35,12 @@
                 </ul>
             </div>
 
+            <?php if ( is_user_logged_in() ) : ?>
+                <div class="amap-notice amap-notice--warning">
+                    <p>Playground vous connecte parfois automatiquement dès le chargement (bug connu de l'outil, indépendant du site). Pour tester le vrai parcours de connexion, <a href="<?php echo esc_url( wp_logout_url( amap_get_member_area_url() ) ); ?>">déconnectez-vous d'abord</a>.</p>
+                </div>
+            <?php endif; ?>
+
             <a class="button-primary" href="<?php echo esc_url( amap_get_member_area_url() ); ?>">Accéder à l'espace membre</a>
         </section>
     <?php endif; ?>
