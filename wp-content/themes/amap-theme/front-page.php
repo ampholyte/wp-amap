@@ -30,7 +30,8 @@
                     <li>Déclarer un congé sur une prochaine distribution.</li>
                     <li>Télécharger le PDF d'un contrat signé.</li>
                     <li>Se connecter en tant que producteur et consulter le planning de distribution.</li>
-                    <li>Se connecter en tant que membre du bureau, modifier le texte ci-dessous depuis wp-admin, et parcourir la liste des adhérents, des groupes et des paiements.</li>
+                    <li>Se connecter en tant que membre du bureau et parcourir la liste des adhérents, des groupes et des paiements.</li>
+                    <li>Avec le compte administrateur (wp-admin), modifier le texte ci-dessous depuis Pages > Accueil.</li>
                 </ul>
             </div>
 
