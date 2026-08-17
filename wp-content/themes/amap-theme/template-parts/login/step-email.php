@@ -31,8 +31,8 @@
         <ul>
             <li>Administrateur : <a href="<?php echo esc_url( admin_url() ); ?>">wp-admin</a>, identifiant <code>admin</code> / mot de passe <code>password</code></li>
             <li>Bureau : <code>bureau-demo@example.com</code> / mot de passe <code>demo1234</code></li>
-            <li>Producteur : <code>producteur-demo@example.com</code> / mot de passe <code>demo1234</code></li>
-            <li>Adhérent : <code>adherent-demo@example.com</code> (pas de mot de passe, uniquement un lien de connexion)</li>
+            <li>Producteur : <code>maraicher-demo@example.com</code> / mot de passe <code>demo1234</code> (et 3 autres producteurs : <code>boulanger1-demo</code>, <code>boulanger2-demo</code>, <code>laitier-demo</code>)</li>
+            <li>Adhérent : <code>camille.bernard@example.com</code> (pas de mot de passe, le lien de connexion s'affiche directement à l'écran une fois l'email saisi ; 9 autres adhérents créés sur le même modèle <code>prenom.nom@example.com</code>)</li>
         </ul>
     </div>
 <?php endif; ?>
