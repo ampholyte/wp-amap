@@ -473,6 +473,31 @@ body.amap-app .button-danger {
     list-style: none;
 }
 
+/* Page d'accueil en mode démo (Playground, front-page.php) : présentation des espaces à tester */
+.amap-demo-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: var(--space-3);
+    margin: var(--space-4) 0;
+}
+
+.amap-demo-tile {
+    padding: var(--space-3);
+    background: var(--color-bg-alt);
+    border-radius: var(--radius);
+}
+
+.amap-demo-tile h3 {
+    margin: 0 0 var(--space-1);
+    font-size: 1.1rem;
+}
+
+.amap-demo-tile p {
+    margin: 0;
+    color: var(--color-text-muted);
+    font-size: 0.9rem;
+}
+
 /* Écrans de connexion (step-email, step-password, etc.) : carte .amap-card centrée et de
    largeur modérée, plutôt qu'un formulaire flottant seul dans un <main> large. */
 /* Écrans de connexion (step-email, step-password, etc.) : carte centrée sur la page plutôt qu'un

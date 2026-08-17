@@ -1,6 +1,6 @@
 {
     "$schema": "https://playground.wordpress.net/blueprint-schema.json",
-    "landingPage": "/espace-adherent/",
+    "landingPage": "/",
     "steps": [
         {
             "step": "defineWpConfigConsts",
@@ -54,6 +54,10 @@
         {
             "step": "wp-cli",
             "command": "wp post create --post_type=page --post_title='Espace adhérent' --post_name=espace-adherent --post_status=publish"
+        },
+        {
+            "step": "runPHP",
+            "code": "<?php require_once '/wordpress/wp-load.php'; $page_id = wp_insert_post( array( 'post_type' => 'page', 'post_title' => 'Accueil', 'post_name' => 'accueil', 'post_status' => 'publish', 'post_content' => \"<!-- wp:paragraph -->\\n<p>Bienvenue sur le site de notre AMAP ! Notre association réunit producteurs locaux et adhérents autour de paniers de saison, distribués chaque semaine sur nos points de livraison. Découvrez nos producteurs et rejoignez-nous.</p>\\n<!-- /wp:paragraph -->\", ) ); update_option( 'show_on_front', 'page' ); update_option( 'page_on_front', $page_id );"
         },
         {
             "step": "wp-cli",
